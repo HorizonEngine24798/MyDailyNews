@@ -1,0 +1,113 @@
+# MyDailyNews
+
+A compact, local-first daily news briefing pipeline inspired by Horizon.
+
+Horizon attribution:
+
+- Project: https://github.com/Thysrael/Horizon
+- License: MIT
+- What we borrowed conceptually: staged orchestration, normalized content items, RSS-first discovery, AI scoring, semantic dedupe, enrichment, and final daily summary generation.
+- What we intentionally left out: social media scrapers, Apify/Twitter, DuckDuckGo browsing, email/webhooks, GitHub Pages publishing, and feedback-based preference mutation.
+
+
+## Pipeline
+
+```text
+load config and long-term memory
+  -> create orchestrator
+  -> fetch headline candidates from configured RSS sources
+  -> ask local LLM to score and dedupe headline/snippet candidates
+  -> keep items above cutoff
+  -> fetch full article HTML only for selected items
+  -> extract readable text with trafilatura
+  -> ask local LLM whether enrichment is needed
+  -> if needed: retrieve Wikipedia summary + Google News RSS results from last month
+  -> ask local LLM to create a machine-readable daily brief
+  -> write Markdown and JSON outputs
+```
+
+
+## Why This Is Mobile-Friendly Later
+
+The expensive work is delayed until after headline triage. A weaker phone model can score short headline/snippet batches first, then read only a small number of full articles. The final JSON output is also suitable for a future mobile renderer or text-to-speech pipeline.
+
+
+## Current Modules
+
+- `main.py`: thin CLI.
+- `mydailynews/config.py`: loads app config and long-term user memory.
+- `mydailynews/models.py`: shared data models.
+- `mydailynews/orchestrator.py`: Horizon-style staged pipeline.
+- `mydailynews/scrapers/rss.py`: RSS headline discovery.
+- `mydailynews/ai/headline_analyzer.py`: local LLM scoring and dedupe.
+- `mydailynews/retrieval/article.py`: full article extraction.
+- `mydailynews/enrichment.py`: decides whether to enrich and retrieves context.
+- `mydailynews/retrieval/wikipedia.py`: Wikipedia context.
+- `mydailynews/retrieval/past_news.py`: last-month Google News RSS context.
+- `mydailynews/brief.py`: final JSON brief generation.
+- `mydailynews/output.py`: Markdown and JSON writing.
+
+
+## Quick Start
+
+```powershell
+cd d:\Project\MyDailyNews
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+copy config.example.json config.json
+python main.py --config config.json
+```
+
+For a lighter first run:
+
+```powershell
+python main.py --config config.json --no-enrichment
+```
+
+
+## Config Memory
+
+Long-term memory is currently explicit and configurable in `config.json`:
+
+```json
+{
+  "user_memory": {
+    "preferred_topics": ["AI", "technology policy", "global economy"],
+    "avoided_topics": ["celebrity gossip"],
+    "preferred_sources": ["BBC World", "NPR"],
+    "briefing_style": "Concise, explanatory, practical, and skeptical of hype.",
+    "custom_instructions": "Include some major stories outside my usual interests."
+  }
+}
+```
+
+There is no thumbs up/down learning in this version. The code is structured so feedback can later update this memory safely.
+
+
+## Outputs
+
+Each run writes:
+
+- `output/YYYY-MM-DD_brief.md`: readable daily brief.
+- `output/YYYY-MM-DD_brief.json`: machine-readable brief for future mobile/TTS use.
+
+The JSON schema includes:
+
+- `metadata`
+- `title`
+- `lead`
+- `sections`
+- `articles`
+- `major_headlines`
+
+
+## Future Hooks
+
+Planned features have natural module homes:
+
+- Thumbs up/down feedback: add a memory updater beside `config.py`.
+- LLM preference management: add a preference manager that rewrites/patches `user_memory`.
+- Text-to-speech: consume `output/*_brief.json`.
+- Better enrichment: expand `enrichment.py` with richer source-specific retrievers.
+- Mobile deployment: swap `mydailynews/ai/client.py` from Ollama to an Android inference runtime.

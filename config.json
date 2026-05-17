@@ -1,0 +1,99 @@
+{
+  "output_dir": "output",
+  "user_agent": "MyDailyNews/0.2 (+local personal news brief)",
+  "ai": {
+    "host": "http://localhost:11434",
+    "model": "qwen3:4b",
+    "timeout_seconds": 120,
+    "temperature": 0.2
+  },
+  "user_memory": {
+    "preferred_topics": [
+      "AI",
+      "technology policy",
+      "global economy",
+      "science",
+      "major world events"
+    ],
+    "avoided_topics": [
+      "celebrity gossip",
+      "minor sports updates"
+    ],
+    "preferred_sources": [
+      "BBC World",
+      "NPR",
+      "Ars Technica"
+    ],
+    "avoided_sources": [],
+    "briefing_style": "Concise, explanatory, practical, and skeptical of hype.",
+    "custom_instructions": "Prefer important developments over routine announcements. Include some major stories outside my usual interests."
+  },
+  "filtering": {
+    "time_window_hours": 36,
+    "headline_score_cutoff": 7.0,
+    "max_headlines_per_source": 12,
+    "max_candidates_for_ai": 60,
+    "max_selected_articles": 8,
+    "article_text_max_chars": 7000
+  },
+  "enrichment": {
+    "enabled": true,
+    "past_news_days": 30,
+    "max_past_news_results": 4,
+    "max_wikipedia_results": 1,
+    "max_context_chars_per_article": 2400
+  },
+  "sources": {
+    "rss": [
+      {
+        "name": "BBC World",
+        "url": "https://feeds.bbci.co.uk/news/world/rss.xml",
+        "category": "world",
+        "tags": ["world"],
+        "enabled": true
+      },
+      {
+        "name": "BBC Technology",
+        "url": "https://feeds.bbci.co.uk/news/technology/rss.xml",
+        "category": "technology",
+        "tags": ["technology"],
+        "enabled": true
+      },
+      {
+        "name": "NPR",
+        "url": "https://feeds.npr.org/1001/rss.xml",
+        "category": "general",
+        "tags": ["general", "us"],
+        "enabled": true
+      },
+      {
+        "name": "NYTimes World",
+        "url": "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
+        "category": "world",
+        "tags": ["world"],
+        "enabled": true
+      },
+      {
+        "name": "NYTimes Technology",
+        "url": "https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml",
+        "category": "technology",
+        "tags": ["technology"],
+        "enabled": true
+      },
+      {
+        "name": "The Guardian World",
+        "url": "https://www.theguardian.com/world/rss",
+        "category": "world",
+        "tags": ["world"],
+        "enabled": true
+      },
+      {
+        "name": "Ars Technica",
+        "url": "https://feeds.arstechnica.com/arstechnica/index",
+        "category": "technology",
+        "tags": ["technology"],
+        "enabled": true
+      }
+    ]
+  }
+}
