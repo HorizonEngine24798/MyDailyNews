@@ -1,6 +1,6 @@
 """AI backend adapters and prompt tooling."""
 
-from .base import AIBackendError, AIClient, AIJsonError, AITransportError, JSONSchemaSpec
+from .base import AIBackendError, AIClient, AIJsonError, AITransportError, JSONSchemaSpec, set_ai_artifact_root
 from .factory import create_ai_client
 
 # Optional convenience exports (best-effort when optional deps are installed).
@@ -21,6 +21,7 @@ __all__ = [
     "AIJsonError",
     "AITransportError",
     "JSONSchemaSpec",
+    "set_ai_artifact_root",
     "create_ai_client",
     "LlamaCppServerClient",
     "TransformersAIClient",

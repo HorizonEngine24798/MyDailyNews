@@ -5,3 +5,5 @@ output/
 .venv/
 .env
 .cache
+.codex_tmp*
+.pytest_tmp/

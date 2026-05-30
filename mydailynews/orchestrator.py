@@ -16,6 +16,7 @@ import re
 from typing import Dict, List
 from urllib.parse import urlparse
 
+from .ai.base import set_ai_artifact_root
 from .ai.factory import create_ai_client
 from .ai.headline_analyzer import HeadlineAnalyzer
 from .cache import HTTPCache, JSONCache
@@ -46,6 +47,7 @@ class NewsOrchestrator:
     def __init__(self, config: AppConfig, debug: bool = False) -> None:
         self.config = config
         self.debug = DebugLogger(debug)
+        set_ai_artifact_root(config.output_dir)
         self.summary_ai_client = create_ai_client(config.ai_summary, self.debug)
         self.final_ai_client = create_ai_client(config.ai_final, self.debug)
         # Legacy compatibility alias for tools expecting one client.

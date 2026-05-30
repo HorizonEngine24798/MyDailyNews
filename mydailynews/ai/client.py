@@ -9,7 +9,7 @@ Prefer importing from:
 - mydailynews.ai.llama_cpp_server_client
 """
 
-from .base import AIBackendError, AIJsonError, AITransportError, JSONSchemaSpec
+from .base import AIBackendError, AIJsonError, AITransportError, JSONSchemaSpec, set_ai_artifact_root
 
 try:
     from .transformers_client import LocalAIClient, TransformersAIClient
@@ -27,6 +27,7 @@ __all__ = [
     "AIJsonError",
     "AITransportError",
     "JSONSchemaSpec",
+    "set_ai_artifact_root",
     "TransformersAIClient",
     "LocalAIClient",
     "LlamaCppServerClient",

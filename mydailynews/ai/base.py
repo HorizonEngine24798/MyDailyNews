@@ -43,6 +43,16 @@ class JSONSchemaSpec:
     schema: Dict[str, Any]
 
 
+_AI_ARTIFACT_ROOT = Path("output")
+
+
+def set_ai_artifact_root(root: str | Path) -> None:
+    """Configure where AI diagnostics artifacts are written."""
+    global _AI_ARTIFACT_ROOT
+    root_text = str(root or "").strip()
+    _AI_ARTIFACT_ROOT = Path(root_text) if root_text else Path("output")
+
+
 def write_ai_text_artifact(kind: str, label: str, text: str, suffix: str = ".txt") -> str:
     directory = _artifact_directory(kind)
     slug = _artifact_slug(label or kind)
@@ -64,7 +74,7 @@ def write_ai_json_artifact(kind: str, label: str, payload: Dict[str, Any]) -> st
 
 
 def _artifact_directory(kind: str) -> Path:
-    path = Path("output") / "diagnostics" / kind
+    path = _AI_ARTIFACT_ROOT / "diagnostics" / kind
     path.mkdir(parents=True, exist_ok=True)
     return path
 

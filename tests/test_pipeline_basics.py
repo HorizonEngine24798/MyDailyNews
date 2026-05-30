@@ -17,6 +17,7 @@ if "trafilatura" not in sys.modules:
     sys.modules["trafilatura"] = types.SimpleNamespace(extract=lambda *_args, **_kwargs: "")
 
 from mydailynews.ai.headline_analyzer import HeadlineAnalyzer
+from mydailynews.ai.base import set_ai_artifact_root, write_ai_json_artifact, write_ai_text_artifact
 from mydailynews.brief import BriefGenerator
 from mydailynews.debug import DebugLogger
 from mydailynews.config import _worker_count
@@ -50,6 +51,22 @@ def _candidate(source: str, topic: str = "", published_at=None) -> NewsCandidate
 
 
 class PipelineBasicsTests(unittest.TestCase):
+    def test_ai_invalid_json_artifacts_use_configured_root(self) -> None:
+        root = Path("D:/Project/MyDailyNews/.codex_tmp_test/ai_artifacts")
+        if root.exists():
+            shutil.rmtree(root, ignore_errors=True)
+        set_ai_artifact_root(root)
+        try:
+            text_path = Path(write_ai_text_artifact("ai_invalid_json", "unit", "raw"))
+            json_path = Path(write_ai_json_artifact("ai_invalid_json", "unit", {"ok": True}))
+        finally:
+            set_ai_artifact_root("output")
+
+        self.assertTrue(text_path.exists())
+        self.assertTrue(json_path.exists())
+        self.assertTrue(str(text_path).startswith(str(root)))
+        self.assertTrue(str(json_path).startswith(str(root)))
+
     def test_debug_analytics_collects_timings_counts_and_artifact(self) -> None:
         debug = DebugLogger(True)
         with debug.span("pipeline.total"):
