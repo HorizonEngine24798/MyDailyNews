@@ -5,16 +5,26 @@ from typing import List
 from urllib.parse import quote_plus
 
 import feedparser
-import requests
 
+from ..cache import CachedHttpClient, HTTPCache
 from ..models import PastNewsContext
 from ..scrapers.rss import RSSScraper
 from ..utils import normalize_url, strip_html
 
 
 class PastNewsRetriever:
-    def __init__(self, user_agent: str) -> None:
+    def __init__(
+        self,
+        user_agent: str,
+        http_cache: HTTPCache | None = None,
+        cache_fresh_seconds: int = 900,
+    ) -> None:
         self.user_agent = user_agent
+        self.http = CachedHttpClient(
+            user_agent=user_agent,
+            cache=http_cache,
+            fresh_seconds=cache_fresh_seconds,
+        )
 
     def search(self, query: str, days: int, limit: int, exclude_url: str = "") -> List[PastNewsContext]:
         if not query.strip() or limit <= 0:
@@ -24,10 +34,8 @@ class PastNewsRetriever:
             "https://news.google.com/rss/search?"
             f"q={quote_plus(query + ' when:' + str(days) + 'd')}&hl=en-US&gl=US&ceid=US:en"
         )
-        try:
-            response = requests.get(rss_url, headers={"User-Agent": self.user_agent}, timeout=20)
-            response.raise_for_status()
-        except requests.RequestException:
+        response = self.http.get_text(rss_url, timeout=20, allow_redirects=True)
+        if not response.ok:
             return []
 
         parsed = feedparser.parse(response.text)

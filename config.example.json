@@ -1,20 +1,111 @@
 {
   "output_dir": "output",
-  "user_agent": "MyDailyNews/0.2 (+local personal news brief)",
-  "ai": {
-    "host": "http://localhost:11434",
-    "model": "qwen3:4b",
-    "timeout_seconds": 120,
-    "temperature": 0.2
+  "user_agent": "MyDailyNews/0.4 (+local personal dual news brief)",
+  "ai_summary": {
+    "backend": "transformers",
+    "preset": "qwen3-1.7b",
+    "device": "cuda",
+    "torch_dtype": "auto",
+    "max_input_tokens": 3072,
+    "json_retries": 1,
+    "local_files_only": false,
+    "enable_thinking": false
   },
+  "ai_final": {
+    "backend": "transformers",
+    "preset": "qwen3-8b",
+    "device": "cuda",
+    "torch_dtype": "auto",
+    "max_input_tokens": 4096,
+    "json_retries": 1,
+    "local_files_only": false,
+    "enable_thinking": false
+  },
+  "general_topics": [
+    {
+      "name": "World and politics",
+      "description": "Major international, geopolitical, diplomatic, legal, election, conflict, and public policy developments that a general reader should know.",
+      "queries": [
+        "top world news today",
+        "major politics world news",
+        "geopolitics diplomacy conflict latest"
+      ],
+      "enabled": true,
+      "max_results": 16
+    },
+    {
+      "name": "Business and economy",
+      "description": "Major macroeconomic, market, central bank, trade, corporate, energy, and labor developments.",
+      "queries": [
+        "top business economy news today",
+        "global economy markets central banks",
+        "trade tariffs energy economy news"
+      ],
+      "enabled": true,
+      "max_results": 14
+    },
+    {
+      "name": "Technology and science",
+      "description": "Major technology, AI, cybersecurity, space, health, science, and climate developments with broad impact.",
+      "queries": [
+        "top technology science news today",
+        "AI cybersecurity science climate latest",
+        "space health science breakthrough news"
+      ],
+      "enabled": true,
+      "max_results": 14
+    },
+    {
+      "name": "United States",
+      "description": "Major US national stories, policy, courts, economy, public safety, and social developments.",
+      "queries": [
+        "top US news today",
+        "US politics courts economy news",
+        "major United States news latest"
+      ],
+      "enabled": true,
+      "max_results": 12
+    }
+  ],
+  "topics_to_examine": [
+    {
+      "name": "AI and technology policy",
+      "description": "AI regulation, model governance, safety policy, semiconductor controls, platform accountability, and major AI industry moves with policy consequences.",
+      "queries": [
+        "AI regulation policy",
+        "artificial intelligence safety governance",
+        "AI chips export controls"
+      ],
+      "enabled": true,
+      "max_results": 14,
+      "max_selected_articles": 3
+    },
+    {
+      "name": "Global economy",
+      "description": "Major macroeconomic developments, central banks, inflation, trade, sovereign risk, China economy, energy, and market-moving policy shifts.",
+      "queries": [
+        "global economy inflation central banks",
+        "China economy property trade",
+        "global trade tariffs economy"
+      ],
+      "enabled": true,
+      "max_results": 14,
+      "max_selected_articles": 3
+    },
+    {
+      "name": "Major world events",
+      "description": "High-impact geopolitical, conflict, diplomatic, public health, climate, science, and disaster stories that deserve deeper narrative tracking.",
+      "queries": [
+        "major world news today",
+        "geopolitics diplomacy conflict latest",
+        "major science climate world news"
+      ],
+      "enabled": true,
+      "max_results": 12,
+      "max_selected_articles": 2
+    }
+  ],
   "user_memory": {
-    "preferred_topics": [
-      "AI",
-      "technology policy",
-      "global economy",
-      "science",
-      "major world events"
-    ],
     "avoided_topics": [
       "celebrity gossip",
       "minor sports updates"
@@ -26,24 +117,65 @@
     ],
     "avoided_sources": [],
     "briefing_style": "Concise, explanatory, practical, and skeptical of hype.",
-    "custom_instructions": "Prefer important developments over routine announcements. Include some major stories outside my usual interests."
+    "custom_instructions": "Prefer narrative shifts, evidence that challenges yesterday's framing, and important developments over routine announcements. Include uncertainty when the available sources are thin."
+  },
+  "general_filtering": {
+    "time_window_hours": 36,
+    "headline_score_cutoff": 5.5,
+    "max_headlines_per_source": 12,
+    "max_candidates_for_ai": 30,
+    "max_headlines_per_ai_batch": 6,
+    "max_selected_articles": 10,
+    "fill_selected_articles": true,
+    "article_text_max_chars": 2200
   },
   "filtering": {
     "time_window_hours": 36,
-    "headline_score_cutoff": 7.0,
-    "max_headlines_per_source": 12,
-    "max_candidates_for_ai": 60,
-    "max_selected_articles": 8,
-    "article_text_max_chars": 7000
+    "headline_score_cutoff": 6.8,
+    "max_headlines_per_source": 8,
+    "max_candidates_for_ai": 12,
+    "max_headlines_per_ai_batch": 4,
+    "max_selected_articles": 6,
+    "fill_selected_articles": false,
+    "article_text_max_chars": 2500
   },
   "enrichment": {
     "enabled": true,
     "past_news_days": 30,
     "max_past_news_results": 4,
-    "max_wikipedia_results": 1,
-    "max_context_chars_per_article": 2400
+    "max_wikipedia_results": 3,
+    "max_entities": 4,
+    "max_context_chars_per_article": 800
+  },
+  "runtime": {
+    "max_http_workers": 1,
+    "max_article_workers": 1,
+    "max_enrichment_workers": 1,
+    "use_shared_snapshot": true
+  },
+  "cache": {
+    "enabled": true,
+    "dir": ".cache/mydailynews",
+    "http_fresh_seconds": 900,
+    "ai_enabled": true,
+    "synth_fresh_seconds": 604800
   },
   "sources": {
+    "google_news": {
+      "enabled": true,
+      "days": 7,
+      "max_results_per_topic": 12,
+      "language": "en-US",
+      "region": "US",
+      "ceid": "US:en"
+    },
+    "prior_reports": {
+      "enabled": true,
+      "days": 7,
+      "max_reports": 5,
+      "max_chars_per_report": 1800,
+      "output_dir": "output"
+    },
     "rss": [
       {
         "name": "BBC World",

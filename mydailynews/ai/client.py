@@ -1,30 +1,33 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+"""Backward-compatible AI client exports.
 
-from ollama import Client
+Prefer importing from:
+- mydailynews.ai.base
+- mydailynews.ai.factory
+- mydailynews.ai.transformers_client
+- mydailynews.ai.llama_cpp_server_client
+"""
 
-from ..models import AIConfig
-from ..utils import safe_json_load
+from .base import AIBackendError, AIJsonError, AITransportError, JSONSchemaSpec
 
+try:
+    from .transformers_client import LocalAIClient, TransformersAIClient
+except Exception:  # pragma: no cover - optional dependency path
+    LocalAIClient = None  # type: ignore[assignment]
+    TransformersAIClient = None  # type: ignore[assignment]
 
-class LocalAIClient:
-    def __init__(self, config: AIConfig) -> None:
-        self.config = config
-        self.client = Client(host=config.host, timeout=config.timeout_seconds)
+try:
+    from .llama_cpp_server_client import LlamaCppServerClient
+except Exception:  # pragma: no cover - optional dependency path
+    LlamaCppServerClient = None  # type: ignore[assignment]
 
-    def complete_json(self, system: str, user: str) -> Optional[Dict[str, Any]]:
-        try:
-            response = self.client.chat(
-                model=self.config.model,
-                messages=[
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
-                format="json",
-                options={"temperature": self.config.temperature},
-            )
-            content = response.message.content if hasattr(response, "message") else response["message"]["content"]
-            return safe_json_load(content or "")
-        except Exception:
-            return None
+__all__ = [
+    "AIBackendError",
+    "AIJsonError",
+    "AITransportError",
+    "JSONSchemaSpec",
+    "TransformersAIClient",
+    "LocalAIClient",
+    "LlamaCppServerClient",
+]

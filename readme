@@ -1,113 +1,140 @@
 # MyDailyNews
 
-A compact, local-first daily news briefing pipeline inspired by Horizon.
+Local-first dual news briefing with a deliberately shallow LLM pipeline.
 
-Horizon attribution:
+Attribution:
 
-- Project: https://github.com/Thysrael/Horizon
+- Horizon: https://github.com/Thysrael/Horizon
 - License: MIT
-- What we borrowed conceptually: staged orchestration, normalized content items, RSS-first discovery, AI scoring, semantic dedupe, enrichment, and final daily summary generation.
-- What we intentionally left out: social media scrapers, Apify/Twitter, DuckDuckGo browsing, email/webhooks, GitHub Pages publishing, and feedback-based preference mutation.
+- Borrowed ideas: shared source ingest, normalized headline candidates, RSS discovery, topic-focused search, and final brief rendering.
 
+## Current Pipeline
 
-## Pipeline
+The runtime now favors fewer, smaller local-model calls:
 
 ```text
-load config and long-term memory
-  -> create orchestrator
-  -> fetch headline candidates from configured RSS sources
-  -> ask local LLM to score and dedupe headline/snippet candidates
-  -> keep items above cutoff
-  -> fetch full article HTML only for selected items
-  -> extract readable text with trafilatura
-  -> ask local LLM whether enrichment is needed
-  -> if needed: retrieve Wikipedia summary + Google News RSS results from last month
-  -> ask local LLM to create a machine-readable daily brief
-  -> write Markdown and JSON outputs
+fetch/dedupe
+-> heuristic prefilter
+-> headline scoring LLM (score + one-sentence summary only)
+-> article fulltext fetch
+-> optional non-LLM enrichment
+-> one-shot final brief synthesis
 ```
 
+Removed from the hot path:
 
-## Why This Is Mobile-Friendly Later
+- per-article LLM enrichment planning
+- per-article LLM brief generation
+- narrative-map headline contracts
 
-The expensive work is delayed until after headline triage. A weaker phone model can score short headline/snippet batches first, then read only a small number of full articles. The final JSON output is also suitable for a future mobile renderer or text-to-speech pipeline.
-
-
-## Current Modules
-
-- `main.py`: thin CLI.
-- `mydailynews/config.py`: loads app config and long-term user memory.
-- `mydailynews/models.py`: shared data models.
-- `mydailynews/orchestrator.py`: Horizon-style staged pipeline.
-- `mydailynews/scrapers/rss.py`: RSS headline discovery.
-- `mydailynews/ai/headline_analyzer.py`: local LLM scoring and dedupe.
-- `mydailynews/retrieval/article.py`: full article extraction.
-- `mydailynews/enrichment.py`: decides whether to enrich and retrieves context.
-- `mydailynews/retrieval/wikipedia.py`: Wikipedia context.
-- `mydailynews/retrieval/past_news.py`: last-month Google News RSS context.
-- `mydailynews/brief.py`: final JSON brief generation.
-- `mydailynews/output.py`: Markdown and JSON writing.
-
-
-## Quick Start
+## Run
 
 ```powershell
 cd d:\Project\MyDailyNews
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-copy config.example.json config.json
 python main.py --config config.json
 ```
 
-For a lighter first run:
+Debug logs:
 
 ```powershell
-python main.py --config config.json --no-enrichment
+python main.py --config config.json --debug
 ```
 
+No enrichment:
 
-## Config Memory
+```powershell
+python main.py --config config.json --no-enrichment --debug
+```
 
-Long-term memory is currently explicit and configurable in `config.json`:
+Outputs:
+
+```text
+output/YYYY-MM-DD_general_brief.md
+output/YYYY-MM-DD_general_brief.json
+output/YYYY-MM-DD_detailed_brief.md
+output/YYYY-MM-DD_detailed_brief.json
+```
+
+## Model Split
+
+The repo is wired for two local model roles:
+
+- `ai_summary`: smaller scorer model for headline usefulness scoring
+- `ai_final`: larger writer model for one-shot final synthesis
+
+Default direction:
+
+- summary: `qwen3-1.7b`
+- final: `qwen3-8b`
+
+The summary stage is intentionally cheap. It only returns:
 
 ```json
 {
-  "user_memory": {
-    "preferred_topics": ["AI", "technology policy", "global economy"],
-    "avoided_topics": ["celebrity gossip"],
-    "preferred_sources": ["BBC World", "NPR"],
-    "briefing_style": "Concise, explanatory, practical, and skeptical of hype.",
-    "custom_instructions": "Include some major stories outside my usual interests."
-  }
+  "decisions": [
+    {
+      "id": "candidate id",
+      "score": 8.0,
+      "summary": "one short sentence"
+    }
+  ]
 }
 ```
 
-There is no thumbs up/down learning in this version. The code is structured so feedback can later update this memory safely.
+## Default Limits
 
+The default config is now conservative enough for local runs:
 
-## Outputs
+- general candidate pool to LLM: `30`
+- detailed candidate pool to LLM: `12`
+- general headline batch size: `6`
+- detailed headline batch size: `4`
+- article text budget per selected article: `2200` general / `2500` detailed chars
+- final synthesis context per article: `800` chars
 
-Each run writes:
+These are meant to control VRAM and prompt size before chasing throughput.
 
-- `output/YYYY-MM-DD_brief.md`: readable daily brief.
-- `output/YYYY-MM-DD_brief.json`: machine-readable brief for future mobile/TTS use.
+## Backends
 
-The JSON schema includes:
+Supported:
 
-- `metadata`
-- `title`
-- `lead`
-- `sections`
-- `articles`
-- `major_headlines`
+- `transformers`
+- `llama_cpp_server`
 
+List presets:
 
-## Future Hooks
+```powershell
+python main.py --list-model-presets
+```
 
-Planned features have natural module homes:
+## Repository Layout
 
-- Thumbs up/down feedback: add a memory updater beside `config.py`.
-- LLM preference management: add a preference manager that rewrites/patches `user_memory`.
-- Text-to-speech: consume `output/*_brief.json`.
-- Better enrichment: expand `enrichment.py` with richer source-specific retrievers.
-- Mobile deployment: swap `mydailynews/ai/client.py` from Ollama to an Android inference runtime.
+```text
+main.py
+  CLI entrypoint.
+
+config.json / config.example.json
+  Runtime configuration.
+
+mydailynews/orchestrator.py
+  Main dual-brief pipeline coordinator.
+
+mydailynews/ai/headline_analyzer.py
+  Small-contract headline scorer.
+
+mydailynews/brief.py
+  One-shot final brief synthesis with prompt budget trimming.
+
+mydailynews/enrichment.py
+  Optional non-LLM context retrieval.
+
+mydailynews/retrieval/
+  RSS, Google News, full article, prior report, Wikipedia, and related-news retrieval.
+```
+
+## Notes
+
+- This repo intentionally does not do concurrent LLM scoring.
+- The main latency strategy is fewer calls, smaller prompts, and a smaller scorer model.
+- `llm_call_probe.py` remains useful for measuring prompt sizes and stage counts when tuning local configs.

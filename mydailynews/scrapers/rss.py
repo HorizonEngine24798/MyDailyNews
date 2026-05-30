@@ -4,10 +4,11 @@ from __future__ import annotations
 
 Horizon: https://github.com/Thysrael/Horizon
 License: MIT
-This implementation is intentionally smaller and synchronous for local/mobile portability.
+This implementation is intentionally smaller and supports bounded threadpool fetches.
 """
 
 import calendar
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import os
 import re
 from datetime import datetime, timezone
@@ -15,36 +16,77 @@ from email.utils import parsedate_to_datetime
 from typing import Any, List, Optional
 
 import feedparser
-import requests
 
+from ..cache import CachedHttpClient, HTTPCache
+from ..debug import DebugLogger, safe_url
 from ..models import NewsCandidate, RSSSourceConfig
 from ..utils import normalize_url, normalize_whitespace, stable_id, strip_html
 
 
 class RSSScraper:
-    def __init__(self, sources: List[RSSSourceConfig], user_agent: str, max_per_source: int) -> None:
+    def __init__(
+        self,
+        sources: List[RSSSourceConfig],
+        user_agent: str,
+        max_per_source: int,
+        max_workers: int = 1,
+        http_cache: HTTPCache | None = None,
+        cache_fresh_seconds: int = 900,
+        debug: DebugLogger | None = None,
+    ) -> None:
         self.sources = sources
         self.user_agent = user_agent
         self.max_per_source = max_per_source
+        self.max_workers = max(1, int(max_workers))
+        self.errors: List[str] = []
+        self.debug = debug or DebugLogger(False)
+        self.http = CachedHttpClient(
+            user_agent=user_agent,
+            cache=http_cache,
+            fresh_seconds=cache_fresh_seconds,
+            debug=self.debug,
+        )
 
     def fetch(self, since: datetime) -> List[NewsCandidate]:
+        self.errors = []
+        enabled_sources = [source for source in self.sources if source.enabled]
+        if not enabled_sources:
+            return []
+
+        worker_count = min(self.max_workers, len(enabled_sources))
         items: List[NewsCandidate] = []
-        for source in self.sources:
-            if source.enabled:
+        if worker_count <= 1:
+            for source in enabled_sources:
                 items.extend(self._fetch_source(source, since))
+            return items
+
+        by_index: dict[int, List[NewsCandidate]] = {}
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            future_map = {
+                executor.submit(self._fetch_source, source, since): index
+                for index, source in enumerate(enabled_sources)
+            }
+            for future in as_completed(future_map):
+                index = future_map[future]
+                source = enabled_sources[index]
+                try:
+                    by_index[index] = future.result()
+                except Exception as exc:
+                    self.errors.append(f"{source.name}: worker_exception={type(exc).__name__}")
+                    self.debug.log("rss.source", "worker_exception", source=source.name, error=type(exc).__name__)
+                    by_index[index] = []
+
+        for index in range(len(enabled_sources)):
+            items.extend(by_index.get(index, []))
         return items
 
     def _fetch_source(self, source: RSSSourceConfig, since: datetime) -> List[NewsCandidate]:
         feed_url = self._expand_env_vars(source.url)
-        try:
-            response = requests.get(
-                feed_url,
-                headers={"User-Agent": self.user_agent},
-                timeout=20,
-                allow_redirects=True,
-            )
-            response.raise_for_status()
-        except requests.RequestException:
+        self.debug.log("rss.source", "fetching", source=source.name, url=safe_url(feed_url))
+        response = self.http.get_text(feed_url, timeout=20, allow_redirects=True)
+        if not response.ok:
+            self.errors.append(f"{source.name}: HTTP error status={response.status_code}")
+            self.debug.log("rss.source", "failed", source=source.name, status=response.status_code)
             return []
 
         feed = feedparser.parse(response.text)
@@ -72,6 +114,14 @@ class RSSScraper:
                     metadata={"feed_url": feed_url},
                 )
             )
+        self.debug.log(
+            "rss.source",
+            "complete",
+            source=source.name,
+            entries_seen=len(feed.entries),
+            candidates=len(candidates),
+            cache=response.cache_state,
+        )
         return candidates
 
     @staticmethod

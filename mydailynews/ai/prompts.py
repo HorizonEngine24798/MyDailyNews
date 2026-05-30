@@ -1,96 +1,86 @@
-HEADLINE_ANALYSIS_SYSTEM = """You are a careful daily news editor.
-Score headline candidates for one reader using the configured long-term memory.
-Return valid JSON only. Do not invent facts beyond the headline/snippet."""
+HEADLINE_ANALYSIS_SYSTEM = """You score news headlines for usefulness.
+Return exactly one valid JSON object.
+Do not use markdown fences.
+Base the score only on the supplied reader preferences, brief goal, topics, and candidate headlines."""
 
-HEADLINE_ANALYSIS_USER = """Reader memory:
+HEADLINE_ANALYSIS_USER = """Reader memory and style:
 {memory}
 
-Scoring rubric:
-- 9-10: major, urgent, or high-impact story.
-- 7-8: important enough for today's brief.
-- 5-6: interesting but optional.
-- 0-4: routine, duplicated, low-value, or outside reader preferences.
+Brief mode:
+{brief_goal}
 
-Treat items as duplicates only if they describe the same real-world event.
+Topics:
+{topics}
 
-Candidates:
+Candidate headlines:
 {items}
+
+Score each candidate for how useful it is to retrieve and read in full for this brief.
+Higher scores should favor importance, relevance, freshness, and likely explanatory value.
+Return one decision for every candidate id.
 
 Return:
 {{
   "decisions": [
     {{
       "id": "candidate id",
-      "score": 0-10,
-      "reason": "short reason",
-      "summary": "one sentence",
-      "tags": ["topic", "topic"],
-      "duplicate_of": null
+      "score": 8.0
     }}
   ]
 }}"""
 
-ENRICHMENT_SYSTEM = """You decide whether a selected article needs extra context.
-Use enrichment for stories where background knowledge would help a reader understand what happened.
-Return valid JSON only."""
+BRIEF_SYSTEM = """You write compact, high-signal news briefs from selected articles.
+Return exactly one valid JSON object.
+Do not use markdown fences.
+Base the synthesis only on supplied article evidence, supplied context, and prior reports."""
 
-ENRICHMENT_USER = """Article:
-Title: {title}
-Source: {source}
-URL: {url}
-Triage summary: {summary}
-Text excerpt: {text}
-
-Return:
-{{
-  "needed": true,
-  "reason": "why extra context is or is not needed",
-  "wikipedia_query": "short entity/concept query or empty string",
-  "past_news_query": "short news search query or empty string"
-}}"""
-
-BRIEF_SYSTEM = """You write compact, high-signal daily news releases.
-Return valid JSON only. Base the brief on supplied article text and supplied enrichment context."""
-
-BRIEF_USER = """Reader memory:
+BRIEF_USER = """Reader memory and style:
 {memory}
 
-Create a daily news release for {date}.
-Put the most important synthesis first, then article details, then a final major-headlines list.
+Brief mode:
+{brief_goal}
 
-Articles:
+Create a concise news brief for {date}.
+
+Topics:
+{topics}
+
+Previous reports:
+{prior_reports}
+
+Selected articles:
 {articles}
+
+Work to perform:
+1. Synthesize only from the supplied article excerpts and context.
+2. Prefer what changed, what matters, and what remains uncertain.
+3. Keep the writing compact and readable.
+4. Cite article ids in the relevant topic reports and sections.
 
 Return:
 {{
   "title": "Daily Brief - {date}",
-  "lead": "3-5 sentence synthesis of the day",
+  "lead": "2 to 3 sentence synthesis",
+  "topic_reports": [
+    {{
+      "topic": "topic name",
+      "narrative_summary": "current state of the topic",
+      "narrative_changes": [
+        {{
+          "narrative": "short label",
+          "status": "new | continuing | escalating | weakening | challenged | unresolved",
+          "summary": "what changed"
+        }}
+      ],
+      "what_to_watch": ["specific next signal"],
+      "article_ids": ["article id"]
+    }}
+  ],
   "sections": [
     {{
       "heading": "short section heading",
-      "summary": "2-4 sentence section summary",
-      "article_ids": ["id"]
-    }}
-  ],
-  "articles": [
-    {{
-      "id": "id",
-      "headline": "headline",
-      "source": "source",
-      "url": "url",
-      "score": 0-10,
-      "summary": "2-4 sentence article summary",
-      "why_it_matters": "1-2 sentences",
-      "key_context": "1-3 sentences, using enrichment when relevant",
-      "tags": ["topic"]
-    }}
-  ],
-  "major_headlines": [
-    {{
-      "headline": "headline",
-      "source": "source",
-      "url": "url",
-      "score": 0-10
+      "summary": "2 sentence section summary",
+      "article_ids": ["article id"]
     }}
   ]
 }}"""
