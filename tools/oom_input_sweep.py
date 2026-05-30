@@ -118,6 +118,12 @@ def _refine_boundary(
 def main() -> int:
     parser = argparse.ArgumentParser(description="Approximate failure threshold with dummy token sweeps.")
     parser.add_argument("--config", default="config.json", help="Path to config JSON.")
+    parser.add_argument(
+        "--ai-role",
+        choices=("summary", "final"),
+        default="summary",
+        help="Which AI config section to sweep: ai_summary or ai_final.",
+    )
     parser.add_argument("--max-new-tokens", type=int, default=128, help="Generation tokens for each sweep case.")
     parser.add_argument("--start-input", type=int, default=4000, help="First input token limit to test.")
     parser.add_argument("--step", type=int, default=2000, help="Coarse sweep increment.")
@@ -134,11 +140,13 @@ def main() -> int:
 
     started = time.perf_counter()
     config = load_config(config_path)
-    client = create_ai_client(config.ai, DebugLogger(False))
+    ai_config = config.ai_summary if args.ai_role == "summary" else config.ai_final
+    client = create_ai_client(ai_config, DebugLogger(False))
 
-    print("backend", config.ai.backend, flush=True)
-    print("model", config.ai.effective_model_label, flush=True)
-    print("config_max_input", config.ai.max_input_tokens, "config_max_new", config.ai.max_new_tokens, flush=True)
+    print("ai_role", args.ai_role, flush=True)
+    print("backend", ai_config.backend, flush=True)
+    print("model", ai_config.effective_model_label, flush=True)
+    print("config_max_input", ai_config.max_input_tokens, "config_max_new", ai_config.max_new_tokens, flush=True)
     print("sweep_max_new", args.max_new_tokens, flush=True)
     print("gpu_snapshot", _cuda_snapshot(), flush=True)
     print(f"max_runtime_sec={args.max_runtime_sec}", flush=True)
@@ -185,10 +193,11 @@ def main() -> int:
 
     summary = {
         "generated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "backend": config.ai.backend,
-        "model": config.ai.effective_model_label,
-        "config_max_input_tokens": config.ai.max_input_tokens,
-        "config_max_new_tokens": config.ai.max_new_tokens,
+        "ai_role": args.ai_role,
+        "backend": ai_config.backend,
+        "model": ai_config.effective_model_label,
+        "config_max_input_tokens": ai_config.max_input_tokens,
+        "config_max_new_tokens": ai_config.max_new_tokens,
         "sweep_max_new_tokens": int(args.max_new_tokens),
         "elapsed_sec": elapsed,
         "approx_safe_input_tokens": approx_safe,

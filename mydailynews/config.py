@@ -248,15 +248,12 @@ def _load_ai(ai_raw: Dict[str, Any], section_name: str = "ai") -> AIConfig:
     )
 
 
-def _load_ai_sections(raw: Dict[str, Any]) -> tuple[AIConfig, AIConfig, AIConfig]:
-    # Backward compatibility: old configs may only have "ai".
-    legacy_raw = raw.get("ai", raw.get("ai_summary", {}))
-    legacy_ai = _load_ai(legacy_raw, section_name="ai")
-    summary_raw = raw.get("ai_summary", raw.get("ai", {}))
-    final_raw = raw.get("ai_final", raw.get("ai", {}))
+def _load_ai_sections(raw: Dict[str, Any]) -> tuple[AIConfig, AIConfig]:
+    summary_raw = raw.get("ai_summary", {})
+    final_raw = raw.get("ai_final", {})
     ai_summary = _load_ai(summary_raw, section_name="ai_summary")
     ai_final = _load_ai(final_raw, section_name="ai_final")
-    return legacy_ai, ai_summary, ai_final
+    return ai_summary, ai_final
 
 
 def _load_filtering(raw: Dict[str, Any], defaults: Dict[str, Any]) -> FilteringConfig:
@@ -299,9 +296,11 @@ def _require_sections(raw: Dict[str, Any]) -> None:
     if "preferred_topics" in raw.get("user_memory", {}):
         raise ValueError("Config uses legacy user_memory.preferred_topics; move topics into general_topics or topics_to_examine")
 
-    has_any_ai_section = any(key in raw for key in ("ai", "ai_summary", "ai_final"))
-    if not has_any_ai_section:
-        raise ValueError("Config missing AI section. Provide ai, or ai_summary + ai_final.")
+    if "ai" in raw and ("ai_summary" not in raw or "ai_final" not in raw):
+        raise ValueError("Legacy config key 'ai' is no longer supported. Define both ai_summary and ai_final.")
+    missing_ai_sections = [key for key in ("ai_summary", "ai_final") if key not in raw]
+    if missing_ai_sections:
+        raise ValueError(f"Config missing required AI section(s): {', '.join(missing_ai_sections)}")
 
     required_sections = [
         "user_memory",
@@ -321,7 +320,7 @@ def load_config(path: Path) -> AppConfig:
     raw = json.loads(path.read_text(encoding="utf-8-sig"))
     _require_sections(raw)
 
-    ai_legacy, ai_summary, ai_final = _load_ai_sections(raw)
+    ai_summary, ai_final = _load_ai_sections(raw)
     filtering_raw = raw["filtering"]
     general_filtering_raw = raw["general_filtering"]
     enrichment_raw = raw["enrichment"]
@@ -361,7 +360,6 @@ def load_config(path: Path) -> AppConfig:
     return AppConfig(
         output_dir=raw.get("output_dir", "output"),
         user_agent=raw.get("user_agent", "MyDailyNews/0.4 (+local personal dual news brief)"),
-        ai=ai_legacy,
         ai_summary=ai_summary,
         ai_final=ai_final,
         filtering=filtering,

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Backward-compatible AI client exports.
+"""Convenience AI client exports.
 
 Prefer importing from:
 - mydailynews.ai.base

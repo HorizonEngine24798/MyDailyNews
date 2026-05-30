@@ -146,8 +146,6 @@ class RSSSourceConfig:
 class AppConfig:
     output_dir: str = "output"
     user_agent: str = "MyDailyNews/0.4 (+local personal dual news brief)"
-    # Legacy single-model config; kept for backward compatibility in tools.
-    ai: AIConfig = field(default_factory=AIConfig)
     ai_summary: AIConfig = field(
         default_factory=lambda: AIConfig(
             preset="qwen3-1.7b",

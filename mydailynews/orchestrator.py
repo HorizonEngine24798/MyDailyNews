@@ -50,8 +50,6 @@ class NewsOrchestrator:
         set_ai_artifact_root(config.output_dir)
         self.summary_ai_client = create_ai_client(config.ai_summary, self.debug)
         self.final_ai_client = create_ai_client(config.ai_final, self.debug)
-        # Legacy compatibility alias for tools expecting one client.
-        self.ai_client = self.summary_ai_client
         self.http_cache = HTTPCache(
             root_dir=config.cache.dir,
             namespace="shared",
@@ -986,14 +984,6 @@ class NewsOrchestrator:
         if len(core) < 4:
             core = tokens
         return " ".join(core[:10])
-
-    @staticmethod
-    def _newest_first(candidates: List[NewsCandidate], fallback_date) -> List[NewsCandidate]:
-        return sorted(
-            candidates,
-            key=lambda item: item.published_at or fallback_date,
-            reverse=True,
-        )
 
     def select_articles(
         self,

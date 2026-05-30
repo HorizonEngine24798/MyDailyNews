@@ -18,6 +18,24 @@ The biggest remaining issues are:
 7. The orchestrator is carrying too many responsibilities in one file.
 
 
+## Status Update (May 30, 2026)
+
+Since this review was first written, parts of it have been addressed:
+
+- PR1 repo hygiene cleanup removed tracked runtime artifacts and tightened ignores.
+- PR2 unified AI invalid-JSON artifacts under configurable output root.
+- PR3 added backend budget enforcement on `llama_cpp_server` input prompts (input limit is now actively fitted instead of ignored), with regression tests.
+- PR4 removed stale compatibility/dead surface:
+  - removed legacy orchestrator `self.ai_client` alias
+  - removed dead debug event categories
+  - removed unused `scrapers/base.py` protocol
+  - removed unused orchestrator helper `_newest_first(...)`
+  - removed legacy single-`ai` config compatibility in favor of explicit `ai_summary` + `ai_final`
+- PR6 updated `docs/llama_cpp_port.md` to the current shallow pipeline and current backend seam.
+
+Remaining priority from this review: orchestrator decomposition and broader model lifecycle strategy decisions.
+
+
 ## 1. Backend Budget Enforcement Is Inconsistent
 
 ### Problem

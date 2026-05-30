@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 import requests
 
@@ -29,8 +29,7 @@ class LlamaCppServerClient(AIClient):
         return max(64, int(self.config.max_new_tokens))
 
     def estimate_tokens(self, text: str) -> int:
-        ratio = float(self.config.token_estimation_chars_per_token or 4.0)
-        ratio = max(1.2, min(8.0, ratio))
+        ratio = self._chars_per_token_ratio()
         return max(1, int(round(len(text or "") / ratio)))
 
     def unload(self) -> None:
@@ -53,18 +52,24 @@ class LlamaCppServerClient(AIClient):
         input_token_limit: int | None = None,
         json_schema: Optional[JSONSchemaSpec] = None,
     ) -> Dict[str, Any]:
-        _ = input_token_limit
         attempts = max(1, self.config.json_retries + 1)
         target_max_new = max(64, int(max_new_tokens or self.max_new_tokens))
+        target_input_limit = max(64, int(input_token_limit or self.max_input_tokens))
         last_response_chars = 0
         last_error = ""
         last_response_text = ""
         last_failure: Dict[str, Any] = {}
 
         for attempt in range(1, attempts + 1):
-            attempt_user = self._retry_user_prompt(user) if attempt > 1 else user
-            payload = self._build_payload(system, attempt_user, target_max_new, json_schema=json_schema)
-            input_tokens = self.estimate_tokens(f"System:\n{system}\n\nUser:\n{attempt_user}")
+            attempt_user_raw = self._retry_user_prompt(user) if attempt > 1 else user
+            (
+                attempt_system,
+                attempt_user,
+                input_tokens,
+                system_was_truncated,
+                user_was_truncated,
+            ) = self._fit_chat_to_input_limit(system, attempt_user_raw, target_input_limit)
+            payload = self._build_payload(attempt_system, attempt_user, target_max_new, json_schema=json_schema)
             self.debug.log(
                 "ai.request",
                 label,
@@ -72,8 +77,14 @@ class LlamaCppServerClient(AIClient):
                 model=self.config.effective_model_label,
                 backend=self.config.backend,
                 endpoint=self.base_url,
-                system_chars=len(system),
+                system_chars=len(attempt_system),
                 user_chars=len(attempt_user),
+                system_chars_original=len(system),
+                user_chars_original=len(attempt_user_raw),
+                system_truncated=system_was_truncated,
+                user_truncated=user_was_truncated,
+                input_tokens=input_tokens,
+                max_input_tokens=target_input_limit,
                 max_new_tokens=target_max_new,
                 schema=bool(json_schema),
             )
@@ -120,9 +131,16 @@ class LlamaCppServerClient(AIClient):
                 "model": self.config.effective_model_label,
                 "attempt": attempt,
                 "attempts": attempts,
-                "system_prompt": system,
+                "system_prompt": attempt_system,
                 "user_prompt": attempt_user,
+                "system_prompt_original": system,
+                "user_prompt_original": attempt_user_raw,
+                "system_prompt_truncated": system_was_truncated,
+                "user_prompt_truncated": user_was_truncated,
+                "input_tokens_estimated": input_tokens,
                 "max_new_tokens_requested": target_max_new,
+                "input_token_limit_requested": target_input_limit,
+                "input_token_limit_used": target_input_limit,
                 "response_chars": len(text),
                 "raw_response": text,
             }
@@ -279,3 +297,67 @@ class LlamaCppServerClient(AIClient):
         except Exception as exc:
             self.debug.log("ai.response", "invalid_json_save_failed", label=label, error=type(exc).__name__)
             return "", ""
+
+    def _fit_chat_to_input_limit(
+        self,
+        system: str,
+        user: str,
+        input_token_limit: int,
+    ) -> Tuple[str, str, int, bool, bool]:
+        target_limit = max(64, int(input_token_limit))
+        fitted_system = system or ""
+        fitted_user = user or ""
+        ratio = self._chars_per_token_ratio()
+        system_truncated = False
+        user_truncated = False
+        input_tokens = self._estimate_chat_input_tokens(fitted_system, fitted_user)
+        if input_tokens <= target_limit:
+            return fitted_system, fitted_user, input_tokens, system_truncated, user_truncated
+
+        if fitted_user:
+            empty_user_tokens = self._estimate_chat_input_tokens(fitted_system, "")
+            if empty_user_tokens < target_limit:
+                allowed_user_chars = int((target_limit - empty_user_tokens) * ratio)
+                reduced_user = fitted_user[: max(0, allowed_user_chars)].rstrip()
+                if reduced_user != fitted_user:
+                    user_truncated = True
+                    fitted_user = reduced_user
+            else:
+                if fitted_user:
+                    user_truncated = True
+                fitted_user = ""
+
+        input_tokens = self._estimate_chat_input_tokens(fitted_system, fitted_user)
+        if input_tokens > target_limit and fitted_system:
+            empty_system_tokens = self._estimate_chat_input_tokens("", fitted_user)
+            if empty_system_tokens < target_limit:
+                allowed_system_chars = int((target_limit - empty_system_tokens) * ratio)
+                reduced_system = fitted_system[: max(0, allowed_system_chars)].rstrip()
+                if reduced_system != fitted_system:
+                    system_truncated = True
+                    fitted_system = reduced_system
+            else:
+                if fitted_system:
+                    system_truncated = True
+                fitted_system = ""
+
+        input_tokens = self._estimate_chat_input_tokens(fitted_system, fitted_user)
+        while input_tokens > target_limit and (fitted_user or fitted_system):
+            overshoot_tokens = input_tokens - target_limit
+            trim_chars = max(1, int(overshoot_tokens * ratio) + 4)
+            if fitted_user:
+                fitted_user = fitted_user[:-trim_chars].rstrip()
+                user_truncated = True
+            elif fitted_system:
+                fitted_system = fitted_system[:-trim_chars].rstrip()
+                system_truncated = True
+            input_tokens = self._estimate_chat_input_tokens(fitted_system, fitted_user)
+
+        return fitted_system, fitted_user, input_tokens, system_truncated, user_truncated
+
+    def _estimate_chat_input_tokens(self, system: str, user: str) -> int:
+        return self.estimate_tokens(f"System:\n{system}\n\nUser:\n{user}\n\nAssistant:\n")
+
+    def _chars_per_token_ratio(self) -> float:
+        ratio = float(self.config.token_estimation_chars_per_token or 4.0)
+        return max(1.2, min(8.0, ratio))

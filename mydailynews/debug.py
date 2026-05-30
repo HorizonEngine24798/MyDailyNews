@@ -341,10 +341,9 @@ class DebugLogger:
             "headline.ai": {"starting batched scoring"},
             "headline.ai.batch": {"scoring", "cache_hit", "complete"},
             "brief.ai": {"synthesizing", "complete"},
-            "brief.article.ai": {"chunking", "chunk_start", "starting_chunk", "chunk_complete"},
             "article": {"selected"},
             "article.fetch": {"batch_start", "batch_complete", "worker_exception"},
-            "enrichment": {"starting", "not_needed", "complete", "skipped_heuristic_enough_context"},
+            "enrichment": {"skipped_disabled", "skipped_enough_context", "complete"},
             "prior_reports": {"complete", "skipped_disabled", "missing_output_dir"},
             "google_news.topic": {"complete"},
             "ai.load": {"starting", "complete"},
@@ -366,8 +365,7 @@ class DebugLogger:
     @staticmethod
     def _min_interval_seconds(event: str, message: str) -> float:
         throttles: dict[tuple[str, str], float] = {
-            ("enrichment", "not_needed"): 2.0,
-            ("enrichment", "starting"): 1.0,
+            ("enrichment", "skipped_enough_context"): 2.0,
             ("google_news.topic", "complete"): 0.5,
             ("headline.ai.batch", "complete"): 0.5,
             ("ai.generate", "progress"): 10.0,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import shutil
 import sys
@@ -7,6 +8,7 @@ import time
 import types
 import unittest
 from datetime import timedelta
+from typing import Any, Dict
 
 # Local test environment may not have third-party dependencies installed.
 if "requests" not in sys.modules:
@@ -17,11 +19,13 @@ if "trafilatura" not in sys.modules:
     sys.modules["trafilatura"] = types.SimpleNamespace(extract=lambda *_args, **_kwargs: "")
 
 from mydailynews.ai.headline_analyzer import HeadlineAnalyzer
+from mydailynews.ai.llama_cpp_server_client import LlamaCppServerClient
 from mydailynews.ai.base import set_ai_artifact_root, write_ai_json_artifact, write_ai_text_artifact
 from mydailynews.brief import BriefGenerator
 from mydailynews.debug import DebugLogger
-from mydailynews.config import _worker_count
+from mydailynews.config import _worker_count, load_config
 from mydailynews.models import (
+    AIConfig,
     GoogleNewsSourceConfig,
     HeadlineDecision,
     NewsCandidate,
@@ -51,6 +55,68 @@ def _candidate(source: str, topic: str = "", published_at=None) -> NewsCandidate
 
 
 class PipelineBasicsTests(unittest.TestCase):
+    def test_llama_cpp_server_honors_input_token_limit(self) -> None:
+        captured: dict[str, Any] = {}
+
+        class _FakeLlamaClient(LlamaCppServerClient):
+            def _post_chat_completion(self, payload: Dict[str, Any]) -> str:  # type: ignore[override]
+                captured["payload"] = payload
+                return '{"ok": true}'
+
+        client = _FakeLlamaClient(
+            AIConfig(
+                backend="llama_cpp_server",
+                server_model="unit-gguf",
+                token_estimation_chars_per_token=2.0,
+                json_retries=0,
+                max_input_tokens=4096,
+                max_new_tokens=128,
+            ),
+            DebugLogger(False),
+        )
+        system = "You are a JSON-only assistant."
+        user = "Long user content. " * 800
+        limit = 120
+
+        result = client.complete_json(system, user, label="unit.llama.limit", input_token_limit=limit)
+        self.assertTrue(result.get("ok"))
+        payload = captured["payload"]
+        sent_system = str(payload["messages"][0]["content"])
+        sent_user = str(payload["messages"][1]["content"])
+        sent_tokens = client.estimate_tokens(f"System:\n{sent_system}\n\nUser:\n{sent_user}\n\nAssistant:\n")
+
+        self.assertLess(len(sent_user), len(user))
+        self.assertLessEqual(sent_tokens, limit)
+
+    def test_llama_cpp_server_keeps_prompt_when_budget_allows(self) -> None:
+        captured: dict[str, Any] = {}
+
+        class _FakeLlamaClient(LlamaCppServerClient):
+            def _post_chat_completion(self, payload: Dict[str, Any]) -> str:  # type: ignore[override]
+                captured["payload"] = payload
+                return '{"ok": true}'
+
+        client = _FakeLlamaClient(
+            AIConfig(
+                backend="llama_cpp_server",
+                server_model="unit-gguf",
+                token_estimation_chars_per_token=4.0,
+                json_retries=0,
+                max_input_tokens=4096,
+                max_new_tokens=128,
+            ),
+            DebugLogger(False),
+        )
+        system = "System rules."
+        user = "Short user content."
+        limit = 1000
+
+        result = client.complete_json(system, user, label="unit.llama.no_limit", input_token_limit=limit)
+        self.assertTrue(result.get("ok"))
+        payload = captured["payload"]
+        self.assertEqual(str(payload["messages"][0]["content"]), system)
+        self.assertEqual(str(payload["messages"][1]["content"]), user)
+
     def test_ai_invalid_json_artifacts_use_configured_root(self) -> None:
         root = Path("D:/Project/MyDailyNews/.codex_tmp_test/ai_artifacts")
         if root.exists():
@@ -180,6 +246,22 @@ class PipelineBasicsTests(unittest.TestCase):
         self.assertEqual(_worker_count(raw_runtime, "max_article_workers", 4), 32)
         self.assertEqual(_worker_count(raw_runtime, "max_enrichment_workers", 4), 1)
         self.assertEqual(_worker_count({}, "max_http_workers", 4), 4)
+
+    def test_legacy_single_ai_section_is_rejected(self) -> None:
+        base = json.loads(Path("D:/Project/MyDailyNews/config.example.json").read_text(encoding="utf-8"))
+        base["ai"] = dict(base["ai_summary"])
+        base.pop("ai_summary", None)
+        base.pop("ai_final", None)
+
+        tmp_dir = Path("D:/Project/MyDailyNews/.codex_tmp_test/config_validation")
+        if tmp_dir.exists():
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        config_path = tmp_dir / "legacy_ai_only.json"
+        config_path.write_text(json.dumps(base, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        with self.assertRaisesRegex(ValueError, "Legacy config key 'ai' is no longer supported"):
+            load_config(config_path)
 
     def test_snapshot_window_uses_merged_latest_timestamp(self) -> None:
         now = utc_now()

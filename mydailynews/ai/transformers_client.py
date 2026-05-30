@@ -492,5 +492,5 @@ class TransformersAIClient(AIClient):
         return value
 
 
-# Backward compatibility alias used throughout the existing codebase and tools.
+# Convenience alias.
 LocalAIClient = TransformersAIClient
