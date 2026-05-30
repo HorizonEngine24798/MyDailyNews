@@ -15,7 +15,7 @@ The runtime now favors fewer, smaller local-model calls:
 ```text
 fetch/dedupe
 -> heuristic prefilter
--> headline scoring LLM (score + one-sentence summary only)
+-> headline scoring LLM (score only)
 -> article fulltext fetch
 -> optional non-LLM enrichment
 -> one-shot final brief synthesis
@@ -39,6 +39,12 @@ Debug logs:
 
 ```powershell
 python main.py --config config.json --debug
+```
+
+With `--debug`, the CLI also saves a structured analytics artifact:
+
+```text
+output/diagnostics/analytics/YYYYMMDD_HHMMSS_debug_analytics.json
 ```
 
 No enrichment:
@@ -75,8 +81,7 @@ The summary stage is intentionally cheap. It only returns:
   "decisions": [
     {
       "id": "candidate id",
-      "score": 8.0,
-      "summary": "one short sentence"
+      "score": 8.0
     }
   ]
 }

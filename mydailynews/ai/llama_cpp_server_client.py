@@ -8,7 +8,7 @@ import requests
 from ..debug import DebugLogger
 from ..models import AIConfig
 from ..utils import safe_json_load
-from .base import AIClient, AIJsonError, AITransportError, JSONSchemaSpec
+from .base import AIClient, AIJsonError, AITransportError, JSONSchemaSpec, write_ai_json_artifact, write_ai_text_artifact
 
 
 class LlamaCppServerClient(AIClient):
@@ -58,10 +58,13 @@ class LlamaCppServerClient(AIClient):
         target_max_new = max(64, int(max_new_tokens or self.max_new_tokens))
         last_response_chars = 0
         last_error = ""
+        last_response_text = ""
+        last_failure: Dict[str, Any] = {}
 
         for attempt in range(1, attempts + 1):
             attempt_user = self._retry_user_prompt(user) if attempt > 1 else user
             payload = self._build_payload(system, attempt_user, target_max_new, json_schema=json_schema)
+            input_tokens = self.estimate_tokens(f"System:\n{system}\n\nUser:\n{attempt_user}")
             self.debug.log(
                 "ai.request",
                 label,
@@ -86,9 +89,12 @@ class LlamaCppServerClient(AIClient):
                     attempt=f"{attempt}/{attempts}",
                     error=last_error,
                 )
+                self.debug.record_ai(label=label, status="transport_error", input_tokens=input_tokens, estimated=True)
                 continue
 
             last_response_chars = len(text)
+            last_response_text = text
+            output_tokens = self.estimate_tokens(text)
             parsed = safe_json_load(text)
             if parsed is not None:
                 self.debug.log(
@@ -98,8 +104,28 @@ class LlamaCppServerClient(AIClient):
                     attempt=f"{attempt}/{attempts}",
                     response_chars=len(text),
                 )
+                self.debug.record_ai(
+                    label=label,
+                    status="ok",
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    response_chars=len(text),
+                    estimated=True,
+                )
                 return parsed
 
+            last_failure = {
+                "label": label,
+                "backend": self.config.backend,
+                "model": self.config.effective_model_label,
+                "attempt": attempt,
+                "attempts": attempts,
+                "system_prompt": system,
+                "user_prompt": attempt_user,
+                "max_new_tokens_requested": target_max_new,
+                "response_chars": len(text),
+                "raw_response": text,
+            }
             self.debug.log(
                 "ai.response",
                 label,
@@ -107,12 +133,29 @@ class LlamaCppServerClient(AIClient):
                 attempt=f"{attempt}/{attempts}",
                 response_chars=len(text),
             )
+            self.debug.record_ai(
+                label=label,
+                status="invalid_json",
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                response_chars=len(text),
+                estimated=True,
+            )
 
         if last_error:
             raise AITransportError(f"{label}: request failed after {attempts} attempt(s): {last_error}")
+        artifact_path = ""
+        raw_response_path = ""
+        if last_failure:
+            raw_response_path, artifact_path = self._write_invalid_json_artifacts(label, last_failure)
         raise AIJsonError(
             f"{label}: model did not return valid JSON after {attempts} attempt(s); "
             f"last response had {last_response_chars} characters"
+            + (f"; raw response saved to {raw_response_path}" if raw_response_path else ""),
+            artifact_path=artifact_path,
+            raw_response_path=raw_response_path,
+            raw_response=last_response_text,
+            diagnostics=last_failure,
         )
 
     def _build_payload(
@@ -217,3 +260,22 @@ class LlamaCppServerClient(AIClient):
         if base.endswith("/v1"):
             return base
         return base + "/v1"
+
+    def _write_invalid_json_artifacts(self, label: str, details: Dict[str, Any]) -> tuple[str, str]:
+        try:
+            raw_response = str(details.get("raw_response", ""))
+            raw_response_path = write_ai_text_artifact("ai_invalid_json", label, raw_response)
+            payload = dict(details)
+            payload["raw_response_path"] = raw_response_path
+            artifact_path = write_ai_json_artifact("ai_invalid_json", label, payload)
+            self.debug.log(
+                "ai.response",
+                "invalid_json_saved",
+                label=label,
+                raw_response_path=raw_response_path,
+                artifact_path=artifact_path,
+            )
+            return raw_response_path, artifact_path
+        except Exception as exc:
+            self.debug.log("ai.response", "invalid_json_save_failed", label=label, error=type(exc).__name__)
+            return "", ""

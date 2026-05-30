@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+import shutil
 import sys
 import time
 import types
@@ -16,6 +18,7 @@ if "trafilatura" not in sys.modules:
 
 from mydailynews.ai.headline_analyzer import HeadlineAnalyzer
 from mydailynews.brief import BriefGenerator
+from mydailynews.debug import DebugLogger
 from mydailynews.config import _worker_count
 from mydailynews.models import (
     GoogleNewsSourceConfig,
@@ -47,6 +50,69 @@ def _candidate(source: str, topic: str = "", published_at=None) -> NewsCandidate
 
 
 class PipelineBasicsTests(unittest.TestCase):
+    def test_debug_analytics_collects_timings_counts_and_artifact(self) -> None:
+        debug = DebugLogger(True)
+        with debug.span("pipeline.total"):
+            with debug.span("snapshot.total"):
+                with debug.span("snapshot.rss_fetch"):
+                    time.sleep(0.001)
+                with debug.span("snapshot.topic_fetch"):
+                    time.sleep(0.001)
+                with debug.span("snapshot.merge"):
+                    time.sleep(0.001)
+            with debug.span("headline.shared.total"):
+                time.sleep(0.001)
+            with debug.span("brief.general.total"):
+                with debug.span("brief.general.candidate_prepare"):
+                    time.sleep(0.001)
+                with debug.span("brief.general.headline_limit"):
+                    time.sleep(0.001)
+                with debug.span("brief.general.headline_decisions"):
+                    time.sleep(0.001)
+                with debug.span("brief.general.headline_select"):
+                    time.sleep(0.001)
+                with debug.span("brief.general.article_fetch"):
+                    time.sleep(0.001)
+                with debug.span("brief.general.enrichment"):
+                    time.sleep(0.001)
+                with debug.span("brief.general.final_brief"):
+                    time.sleep(0.001)
+                with debug.span("brief.general.write_output"):
+                    time.sleep(0.001)
+        debug.set_metric("pipeline.status", "completed")
+        debug.set_metric("pipeline.outputs", 1)
+        debug.set_metric("snapshot.raw_candidates", 12)
+        debug.set_metric("snapshot.rss_candidates", 7)
+        debug.set_metric("snapshot.topic_candidates", 5)
+        debug.set_metric("snapshot.unique_candidates", 10)
+        debug.set_metric("headline.shared.union_candidates", 8)
+        debug.set_metric("headline.shared.decisions", 6)
+        debug.set_metric("brief.general.unique_candidates", 10)
+        debug.set_metric("brief.general.limited_candidates", 8)
+        debug.set_metric("brief.general.decisions", 6)
+        debug.set_metric("brief.general.selected", 4)
+        debug.set_metric("brief.general.article_fetch.attempted", 4)
+        debug.set_metric("brief.general.article_fetch.ok", 3)
+        debug.set_metric("brief.general.article_fetch.short_text", 1)
+        debug.set_metric("brief.general.article_fetch.failed", 0)
+        debug.record_ai(label="headline scoring batch 1/1 (shared)", status="ok", input_tokens=120, output_tokens=42)
+
+        lines = debug.analytics_summary_lines()
+        self.assertTrue(any("pipeline total=" in line for line in lines))
+        self.assertTrue(any("snapshot timings" in line for line in lines))
+        self.assertTrue(any("general timings" in line for line in lines))
+        self.assertTrue(any("ai requests=1" in line for line in lines))
+
+        tmpdir = Path("D:/Project/MyDailyNews/.codex_tmp_test/debug_analytics")
+        if tmpdir.exists():
+            shutil.rmtree(tmpdir, ignore_errors=True)
+        tmpdir.mkdir(parents=True, exist_ok=True)
+        artifact_path = debug.write_analytics_artifact(tmpdir)
+        self.assertTrue(artifact_path.endswith("_debug_analytics.json"))
+        with open(artifact_path, "r", encoding="utf-8") as handle:
+            payload = handle.read()
+        self.assertIn("\"enabled\": true", payload)
+
     def test_rss_parallel_fetch_preserves_source_order(self) -> None:
         since = utc_now() - timedelta(hours=4)
         sources = [
@@ -137,6 +203,66 @@ class PipelineBasicsTests(unittest.TestCase):
         )
         decisions = analyzer.analyze([candidate], UserMemory(), topics, "Detailed AI policy brief.")
         self.assertEqual(decisions["example:ai"].topic, "AI policy")
+
+    def test_shared_snapshot_scoring_unions_candidates_once(self) -> None:
+        import mydailynews.orchestrator as orchestrator_module
+
+        shared = _candidate("shared", topic="AI policy")
+        general_only = _candidate("general-only", topic="World")
+        detailed_only = _candidate("detailed-only", topic="AI policy")
+
+        orchestrator = object.__new__(NewsOrchestrator)
+        orchestrator.config = types.SimpleNamespace(
+            general_filtering=types.SimpleNamespace(time_window_hours=36, max_headlines_per_ai_batch=6),
+            filtering=types.SimpleNamespace(time_window_hours=24, max_headlines_per_ai_batch=4),
+            user_memory=UserMemory(),
+            cache=types.SimpleNamespace(synth_fresh_seconds=0),
+        )
+        orchestrator.debug = DebugLogger(False)
+        orchestrator.summary_ai_client = object()
+        orchestrator.synth_cache = None
+
+        def fake_snapshot_candidates(_snapshot, _since):
+            return [], [], [shared, general_only, detailed_only]
+
+        def fake_limit(_candidates, topics, filtering, _since):
+            if filtering is orchestrator.config.general_filtering:
+                return [shared, general_only]
+            self.assertIs(filtering, orchestrator.config.filtering)
+            return [shared, detailed_only]
+
+        orchestrator._snapshot_candidates_for_brief = fake_snapshot_candidates  # type: ignore[method-assign]
+        orchestrator.limit_candidates_for_ai = fake_limit  # type: ignore[method-assign]
+
+        calls: list[object] = []
+        original_analyzer = orchestrator_module.HeadlineAnalyzer
+
+        class _FakeHeadlineAnalyzer:
+            def __init__(self, _client, batch_size, *_args, **_kwargs) -> None:
+                self.warnings = []
+                calls.append(batch_size)
+
+            def analyze(self, candidates, *_args, **_kwargs):
+                calls.append([candidate.id for candidate in candidates])
+                return {candidate.id: HeadlineDecision(candidate_id=candidate.id, score=7.0) for candidate in candidates}
+
+        orchestrator_module.HeadlineAnalyzer = _FakeHeadlineAnalyzer
+        try:
+            candidates_by_brief, decisions, warnings = orchestrator._score_snapshot_headlines_once(
+                types.SimpleNamespace(merged_candidates=[shared, general_only, detailed_only]),
+                utc_now(),
+                [TopicConfig(name="World")],
+                [TopicConfig(name="AI policy")],
+            )
+        finally:
+            orchestrator_module.HeadlineAnalyzer = original_analyzer
+
+        self.assertEqual(candidates_by_brief["general"], [shared, general_only])
+        self.assertEqual(candidates_by_brief["detailed"], [shared, detailed_only])
+        self.assertEqual(calls[0], 4)
+        self.assertEqual(calls[1], [shared.id, general_only.id, detailed_only.id])
+        self.assertEqual(set(decisions.keys()), {shared.id, general_only.id, detailed_only.id})
+        self.assertEqual(warnings, [])
 
     def test_brief_generator_can_trim_prompt_and_keep_output_shape(self) -> None:
         class _DummyClient:

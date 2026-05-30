@@ -4,7 +4,7 @@ import json
 import re
 from typing import Any, Dict, List
 
-from .base import AIClient, AIJsonError
+from .base import AIClient, AIJsonError, write_ai_json_artifact
 from .prompts import HEADLINE_ANALYSIS_SYSTEM, HEADLINE_ANALYSIS_USER
 from .schemas import HEADLINE_ANALYSIS_JSON_SCHEMA
 from ..cache import JSONCache
@@ -48,6 +48,7 @@ class HeadlineAnalyzer:
         candidate_payloads = [(item, self._candidate_payload(item)) for item in candidates]
         batches = self._build_batches(candidate_payloads, memory, topics, brief_goal)
         self.debug.log("headline.ai", "starting batched scoring", candidates=len(candidates), batches=len(batches), batch_size=self.batch_size)
+        self.debug.set_metric("headline.scoring.batch_size", self.batch_size)
 
         decisions: Dict[str, HeadlineDecision] = {}
         for batch_index, batch in enumerate(batches, start=1):
@@ -78,14 +79,12 @@ class HeadlineAnalyzer:
         batch_index: int,
         total_batches: int,
     ) -> Dict[str, HeadlineDecision]:
-        user_prompt = HEADLINE_ANALYSIS_USER.format(
-            memory=memory.to_prompt(),
-            brief_goal=brief_goal,
-            topics=_compact_json(self._topics_payload(topics)),
-            items=_compact_json(payload),
-        )
+        user_prompt = self._build_user_prompt(memory, topics, brief_goal, payload)
         target_input_tokens = max(1024, int(self.client.max_input_tokens * 0.84))
-        dynamic_max_new_tokens = min(self.client.max_new_tokens, max(192, 56 * len(candidates)))
+        # Give multi-headline batches much more room to finish structured output.
+        # The scorer is cheap relative to the writer, so a larger generation ceiling
+        # is worth it to avoid mid-JSON truncation and omitted decisions.
+        dynamic_max_new_tokens = min(self.client.max_new_tokens, max(320, 128 * len(candidates)))
         self.debug.log(
             "headline.ai.batch",
             "scoring",
@@ -107,6 +106,7 @@ class HeadlineAnalyzer:
                     batch=f"{batch_index}/{total_batches}",
                     items=len(candidates),
                 )
+                self.debug.increment("headline.ai.cache_hits", 1)
                 return self._parse_batch_result(cached, candidates, topics, label, batch_index, total_batches)
 
         try:
@@ -120,6 +120,21 @@ class HeadlineAnalyzer:
             )
         except AIJsonError as exc:
             warning = f"{label}: skipped {len(candidates)} headline(s) after invalid JSON: {exc}"
+            self.debug.increment("headline.ai.invalid_json_batches", 1)
+            self.debug.increment("headline.ai.invalid_json_items", len(candidates))
+            if self.debug.enabled and len(candidates) > 1:
+                replay_path = self._debug_single_item_replay(
+                    candidates,
+                    payload,
+                    memory,
+                    topics,
+                    brief_goal,
+                    brief_name,
+                    batch_index,
+                    total_batches,
+                )
+                if replay_path:
+                    warning += f"; single-item replay saved to {replay_path}"
             self.warnings.append(warning)
             self.debug.log("headline.ai.batch", "skipped_invalid_json", batch=f"{batch_index}/{total_batches}", items=len(candidates))
             return {}
@@ -153,7 +168,7 @@ class HeadlineAnalyzer:
             decisions[candidate_id] = HeadlineDecision(
                 candidate_id=candidate_id,
                 score=max(0.0, min(10.0, score)),
-                topic=self._best_topic_for_candidate(candidate, topics),
+                topic=self.best_topic_for_candidate(candidate, topics),
             )
 
         missing = [item for item in candidates if item.id not in decisions]
@@ -164,6 +179,7 @@ class HeadlineAnalyzer:
                 f"first missing id(s): {missing_ids}"
             )
             self.warnings.append(warning)
+            self.debug.increment("headline.ai.missing_decisions", len(missing))
             self.debug.log("headline.ai.batch", "incomplete", batch=f"{batch_index}/{total_batches}", missing=len(missing))
         self.debug.log(
             "headline.ai.batch",
@@ -192,6 +208,85 @@ class HeadlineAnalyzer:
         }
         return JSONCache.make_key(_compact_json(fingerprint))
 
+    def _debug_single_item_replay(
+        self,
+        candidates: List[NewsCandidate],
+        payload: List[Dict[str, Any]],
+        memory: UserMemory,
+        topics: List[TopicConfig],
+        brief_goal: str,
+        brief_name: str,
+        batch_index: int,
+        total_batches: int,
+    ) -> str:
+        results: List[Dict[str, Any]] = []
+        target_input_tokens = max(1024, int(self.client.max_input_tokens * 0.84))
+        for item, item_payload in zip(candidates, payload):
+            label = f"headline scoring single replay {batch_index}/{total_batches} ({brief_name or 'shared'}) [{item.id}]"
+            user_prompt = self._build_user_prompt(memory, topics, brief_goal, [item_payload])
+            dynamic_max_new_tokens = min(self.client.max_new_tokens, 192)
+            try:
+                result = self.client.complete_json(
+                    HEADLINE_ANALYSIS_SYSTEM,
+                    user_prompt,
+                    label=label,
+                    max_new_tokens=dynamic_max_new_tokens,
+                    input_token_limit=target_input_tokens,
+                    json_schema=HEADLINE_ANALYSIS_JSON_SCHEMA,
+                )
+                results.append(
+                    {
+                        "candidate_id": item.id,
+                        "status": "ok",
+                        "result": result,
+                    }
+                )
+            except AIJsonError as exc:
+                results.append(
+                    {
+                        "candidate_id": item.id,
+                        "status": "invalid_json",
+                        "error": str(exc),
+                        "artifact_path": exc.artifact_path,
+                        "raw_response_path": exc.raw_response_path,
+                    }
+                )
+            except Exception as exc:
+                results.append(
+                    {
+                        "candidate_id": item.id,
+                        "status": "exception",
+                        "error": f"{type(exc).__name__}: {exc}",
+                    }
+                )
+        try:
+            return write_ai_json_artifact(
+                "headline_single_replay",
+                f"batch_{batch_index}_{brief_name or 'shared'}",
+                {
+                    "brief_name": brief_name or "shared",
+                    "batch": f"{batch_index}/{total_batches}",
+                    "candidate_ids": [item.id for item in candidates],
+                    "results": results,
+                },
+            )
+        except Exception:
+            return ""
+
+    def _build_user_prompt(
+        self,
+        memory: UserMemory,
+        topics: List[TopicConfig],
+        brief_goal: str,
+        payload: List[Dict[str, Any]],
+    ) -> str:
+        return HEADLINE_ANALYSIS_USER.format(
+            memory=memory.to_prompt(),
+            brief_goal=brief_goal,
+            topics=_compact_json(self._topics_payload(topics)),
+            items=_compact_json(payload),
+        )
+
     def _build_batches(
         self,
         payloads: List[tuple[NewsCandidate, Dict[str, Any]]],
@@ -202,12 +297,7 @@ class HeadlineAnalyzer:
         if not payloads:
             return []
 
-        base_prompt = HEADLINE_ANALYSIS_USER.format(
-            memory=memory.to_prompt(),
-            brief_goal=brief_goal,
-            topics=_compact_json(self._topics_payload(topics)),
-            items="[]",
-        )
+        base_prompt = self._build_user_prompt(memory, topics, brief_goal, [])
         base_tokens = self.client.estimate_tokens(base_prompt)
         target_input_tokens = max(1024, int(self.client.max_input_tokens * 0.84))
 
@@ -253,7 +343,8 @@ class HeadlineAnalyzer:
             if topic.enabled
         ]
 
-    def _best_topic_for_candidate(self, item: NewsCandidate, topics: List[TopicConfig]) -> str:
+    @classmethod
+    def best_topic_for_candidate(cls, item: NewsCandidate, topics: List[TopicConfig]) -> str:
         topic_name = str(item.metadata.get("topic_name", "")).strip()
         if topic_name:
             return topic_name
@@ -263,7 +354,7 @@ class HeadlineAnalyzer:
         for topic in topics:
             if not topic.enabled:
                 continue
-            score = self._topic_match_score(item, topic)
+            score = cls._topic_match_score(item, topic)
             if score > best_score:
                 best_score = score
                 best_topic = topic.name

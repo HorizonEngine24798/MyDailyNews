@@ -10,7 +10,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, StoppingCriteria, 
 from ..debug import DebugLogger
 from ..models import AIConfig
 from ..utils import safe_json_load
-from .base import AIClient, AIJsonError, JSONSchemaSpec
+from .base import AIClient, AIJsonError, JSONSchemaSpec, write_ai_json_artifact, write_ai_text_artifact
 
 
 class _GenerationProgressCriteria(StoppingCriteria):
@@ -115,6 +115,8 @@ class TransformersAIClient(AIClient):
         self._ensure_loaded()
         attempts = max(1, self.config.json_retries + 1)
         last_response_chars = 0
+        last_response_text = ""
+        last_failure: Dict[str, Any] = {}
 
         target_max_new_tokens = max(64, int(max_new_tokens or self.max_new_tokens))
         target_input_limit = max(512, int(input_token_limit or self._input_limit_for_generation(target_max_new_tokens)))
@@ -136,13 +138,14 @@ class TransformersAIClient(AIClient):
                 max_input_tokens=target_input_limit,
             )
 
-            text, input_tokens = self._generate_with_oom_backoff(
+            text, input_tokens, generated_tokens, used_max_new_tokens, used_input_limit = self._generate_with_oom_backoff(
                 prompt,
                 max_new_tokens=target_max_new_tokens,
                 input_token_limit=target_input_limit,
                 label=label,
             )
             last_response_chars = len(text)
+            last_response_text = text
             parsed = safe_json_load(text)
             if parsed is not None:
                 self.debug.log(
@@ -153,8 +156,32 @@ class TransformersAIClient(AIClient):
                     input_tokens=input_tokens,
                     response_chars=len(text),
                 )
+                self.debug.record_ai(
+                    label=label,
+                    status="ok",
+                    input_tokens=input_tokens,
+                    output_tokens=generated_tokens,
+                    response_chars=len(text),
+                )
                 return parsed
 
+            last_failure = {
+                "label": label,
+                "backend": self.config.backend,
+                "model": self.config.model_id,
+                "attempt": attempt,
+                "attempts": attempts,
+                "system_prompt": system,
+                "user_prompt": attempt_user,
+                "input_tokens": input_tokens,
+                "generated_tokens": generated_tokens,
+                "max_new_tokens_requested": target_max_new_tokens,
+                "max_new_tokens_used": used_max_new_tokens,
+                "input_token_limit_requested": target_input_limit,
+                "input_token_limit_used": used_input_limit,
+                "response_chars": len(text),
+                "raw_response": text,
+            }
             self.debug.log(
                 "ai.response",
                 label,
@@ -163,10 +190,26 @@ class TransformersAIClient(AIClient):
                 input_tokens=input_tokens,
                 response_chars=len(text),
             )
+            self.debug.record_ai(
+                label=label,
+                status="invalid_json",
+                input_tokens=input_tokens,
+                output_tokens=generated_tokens,
+                response_chars=len(text),
+            )
 
+        artifact_path = ""
+        raw_response_path = ""
+        if last_failure:
+            raw_response_path, artifact_path = self._write_invalid_json_artifacts(label, last_failure)
         raise AIJsonError(
             f"{label}: model did not return valid JSON after {attempts} attempt(s); "
             f"last response had {last_response_chars} characters"
+            + (f"; raw response saved to {raw_response_path}" if raw_response_path else ""),
+            artifact_path=artifact_path,
+            raw_response_path=raw_response_path,
+            raw_response=last_response_text,
+            diagnostics=last_failure,
         )
 
     def _generate_with_oom_backoff(
@@ -176,18 +219,19 @@ class TransformersAIClient(AIClient):
         max_new_tokens: int,
         input_token_limit: int,
         label: str,
-    ) -> Tuple[str, int]:
+    ) -> Tuple[str, int, int, int, int]:
         current_max_new = max(64, int(max_new_tokens))
         current_input_limit = max(512, int(input_token_limit))
 
         for oom_attempt in range(1, 5):
             try:
-                return self._generate(
+                text, input_tokens, generated_tokens = self._generate(
                     prompt,
                     max_new_tokens=current_max_new,
                     input_token_limit=current_input_limit,
                     label=label,
                 )
+                return text, input_tokens, generated_tokens, current_max_new, current_input_limit
             except Exception as exc:
                 if not self._is_oom_error(exc):
                     raise
@@ -207,7 +251,7 @@ class TransformersAIClient(AIClient):
                 )
         raise RuntimeError(f"{label}: generation failed unexpectedly")
 
-    def _generate(self, prompt: str, *, max_new_tokens: int, input_token_limit: int, label: str) -> Tuple[str, int]:
+    def _generate(self, prompt: str, *, max_new_tokens: int, input_token_limit: int, label: str) -> Tuple[str, int, int]:
         self._cleanup_cuda(reason="pre_generate")
         encoded = self.tokenizer(
             prompt,
@@ -265,12 +309,31 @@ class TransformersAIClient(AIClient):
                 elapsed_sec=round(elapsed, 2),
                 tokens_per_sec=round(generated_tokens / elapsed, 2),
             )
-            return text, input_tokens
+            return text, input_tokens, generated_tokens
         finally:
             del encoded
             if output is not None:
                 del output
             self._cleanup_cuda(reason="post_generate")
+
+    def _write_invalid_json_artifacts(self, label: str, details: Dict[str, Any]) -> Tuple[str, str]:
+        try:
+            raw_response = str(details.get("raw_response", ""))
+            raw_response_path = write_ai_text_artifact("ai_invalid_json", label, raw_response)
+            payload = dict(details)
+            payload["raw_response_path"] = raw_response_path
+            artifact_path = write_ai_json_artifact("ai_invalid_json", label, payload)
+            self.debug.log(
+                "ai.response",
+                "invalid_json_saved",
+                label=label,
+                raw_response_path=raw_response_path,
+                artifact_path=artifact_path,
+            )
+            return raw_response_path, artifact_path
+        except Exception as exc:
+            self.debug.log("ai.response", "invalid_json_save_failed", label=label, error=type(exc).__name__)
+            return "", ""
 
     def _input_limit_for_generation(self, max_new_tokens: int) -> int:
         context_limit = self._context_limit_tokens()

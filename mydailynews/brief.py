@@ -40,6 +40,7 @@ class BriefGenerator:
         prior_reports: List[PriorReport],
         brief_goal: str,
         date: str,
+        brief_name: str = "",
     ) -> Dict[str, Any]:
         self.warnings = []
         prompt, used_articles = self._build_prompt(
@@ -51,10 +52,13 @@ class BriefGenerator:
             date,
         )
         self.debug.log("brief.ai", "synthesizing", articles=len(used_articles), prompt_chars=len(prompt))
+        label = "final brief generation"
+        if brief_name:
+            label = f"{label} ({brief_name})"
         result = self.client.complete_json(
             BRIEF_SYSTEM,
             prompt,
-            label="final brief generation",
+            label=label,
             max_new_tokens=self.max_new_tokens,
             input_token_limit=self.input_token_limit,
             json_schema=FINAL_BRIEF_JSON_SCHEMA,

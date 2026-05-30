@@ -37,6 +37,19 @@ def _print_model_presets() -> None:
         print(f"  source: {meta['source']}")
 
 
+def _print_debug_analytics(orchestrator, output_dir: str) -> None:
+    analytics_path = orchestrator.debug.write_analytics_artifact(output_dir)
+    lines = orchestrator.debug.analytics_summary_lines()
+    if not lines and not analytics_path:
+        return
+    print("")
+    print("Debug Analytics:")
+    for line in lines:
+        print(f"- {line}")
+    if analytics_path:
+        print(f"Analytics JSON:       {analytics_path}")
+
+
 def main() -> int:
     args = build_parser().parse_args()
     if args.list_model_presets:
@@ -55,7 +68,23 @@ def main() -> int:
 
     from mydailynews.orchestrator import NewsOrchestrator
 
-    result = NewsOrchestrator(config, debug=args.debug).run()
+    orchestrator = NewsOrchestrator(config, debug=args.debug)
+    result = None
+    run_error: Exception | None = None
+    try:
+        result = orchestrator.run()
+    except Exception as exc:
+        run_error = exc
+    finally:
+        if args.debug:
+            _print_debug_analytics(orchestrator, config.output_dir)
+
+    if run_error is not None:
+        if isinstance(run_error, RuntimeError):
+            print(f"Run failed: {run_error}")
+            return 1
+        raise run_error
+
     for output in result.outputs:
         print(f"{output.name.title()} markdown brief: {output.markdown_path}")
         print(f"{output.name.title()} JSON brief:     {output.json_path}")
