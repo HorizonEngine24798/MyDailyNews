@@ -152,9 +152,9 @@ Practical recommendation:
 2. Keep contracts minimal and stable.
 3. Validate semantic completeness after parse (not only JSON syntax).
 
-## Known Gap
+## Budget Enforcement Status
 
-As of current implementation, `input_token_limit` is not strictly enforced on the `llama_cpp_server` path (it is accepted by the call interface but not hard-trimmed client-side). Keep prompt budgets conservative until backend parity is tightened.
+As of May 30, 2026, `input_token_limit` is enforced on the `llama_cpp_server` path via client-side prompt fitting before request submission. Backend budget behavior is now aligned with the configured prompt-budget abstraction.
 
 ## Android Porting Note
 

@@ -9,20 +9,34 @@ Horizon: https://github.com/Thysrael/Horizon
 License: MIT
 """
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timedelta
-from pathlib import Path
-import re
 from typing import Dict, List
 from urllib.parse import urlparse
 
 from .ai.base import set_ai_artifact_root
 from .ai.factory import create_ai_client
 from .ai.headline_analyzer import HeadlineAnalyzer
+from .article_pipeline import (
+    populate_article_texts as populate_article_texts_batch,
+    record_article_fetch_metrics as record_article_fetch_metrics_helper,
+    record_enrichment_metrics as record_enrichment_metrics_helper,
+)
 from .cache import HTTPCache, JSONCache
-from .brief import BriefGenerator, brief_metadata
+from .brief_execution import run_brief as run_brief_helper
 from .debug import DebugLogger
-from .enrichment import SimpleEnricher
+from .headline_selection import (
+    candidate_heuristic_score as candidate_heuristic_score_helper,
+    candidate_topic_match as candidate_topic_match_helper,
+    decisions_for_brief as decisions_for_brief_helper,
+    dedupe_similar_titles as dedupe_similar_titles_helper,
+    heuristic_ranked_candidates as heuristic_ranked_candidates_helper,
+    limit_candidates_for_ai as limit_candidates_for_ai_helper,
+    select_articles as select_articles_helper,
+    sort_by_heuristic_then_time as sort_by_heuristic_then_time_helper,
+    title_dedupe_key as title_dedupe_key_helper,
+    tokenize_for_match as tokenize_for_match_helper,
+    topic_is_enabled as topic_is_enabled_helper,
+    union_candidates_by_id as union_candidates_by_id_helper,
+)
 from .models import (
     AppConfig,
     BriefOutput,
@@ -35,11 +49,17 @@ from .models import (
     SelectedArticle,
     TopicConfig,
 )
-from .output import write_json, write_markdown
 from .retrieval.article import ArticleRetriever
 from .retrieval.google_news import GoogleNewsQueryRetriever
 from .retrieval.reports import PriorReportRetriever
 from .scrapers.rss import RSSScraper
+from .shared_headline_scoring import score_snapshot_headlines_once as score_snapshot_headlines_once_helper
+from .snapshot_helpers import (
+    build_snapshot as build_snapshot_helper,
+    candidate_in_window as candidate_in_window_helper,
+    merge_topics_for_snapshot as merge_topics_for_snapshot_helper,
+    snapshot_candidates_for_brief as snapshot_candidates_for_brief_helper,
+)
 from .utils import datetime_to_iso, normalize_url, utc_now
 
 
@@ -178,238 +198,34 @@ class NewsOrchestrator:
         limited_candidates_override: List[NewsCandidate] | None = None,
         shared_decisions: Dict[str, HeadlineDecision] | None = None,
     ) -> BriefOutput:
-        with self.debug.span(f"brief.{name}.total"):
-            since = now - timedelta(hours=filtering.time_window_hours)
-            run_warnings: List[str] = []
-            self.debug.set_metric(f"brief.{name}.status", "running")
-            self.debug.log(
-                "brief.run",
-                "starting",
-                name=name,
-                topics=len(topics),
-                max_candidates=filtering.max_candidates_for_ai,
-                ai_batch_size=filtering.max_headlines_per_ai_batch,
-                cutoff=filtering.headline_score_cutoff,
-                max_selected=filtering.max_selected_articles,
-                fill=filtering.fill_selected_articles,
-            )
-
-            try:
-                unique_candidates: List[NewsCandidate]
-                raw_candidate_count = 0
-                rss_candidate_count = 0
-                topic_candidate_count = 0
-                with self.debug.span(f"brief.{name}.candidate_prepare"):
-                    if snapshot:
-                        run_warnings.extend(str(item) for item in snapshot.metadata.get("warnings", []))
-                        rss_candidates, topic_candidates, unique_candidates = self._snapshot_candidates_for_brief(snapshot, since)
-                        raw_candidate_count = len(rss_candidates) + len(topic_candidates)
-                        rss_candidate_count = len(rss_candidates)
-                        topic_candidate_count = len(topic_candidates)
-                        self.debug.log(
-                            "headline.fetch",
-                            "reused_snapshot",
-                            brief=name,
-                            snapshot_since=snapshot.fetched_since,
-                            raw_candidates=raw_candidate_count,
-                            rss_candidates=rss_candidate_count,
-                            topic_candidates=topic_candidate_count,
-                            unique_candidates=len(unique_candidates),
-                            prior_reports=len(prior_reports),
-                        )
-                    else:
-                        with self.debug.span(f"brief.{name}.headline_fetch"):
-                            candidates = self.fetch_headlines(since, filtering.max_headlines_per_source, run_warnings)
-                            topic_candidates = self.fetch_topic_headlines(topics, since, run_warnings)
-                        candidates.extend(topic_candidates)
-                        raw_candidate_count = len(candidates)
-                        rss_candidate_count = len(candidates) - len(topic_candidates)
-                        topic_candidate_count = len(topic_candidates)
-                        self.debug.log(
-                            "headline.fetch",
-                            "complete",
-                            brief=name,
-                            raw_candidates=raw_candidate_count,
-                            rss_candidates=rss_candidate_count,
-                            topic_candidates=topic_candidate_count,
-                            prior_reports=len(prior_reports),
-                        )
-                        unique_candidates = self.merge_url_duplicates(candidates)
-                        self.debug.log("headline.dedupe", "complete", brief=name, unique_candidates=len(unique_candidates))
-                self.debug.set_metric(f"brief.{name}.raw_candidates", raw_candidate_count)
-                self.debug.set_metric(f"brief.{name}.rss_candidates", rss_candidate_count)
-                self.debug.set_metric(f"brief.{name}.topic_candidates", topic_candidate_count)
-                self.debug.set_metric(f"brief.{name}.unique_candidates", len(unique_candidates))
-
-                if not unique_candidates:
-                    run_warnings.append(f"{name}: No live headline candidates were fetched.")
-                with self.debug.span(f"brief.{name}.headline_limit"):
-                    if limited_candidates_override is None:
-                        limited_candidates = self.limit_candidates_for_ai(unique_candidates, topics, filtering, since)
-                        self.debug.log("headline.limit", "complete", brief=name, candidates_for_ai=len(limited_candidates))
-                    else:
-                        limited_candidates = list(limited_candidates_override)
-                        self.debug.log("headline.limit", "reused_shared_prefilter", brief=name, candidates_for_ai=len(limited_candidates))
-                self.debug.set_metric(f"brief.{name}.limited_candidates", len(limited_candidates))
-
-                with self.debug.span(f"brief.{name}.headline_decisions"):
-                    if shared_decisions is None:
-                        # Batch size is configurable; smaller values trade speed for reliability on constrained hardware.
-                        headline_analyzer = HeadlineAnalyzer(
-                            self.summary_ai_client,
-                            max(1, int(filtering.max_headlines_per_ai_batch)),
-                            self.debug,
-                            cache=self.synth_cache,
-                            cache_ttl_seconds=self.config.cache.synth_fresh_seconds,
-                        )
-                        decisions = headline_analyzer.analyze(
-                            limited_candidates,
-                            self.config.user_memory,
-                            topics,
-                            brief_goal,
-                            brief_name=name,
-                        )
-                        run_warnings.extend(headline_analyzer.warnings)
-                        self.debug.log("headline.decisions", "complete", brief=name, decisions=len(decisions))
-                    else:
-                        decisions = self._decisions_for_brief(limited_candidates, shared_decisions, topics)
-                        self.debug.log("headline.decisions", "reused_shared", brief=name, decisions=len(decisions))
-                self.debug.set_metric(f"brief.{name}.decisions", len(decisions))
-
-                with self.debug.span(f"brief.{name}.headline_select"):
-                    selected = self.select_articles(limited_candidates, decisions, topics, filtering)
-                self.debug.set_metric(f"brief.{name}.selected", len(selected))
-                self.debug.log("headline.select", "complete", brief=name, selected=len(selected))
-                if not selected:
-                    self.debug.set_metric(f"brief.{name}.status", "failed")
-                    raise RuntimeError(
-                        f"{name}: selected 0 articles from {len(limited_candidates)} scored candidates; "
-                        "aborting before final synthesis. Check output/diagnostics for scorer failure artifacts."
-                    )
-
-                article_retriever = ArticleRetriever(
-                    self.config.user_agent,
-                    filtering.article_text_max_chars,
-                    http_cache=self.http_cache,
-                    cache_fresh_seconds=self.config.cache.http_fresh_seconds,
-                    debug=self.debug,
-                )
-                enricher = SimpleEnricher(
-                    self.config,
-                    http_cache=self.http_cache,
-                    debug=self.debug,
-                )
-                for article in selected:
-                    self.debug.log(
-                        "article",
-                        "selected",
-                        brief=name,
-                        score=article.decision.score,
-                        topic=article.decision.topic,
-                        source=article.candidate.source,
-                        title=article.candidate.title,
-                    )
-                with self.debug.span(f"brief.{name}.article_fetch"):
-                    self._populate_article_texts(name, selected, article_retriever, run_warnings)
-                self._record_article_fetch_metrics(name, selected)
-
-                with self.debug.span(f"brief.{name}.enrichment"):
-                    enricher.enrich_many(selected, max_workers=self.config.runtime.max_enrichment_workers)
-                self._record_enrichment_metrics(name, selected)
-
-                if self.summary_ai_client is not self.final_ai_client:
-                    self.summary_ai_client.unload()
-
-                brief_generator = BriefGenerator(
-                    self.final_ai_client,
-                    self.config.enrichment.max_context_chars_per_article,
-                    input_token_limit=self.config.ai_final.max_input_tokens,
-                    max_new_tokens=self.config.ai_final.max_new_tokens,
-                    debug=self.debug,
-                )
-                with self.debug.span(f"brief.{name}.final_brief"):
-                    brief = brief_generator.generate(
-                        selected,
-                        self.config.user_memory,
-                        topics,
-                        prior_reports,
-                        brief_goal,
-                        date,
-                        brief_name=name,
-                    )
-                self.final_ai_client.unload()
-                run_warnings.extend(enricher.warnings)
-                run_warnings.extend(brief_generator.warnings)
-                brief["metadata"] = brief_metadata(
-                    date=date,
-                    model=f"{self.config.ai_summary.backend}:{self.config.ai_summary.effective_model_label} -> "
-                    f"{self.config.ai_final.backend}:{self.config.ai_final.effective_model_label}",
-                    candidate_count=len(unique_candidates),
-                    selected_count=len(selected),
-                    topics=[topic.name for topic in topics],
-                    prior_reports_count=len(prior_reports),
-                    brief_name=name,
-                    warnings=run_warnings,
-                )
-
-                output_dir = Path(self.config.output_dir)
-                markdown_path = output_dir / f"{date}_{output_suffix}_brief.md"
-                json_path = output_dir / f"{date}_{output_suffix}_brief.json"
-                with self.debug.span(f"brief.{name}.write_output"):
-                    write_markdown(markdown_path, brief)
-                    write_json(json_path, brief)
-                self.warnings.extend(run_warnings)
-                self.debug.set_metric(f"brief.{name}.warnings", len(run_warnings))
-                self.debug.set_metric(f"brief.{name}.status", "completed")
-                self.debug.log("brief.run", "complete", name=name, markdown=markdown_path, json=json_path, warnings=len(run_warnings))
-
-                return BriefOutput(
-                    name=name,
-                    markdown_path=str(markdown_path),
-                    json_path=str(json_path),
-                    candidate_count=len(unique_candidates),
-                    selected_count=len(selected),
-                    warnings=run_warnings,
-                )
-            except Exception as exc:
-                self.debug.set_metric(f"brief.{name}.status", "failed")
-                self.debug.set_metric(f"brief.{name}.error", f"{type(exc).__name__}: {exc}")
-                raise
+        return run_brief_helper(
+            self,
+            name=name,
+            output_suffix=output_suffix,
+            topics=topics,
+            filtering=filtering,
+            prior_reports=prior_reports,
+            now=now,
+            date=date,
+            snapshot=snapshot,
+            brief_goal=brief_goal,
+            limited_candidates_override=limited_candidates_override,
+            shared_decisions=shared_decisions,
+        )
 
     def _record_article_fetch_metrics(self, brief_name: str, selected: List[SelectedArticle]) -> None:
-        self.debug.set_metric(f"brief.{brief_name}.article_fetch.attempted", len(selected))
-        status_counts: Dict[str, int] = {}
-        for article in selected:
-            status = article.extraction_status or "unknown"
-            status_counts[status] = status_counts.get(status, 0) + 1
-        ok = status_counts.get("ok", 0)
-        short_text = status_counts.get("short_text", 0)
-        failed = len(selected) - ok - short_text
-        self.debug.set_metric(f"brief.{brief_name}.article_fetch.ok", ok)
-        self.debug.set_metric(f"brief.{brief_name}.article_fetch.short_text", short_text)
-        self.debug.set_metric(f"brief.{brief_name}.article_fetch.failed", max(0, failed))
-        self.debug.increment("article.fetch.attempted", len(selected))
-        self.debug.increment("article.fetch.ok", ok)
-        self.debug.increment("article.fetch.short_text", short_text)
-        self.debug.increment("article.fetch.failed", max(0, failed))
+        record_article_fetch_metrics_helper(
+            brief_name=brief_name,
+            selected=selected,
+            debug=self.debug,
+        )
 
     def _record_enrichment_metrics(self, brief_name: str, selected: List[SelectedArticle]) -> None:
-        total = len(selected)
-        needed = sum(1 for article in selected if article.enrichment_needed)
-        skipped = total - needed
-        wiki_results = sum(len(article.wikipedia_context) for article in selected)
-        past_news_results = sum(len(article.past_news_context) for article in selected)
-        context_sources = sum(len(article.context_sources) for article in selected)
-        self.debug.set_metric(f"brief.{brief_name}.enrichment.total_articles", total)
-        self.debug.set_metric(f"brief.{brief_name}.enrichment.needed", needed)
-        self.debug.set_metric(f"brief.{brief_name}.enrichment.skipped", skipped)
-        self.debug.set_metric(f"brief.{brief_name}.enrichment.wikipedia_results", wiki_results)
-        self.debug.set_metric(f"brief.{brief_name}.enrichment.past_news_results", past_news_results)
-        self.debug.set_metric(f"brief.{brief_name}.enrichment.context_sources", context_sources)
-        self.debug.increment("enrichment.total_articles", total)
-        self.debug.increment("enrichment.needed", needed)
-        self.debug.increment("enrichment.skipped", skipped)
-        self.debug.increment("enrichment.context_sources", context_sources)
+        record_enrichment_metrics_helper(
+            brief_name=brief_name,
+            selected=selected,
+            debug=self.debug,
+        )
 
     def _score_snapshot_headlines_once(
         self,
@@ -418,90 +234,23 @@ class NewsOrchestrator:
         general_topics: List[TopicConfig],
         detailed_topics: List[TopicConfig],
     ) -> tuple[Dict[str, List[NewsCandidate]], Dict[str, HeadlineDecision], List[str]]:
-        with self.debug.span("headline.shared.total"):
-            general_since = now - timedelta(hours=self.config.general_filtering.time_window_hours)
-            detailed_since = now - timedelta(hours=self.config.filtering.time_window_hours)
-            _, _, general_candidates = self._snapshot_candidates_for_brief(snapshot, general_since)
-            _, _, detailed_candidates = self._snapshot_candidates_for_brief(snapshot, detailed_since)
-            candidates_by_brief = {
-                "general": self.limit_candidates_for_ai(
-                    general_candidates,
-                    general_topics,
-                    self.config.general_filtering,
-                    general_since,
-                ),
-                "detailed": self.limit_candidates_for_ai(
-                    detailed_candidates,
-                    detailed_topics,
-                    self.config.filtering,
-                    detailed_since,
-                ),
-            }
-            shared_candidates = self._union_candidates_by_id(
-                candidates_by_brief["general"],
-                candidates_by_brief["detailed"],
-            )
-            batch_sizes = [
-                max(1, int(self.config.general_filtering.max_headlines_per_ai_batch)),
-                max(1, int(self.config.filtering.max_headlines_per_ai_batch)),
-            ]
-            self.debug.set_metric("headline.shared.general_candidates", len(candidates_by_brief["general"]))
-            self.debug.set_metric("headline.shared.detailed_candidates", len(candidates_by_brief["detailed"]))
-            self.debug.set_metric("headline.shared.union_candidates", len(shared_candidates))
-            self.debug.set_metric("headline.shared.batch_size", min(batch_sizes))
-            self.debug.log(
-                "headline.shared",
-                "prepared",
-                general_candidates=len(candidates_by_brief["general"]),
-                detailed_candidates=len(candidates_by_brief["detailed"]),
-                union_candidates=len(shared_candidates),
-                batch_size=min(batch_sizes),
-            )
-            if not shared_candidates:
-                self.debug.set_metric("headline.shared.decisions", 0)
-                return candidates_by_brief, {}, []
-
-            headline_analyzer = HeadlineAnalyzer(
-                self.summary_ai_client,
-                min(batch_sizes),
-                self.debug,
-                cache=self.synth_cache,
-                cache_ttl_seconds=self.config.cache.synth_fresh_seconds,
-            )
-            shared_topics = self._merge_topics_for_snapshot(general_topics, detailed_topics)
-            shared_goal = (
-                "Shared headline scoring pass for both brief modes. Score each candidate for usefulness either to the "
-                "general daily brief or to the detailed topic brief. Favor important, relevant, fresh, high-signal "
-                "stories that are worth retrieving and reading in full."
-            )
-            decisions = headline_analyzer.analyze(
-                shared_candidates,
-                self.config.user_memory,
-                shared_topics,
-                shared_goal,
-                brief_name="shared",
-            )
-            self.debug.set_metric("headline.shared.decisions", len(decisions))
-            self.debug.log(
-                "headline.shared",
-                "complete",
-                union_candidates=len(shared_candidates),
-                decisions=len(decisions),
-                warnings=len(headline_analyzer.warnings),
-            )
-            return candidates_by_brief, decisions, headline_analyzer.warnings
+        return score_snapshot_headlines_once_helper(
+            snapshot=snapshot,
+            now=now,
+            general_topics=general_topics,
+            detailed_topics=detailed_topics,
+            config=self.config,
+            debug=self.debug,
+            summary_ai_client=self.summary_ai_client,
+            synth_cache=self.synth_cache,
+            limit_candidates_for_ai=self.limit_candidates_for_ai,
+            snapshot_candidates_for_brief=self._snapshot_candidates_for_brief,
+            analyzer_cls=HeadlineAnalyzer,
+        )
 
     @staticmethod
     def _union_candidates_by_id(*groups: List[NewsCandidate]) -> List[NewsCandidate]:
-        merged: List[NewsCandidate] = []
-        seen: set[str] = set()
-        for group in groups:
-            for candidate in group:
-                if candidate.id in seen:
-                    continue
-                seen.add(candidate.id)
-                merged.append(candidate)
-        return merged
+        return union_candidates_by_id_helper(*groups)
 
     @staticmethod
     def _decisions_for_brief(
@@ -509,111 +258,36 @@ class NewsOrchestrator:
         shared_decisions: Dict[str, HeadlineDecision],
         topics: List[TopicConfig],
     ) -> Dict[str, HeadlineDecision]:
-        decisions: Dict[str, HeadlineDecision] = {}
-        for candidate in candidates:
-            shared = shared_decisions.get(candidate.id)
-            if shared is None:
-                continue
-            decisions[candidate.id] = HeadlineDecision(
-                candidate_id=candidate.id,
-                score=shared.score,
-                topic=HeadlineAnalyzer.best_topic_for_candidate(candidate, topics),
-            )
-        return decisions
+        return decisions_for_brief_helper(candidates, shared_decisions, topics)
 
     def _build_snapshot(self, now, general_topics: List[TopicConfig], detailed_topics: List[TopicConfig]) -> RunSourceSnapshot | None:
-        if not self.config.runtime.use_shared_snapshot:
-            self.debug.set_metric("snapshot.enabled", False)
-            return None
-
-        with self.debug.span("snapshot.total"):
-            general_since = now - timedelta(hours=self.config.general_filtering.time_window_hours)
-            detailed_since = now - timedelta(hours=self.config.filtering.time_window_hours)
-            snapshot_since = min(general_since, detailed_since)
-            max_headlines_per_source = max(
-                self.config.general_filtering.max_headlines_per_source,
-                self.config.filtering.max_headlines_per_source,
-            )
-            shared_topics = self._merge_topics_for_snapshot(general_topics, detailed_topics)
-
-            snapshot_warnings: List[str] = []
-            with self.debug.span("snapshot.rss_fetch"):
-                rss_candidates = self.fetch_headlines(snapshot_since, max_headlines_per_source, snapshot_warnings)
-            with self.debug.span("snapshot.topic_fetch"):
-                topic_candidates = self.fetch_topic_headlines(shared_topics, snapshot_since, snapshot_warnings)
-            with self.debug.span("snapshot.merge"):
-                merged_candidates = self.merge_url_duplicates(rss_candidates + topic_candidates)
-            raw_candidates = len(rss_candidates) + len(topic_candidates)
-            self.debug.set_metric("snapshot.enabled", True)
-            self.debug.set_metric("snapshot.rss_candidates", len(rss_candidates))
-            self.debug.set_metric("snapshot.topic_candidates", len(topic_candidates))
-            self.debug.set_metric("snapshot.raw_candidates", raw_candidates)
-            self.debug.set_metric("snapshot.unique_candidates", len(merged_candidates))
-            self.debug.log(
-                "snapshot",
-                "built",
-                since=snapshot_since,
-                rss_candidates=len(rss_candidates),
-                topic_candidates=len(topic_candidates),
-                merged_candidates=len(merged_candidates),
-                warnings=len(snapshot_warnings),
-            )
-            return RunSourceSnapshot(
-                fetched_since=snapshot_since,
-                rss_candidates=rss_candidates,
-                topic_candidates=topic_candidates,
-                merged_candidates=merged_candidates,
-                metadata={
-                    "warnings": snapshot_warnings,
-                    "max_headlines_per_source": max_headlines_per_source,
-                    "topic_count": len(shared_topics),
-                },
-            )
+        return build_snapshot_helper(
+            use_shared_snapshot=self.config.runtime.use_shared_snapshot,
+            now=now,
+            general_topics=general_topics,
+            detailed_topics=detailed_topics,
+            general_filtering=self.config.general_filtering,
+            detailed_filtering=self.config.filtering,
+            debug=self.debug,
+            fetch_headlines=self.fetch_headlines,
+            fetch_topic_headlines=self.fetch_topic_headlines,
+            merge_url_duplicates=self.merge_url_duplicates,
+        )
 
     @staticmethod
     def _merge_topics_for_snapshot(*topic_groups: List[TopicConfig]) -> List[TopicConfig]:
-        merged: List[TopicConfig] = []
-        seen: set[str] = set()
-        for topics in topic_groups:
-            for topic in topics:
-                key = "|".join(
-                    [
-                        topic.name.strip().lower(),
-                        topic.description.strip().lower(),
-                        ",".join(query.strip().lower() for query in topic.queries if query.strip()),
-                    ]
-                )
-                if key in seen:
-                    continue
-                seen.add(key)
-                merged.append(topic)
-        return merged
+        return merge_topics_for_snapshot_helper(*topic_groups)
 
     def _snapshot_candidates_for_brief(
         self,
         snapshot: RunSourceSnapshot,
         since,
     ) -> tuple[List[NewsCandidate], List[NewsCandidate], List[NewsCandidate]]:
-        rss_candidates = [candidate for candidate in snapshot.rss_candidates if self._candidate_in_window(candidate, since)]
-        topic_candidates = [candidate for candidate in snapshot.topic_candidates if self._candidate_in_window(candidate, since)]
-        merged_candidates = [candidate for candidate in snapshot.merged_candidates if self._candidate_in_window(candidate, since)]
-        return rss_candidates, topic_candidates, merged_candidates
+        return snapshot_candidates_for_brief_helper(snapshot, since)
 
     @staticmethod
     def _candidate_in_window(candidate: NewsCandidate, since) -> bool:
-        published_at = candidate.published_at
-        latest_iso = str(candidate.metadata.get("merged_latest_published_at", "")).strip()
-        if latest_iso:
-            try:
-                merged_latest = datetime.fromisoformat(latest_iso)
-                if merged_latest.tzinfo is not None:
-                    if published_at is None or merged_latest > published_at:
-                        published_at = merged_latest
-            except ValueError:
-                pass
-        if published_at is None:
-            return True
-        return published_at >= since
+        return candidate_in_window_helper(candidate, since)
 
     def _populate_article_texts(
         self,
@@ -622,46 +296,14 @@ class NewsOrchestrator:
         article_retriever: ArticleRetriever,
         warnings: List[str],
     ) -> None:
-        if not selected:
-            return
-        worker_count = min(max(1, int(self.config.runtime.max_article_workers)), len(selected))
-        self.debug.log("article.fetch", "batch_start", brief=brief_name, selected=len(selected), workers=worker_count)
-
-        if worker_count <= 1:
-            for article in selected:
-                article.article_text, article.extraction_status = article_retriever.fetch_text(article.candidate.url)
-                if not article.article_text:
-                    article.article_text = article.candidate.snippet
-            self.debug.log("article.fetch", "batch_complete", brief=brief_name, selected=len(selected), workers=worker_count)
-            return
-
-        results: dict[int, tuple[str, str]] = {}
-        with ThreadPoolExecutor(max_workers=worker_count) as executor:
-            future_map = {
-                executor.submit(article_retriever.fetch_text, article.candidate.url): index
-                for index, article in enumerate(selected)
-            }
-            for future in as_completed(future_map):
-                index = future_map[future]
-                article = selected[index]
-                try:
-                    results[index] = future.result()
-                except Exception as exc:
-                    warnings.append(f"article fetch {article.candidate.id}: worker_exception={type(exc).__name__}")
-                    self.debug.log(
-                        "article.fetch",
-                        "worker_exception",
-                        brief=brief_name,
-                        article_id=article.candidate.id,
-                        error=type(exc).__name__,
-                    )
-                    results[index] = ("", "worker_exception")
-
-        for index, article in enumerate(selected):
-            text, status = results.get(index, ("", "worker_missing"))
-            article.article_text = text or article.candidate.snippet
-            article.extraction_status = status
-        self.debug.log("article.fetch", "batch_complete", brief=brief_name, selected=len(selected), workers=worker_count)
+        populate_article_texts_batch(
+            brief_name=brief_name,
+            selected=selected,
+            article_retriever=article_retriever,
+            warnings=warnings,
+            max_article_workers=self.config.runtime.max_article_workers,
+            debug=self.debug,
+        )
 
     def fetch_headlines(self, since, max_headlines_per_source: int, warnings: List[str]) -> List[NewsCandidate]:
         scraper = RSSScraper(
@@ -746,56 +388,14 @@ class NewsOrchestrator:
         return f"{host}{path}"
 
     def limit_candidates_for_ai(self, candidates: List[NewsCandidate], topics, filtering: FilteringConfig, since) -> List[NewsCandidate]:
-        max_total = filtering.max_candidates_for_ai
-        if max_total <= 0:
-            return []
-
-        candidates = self._dedupe_similar_titles(candidates)
-        scored = self._heuristic_ranked_candidates(candidates, topics, since)
-        if not scored:
-            return []
-
-        score_by_id = {item.id: score for item, score in scored}
-        ranked = [item for item, _ in scored]
-        pool_target = min(len(ranked), max_total * 2)
-        nonnegative = [item for item in ranked if score_by_id.get(item.id, 0.0) >= 0.0]
-        if len(nonnegative) < max_total:
-            candidate_pool = ranked[:pool_target]
-        else:
-            candidate_pool = nonnegative[:pool_target]
-        self.debug.log(
-            "headline.heuristics",
-            "prefilter_complete",
-            input=len(candidates),
-            pool=len(candidate_pool),
-            max_total=max_total,
+        return limit_candidates_for_ai_helper(
+            candidates,
+            topics,
+            filtering,
+            since,
+            user_memory=self.config.user_memory,
+            debug=self.debug,
         )
-
-        selected: List[NewsCandidate] = []
-        selected_ids: set[str] = set()
-        enabled_topics = [topic for topic in topics if topic.enabled]
-        per_topic = max(1, max_total // max(1, len(enabled_topics))) if enabled_topics else 0
-
-        for topic in enabled_topics:
-            topic_items = [
-                item
-                for item in candidate_pool
-                if self._candidate_topic_match(item, topic) > 0.0
-            ]
-            topic_items = self._sort_by_heuristic_then_time(topic_items, score_by_id, since)
-            for item in topic_items[:per_topic]:
-                if item.id not in selected_ids:
-                    selected.append(item)
-                    selected_ids.add(item.id)
-
-        remaining = [item for item in candidate_pool if item.id not in selected_ids]
-        for item in self._sort_by_heuristic_then_time(remaining, score_by_id, since):
-            if len(selected) >= max_total:
-                break
-            selected.append(item)
-            selected_ids.add(item.id)
-
-        return selected[:max_total]
 
     @staticmethod
     def _sort_by_heuristic_then_time(
@@ -803,187 +403,31 @@ class NewsOrchestrator:
         score_by_id: Dict[str, float],
         fallback_date,
     ) -> List[NewsCandidate]:
-        return sorted(
-            candidates,
-            key=lambda item: (
-                score_by_id.get(item.id, -999.0),
-                item.published_at or fallback_date,
-            ),
-            reverse=True,
-        )
+        return sort_by_heuristic_then_time_helper(candidates, score_by_id, fallback_date)
 
     def _heuristic_ranked_candidates(self, candidates: List[NewsCandidate], topics, since) -> List[tuple[NewsCandidate, float]]:
-        scored = [(item, self._candidate_heuristic_score(item, topics, since)) for item in candidates]
-        scored.sort(
-            key=lambda pair: (
-                pair[1],
-                pair[0].published_at or since,
-            ),
-            reverse=True,
-        )
-        return scored
+        return heuristic_ranked_candidates_helper(candidates, topics, since, self.config.user_memory)
 
     def _candidate_heuristic_score(self, item: NewsCandidate, topics, since) -> float:
-        score = 0.0
-        published_at = item.published_at or since
-        age_hours = max(0.0, (utc_now() - published_at).total_seconds() / 3600.0)
-        score += max(0.0, 3.0 - 0.07 * age_hours)
-
-        topic_name = str(item.metadata.get("topic_name", "")).strip()
-        if topic_name:
-            score += 2.0
-
-        if topic_name and self._topic_is_enabled(topics, topic_name):
-            score += 1.0
-
-        topic_match = 0.0
-        for topic in topics:
-            if getattr(topic, "enabled", False):
-                topic_match = max(topic_match, self._candidate_topic_match(item, topic))
-        score += min(3.0, topic_match * 1.2)
-
-        merged_count = int(item.metadata.get("merged_count", 1) or 1)
-        if merged_count > 1:
-            score += min(1.5, 0.35 * (merged_count - 1))
-
-        snippet_len = len(item.snippet or "")
-        if snippet_len >= 260:
-            score += 0.8
-        elif snippet_len >= 120:
-            score += 0.4
-        elif snippet_len < 40:
-            score -= 0.4
-
-        title_len = len((item.title or "").strip())
-        if 24 <= title_len <= 140:
-            score += 0.5
-        elif title_len < 12 or title_len > 180:
-            score -= 0.8
-
-        lowered_title = (item.title or "").lower()
-        if any(needle in lowered_title for needle in ("live updates", "watch live", "photo gallery", "opinion:", "newsletter")):
-            score -= 1.0
-
-        preferred_sources = {source.lower() for source in self.config.user_memory.preferred_sources}
-        avoided_sources = {source.lower() for source in self.config.user_memory.avoided_sources}
-        source_name = (item.source or "").lower()
-        if source_name in preferred_sources:
-            score += 0.9
-        if source_name in avoided_sources:
-            score -= 2.5
-
-        return round(score, 4)
+        return candidate_heuristic_score_helper(item, topics, since, user_memory=self.config.user_memory)
 
     @staticmethod
     def _topic_is_enabled(topics, topic_name: str) -> bool:
-        for topic in topics:
-            if getattr(topic, "enabled", False) and topic.name == topic_name:
-                return True
-        return False
+        return topic_is_enabled_helper(topics, topic_name)
 
     def _candidate_topic_match(self, item: NewsCandidate, topic) -> float:
-        item_topic = str(item.metadata.get("topic_name", "")).strip()
-        if item_topic and item_topic == topic.name:
-            return 1.0
-
-        text = f"{item.title or ''} {item.snippet or ''}".lower()
-        text_tokens = set(self._tokenize_for_match(text))
-        if not text_tokens:
-            return 0.0
-
-        query_tokens = set(self._tokenize_for_match(topic.name))
-        query_tokens.update(self._tokenize_for_match(topic.description))
-        for query in topic.queries or []:
-            query_tokens.update(self._tokenize_for_match(query))
-        if not query_tokens:
-            return 0.0
-        overlap = len(text_tokens.intersection(query_tokens))
-        if overlap <= 0:
-            return 0.0
-        return min(1.0, overlap / max(3, int(len(query_tokens) * 0.12)))
+        return candidate_topic_match_helper(item, topic)
 
     @staticmethod
     def _tokenize_for_match(text: str) -> List[str]:
-        stop = {
-            "the",
-            "and",
-            "for",
-            "with",
-            "from",
-            "that",
-            "this",
-            "into",
-            "over",
-            "under",
-            "latest",
-            "today",
-            "news",
-            "major",
-            "about",
-        }
-        tokens = [token for token in re.findall(r"[a-z0-9]{3,}", text.lower()) if token not in stop]
-        return tokens
+        return tokenize_for_match_helper(text)
 
     def _dedupe_similar_titles(self, candidates: List[NewsCandidate]) -> List[NewsCandidate]:
-        groups: Dict[str, List[NewsCandidate]] = {}
-        for item in candidates:
-            key = self._title_dedupe_key(item.title)
-            if not key:
-                groups.setdefault(item.id, []).append(item)
-                continue
-            groups.setdefault(key, []).append(item)
-
-        deduped: List[NewsCandidate] = []
-        removed = 0
-        for group in groups.values():
-            if len(group) == 1:
-                deduped.append(group[0])
-                continue
-            winner = max(
-                group,
-                key=lambda candidate: (
-                    len(candidate.snippet or ""),
-                    candidate.published_at or utc_now(),
-                ),
-            )
-            related_ids = [candidate.id for candidate in group if candidate.id != winner.id]
-            if related_ids:
-                winner.metadata["headline_dupe_ids"] = related_ids
-                winner.metadata["headline_dupe_count"] = len(group)
-                removed += len(related_ids)
-            deduped.append(winner)
-        if removed > 0:
-            self.debug.log("headline.heuristics", "title_dedupe", removed=removed, kept=len(deduped))
-        return deduped
+        return dedupe_similar_titles_helper(candidates, self.debug)
 
     @staticmethod
     def _title_dedupe_key(title: str) -> str:
-        tokens = re.findall(r"[a-z0-9]{3,}", (title or "").lower())
-        if not tokens:
-            return ""
-        stop = {
-            "the",
-            "and",
-            "for",
-            "with",
-            "from",
-            "that",
-            "this",
-            "into",
-            "over",
-            "under",
-            "live",
-            "latest",
-            "news",
-            "update",
-            "updates",
-            "says",
-            "say",
-        }
-        core = [token for token in tokens if token not in stop]
-        if len(core) < 4:
-            core = tokens
-        return " ".join(core[:10])
+        return title_dedupe_key_helper(title)
 
     def select_articles(
         self,
@@ -992,47 +436,4 @@ class NewsOrchestrator:
         topics: List[TopicConfig],
         filtering: FilteringConfig,
     ) -> List[SelectedArticle]:
-        selected: List[SelectedArticle] = []
-        seen_duplicate_targets: set[str] = set()
-        topic_limits = {
-            topic.name: topic.max_selected_articles
-            for topic in topics
-            if topic.enabled and topic.max_selected_articles is not None
-        }
-        topic_counts: Dict[str, int] = {}
-        sorted_candidates = sorted(
-            candidates,
-            key=lambda item: decisions.get(item.id, HeadlineDecision(item.id, 0)).score,
-            reverse=True,
-        )
-
-        def try_select(candidate: NewsCandidate, require_cutoff: bool) -> None:
-            if len(selected) >= filtering.max_selected_articles:
-                return
-            decision = decisions.get(candidate.id)
-            if not decision:
-                return
-            if require_cutoff and decision.score < filtering.headline_score_cutoff:
-                return
-            if candidate.id in seen_duplicate_targets:
-                return
-            topic = decision.topic or candidate.metadata.get("topic_name", "")
-            topic_limit = topic_limits.get(topic)
-            if topic_limit is not None and topic_counts.get(topic, 0) >= int(topic_limit):
-                return
-            seen_duplicate_targets.add(candidate.id)
-            selected.append(SelectedArticle(candidate=candidate, decision=decision))
-            if topic:
-                topic_counts[topic] = topic_counts.get(topic, 0) + 1
-
-        for candidate in sorted_candidates:
-            try_select(candidate, require_cutoff=True)
-            if len(selected) >= filtering.max_selected_articles:
-                break
-
-        if filtering.fill_selected_articles and len(selected) < filtering.max_selected_articles:
-            for candidate in sorted_candidates:
-                try_select(candidate, require_cutoff=False)
-                if len(selected) >= filtering.max_selected_articles:
-                    break
-        return selected
+        return select_articles_helper(candidates, decisions, topics, filtering)

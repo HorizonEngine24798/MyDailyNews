@@ -31,9 +31,15 @@ Since this review was first written, parts of it have been addressed:
   - removed unused `scrapers/base.py` protocol
   - removed unused orchestrator helper `_newest_first(...)`
   - removed legacy single-`ai` config compatibility in favor of explicit `ai_summary` + `ai_final`
+- PR5 started orchestrator decomposition:
+  - extracted brief execution flow to `mydailynews/brief_execution.py`
+  - extracted headline selection heuristics to `mydailynews/headline_selection.py`
+  - extracted snapshot construction/windowing to `mydailynews/snapshot_helpers.py`
+  - extracted shared snapshot scoring coordination to `mydailynews/shared_headline_scoring.py`
+  - extracted article fetch/enrichment metric helpers to `mydailynews/article_pipeline.py`
 - PR6 updated `docs/llama_cpp_port.md` to the current shallow pipeline and current backend seam.
 
-Remaining priority from this review: orchestrator decomposition and broader model lifecycle strategy decisions.
+Remaining priority from this review: broader model lifecycle strategy decisions.
 
 
 ## 1. Backend Budget Enforcement Is Inconsistent
