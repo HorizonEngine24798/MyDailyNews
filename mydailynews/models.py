@@ -45,6 +45,11 @@ class FilteringConfig:
     max_selected_articles: int = 6
     fill_selected_articles: bool = False
     article_text_max_chars: int = 4000
+    max_selected_per_source: int = 2
+    max_selected_per_event_cluster: int = 2
+    prefer_multi_source_clusters: bool = True
+    multi_source_cluster_bonus: float = 0.35
+    event_cluster_time_window_hours: int = 18
 
 
 @dataclass
@@ -72,6 +77,40 @@ class RuntimeConfig:
     max_article_workers: int = 1
     max_enrichment_workers: int = 1
     use_shared_snapshot: bool = True
+
+
+@dataclass
+class EvidenceDistillationConfig:
+    enabled: bool = False
+    model_role: str = "summary"
+    include_reader_qa: bool = True
+    max_input_tokens: int = 2300
+    max_new_tokens: int = 700
+    max_articles: int = 8
+    max_article_chars: int = 700
+    max_context_sources_per_article: int = 2
+    max_story_clusters: int = 6
+    max_claims_per_cluster: int = 4
+    max_questions: int = 6
+    cache_ttl_seconds: int = 604800
+
+
+@dataclass
+class DeltaExtractionConfig:
+    enabled: bool = False
+    model_role: str = "summary"
+    input_source: str = "evidence_or_articles"
+    require_prior_reports: bool = False
+    max_input_tokens: int = 1700
+    max_new_tokens: int = 380
+    max_prior_reports: int = 3
+    cache_ttl_seconds: int = 604800
+
+
+@dataclass
+class AnalysisConfig:
+    evidence_distillation: EvidenceDistillationConfig = field(default_factory=EvidenceDistillationConfig)
+    delta_extraction: DeltaExtractionConfig = field(default_factory=DeltaExtractionConfig)
 
 
 @dataclass
@@ -173,6 +212,7 @@ class AppConfig:
     prior_reports_source: PriorReportsSourceConfig = field(default_factory=PriorReportsSourceConfig)
     cache: CacheConfig = field(default_factory=CacheConfig)
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
+    analysis: AnalysisConfig = field(default_factory=AnalysisConfig)
 
 
 @dataclass

@@ -171,6 +171,16 @@ class _DebugAnalytics:
                 f"dropped_selection={max(0, int(decisions) - int(selected))} "
                 f"duration={durations.get(f'brief.{brief_name}.total', 0.0):.2f}s"
             )
+            limited_sources = metric(f"brief.{brief_name}.limited_sources")
+            limited_clusters = metric(f"brief.{brief_name}.limited_event_clusters")
+            selected_sources = metric(f"brief.{brief_name}.selected_sources")
+            selected_clusters = metric(f"brief.{brief_name}.selected_event_clusters")
+            if any([limited_sources, limited_clusters, selected_sources, selected_clusters]):
+                lines.append(
+                    f"{brief_name} diversity limited_sources={limited_sources} limited_clusters={limited_clusters} "
+                    f"selected_sources={selected_sources} selected_clusters={selected_clusters} "
+                    f"selected_multi_source_clusters={metric(f'brief.{brief_name}.selected_multi_source_clusters')}"
+                )
             lines.append(
                 f"{brief_name} timings prepare={durations.get(f'brief.{brief_name}.candidate_prepare', 0.0):.2f}s "
                 f"limit={durations.get(f'brief.{brief_name}.headline_limit', 0.0):.2f}s "
@@ -334,7 +344,7 @@ class DebugLogger:
             "snapshot": {"built"},
             "headline.fetch": {"complete", "reused_snapshot"},
             "headline.dedupe": {"complete"},
-            "headline.heuristics": {"prefilter_complete", "title_dedupe"},
+            "headline.heuristics": {"prefilter_complete", "title_dedupe", "event_clusters"},
             "headline.limit": {"complete"},
             "headline.decisions": {"complete"},
             "headline.select": {"complete"},
@@ -344,6 +354,7 @@ class DebugLogger:
             "article": {"selected"},
             "article.fetch": {"batch_start", "batch_complete", "worker_exception"},
             "enrichment": {"skipped_disabled", "skipped_enough_context", "complete"},
+            "analysis.delta": {"deterministic_scaffold"},
             "prior_reports": {"complete", "skipped_disabled", "missing_output_dir"},
             "google_news.topic": {"complete"},
             "ai.load": {"starting", "complete"},

@@ -153,6 +153,32 @@
     "max_enrichment_workers": 1,
     "use_shared_snapshot": true
   },
+  "analysis": {
+    "evidence_distillation": {
+      "enabled": false,
+      "model_role": "summary",
+      "include_reader_qa": true,
+      "max_input_tokens": 2300,
+      "max_new_tokens": 700,
+      "max_articles": 8,
+      "max_article_chars": 700,
+      "max_context_sources_per_article": 2,
+      "max_story_clusters": 6,
+      "max_claims_per_cluster": 4,
+      "max_questions": 6,
+      "cache_ttl_seconds": 604800
+    },
+    "delta_extraction": {
+      "enabled": false,
+      "model_role": "summary",
+      "input_source": "evidence_or_articles",
+      "require_prior_reports": false,
+      "max_input_tokens": 1700,
+      "max_new_tokens": 380,
+      "max_prior_reports": 3,
+      "cache_ttl_seconds": 604800
+    }
+  },
   "cache": {
     "enabled": true,
     "dir": ".cache/mydailynews",

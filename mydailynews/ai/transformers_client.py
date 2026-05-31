@@ -222,34 +222,29 @@ class TransformersAIClient(AIClient):
     ) -> Tuple[str, int, int, int, int]:
         current_max_new = max(64, int(max_new_tokens))
         current_input_limit = max(512, int(input_token_limit))
-
-        for oom_attempt in range(1, 5):
-            try:
-                text, input_tokens, generated_tokens = self._generate(
-                    prompt,
-                    max_new_tokens=current_max_new,
-                    input_token_limit=current_input_limit,
-                    label=label,
-                )
-                return text, input_tokens, generated_tokens, current_max_new, current_input_limit
-            except Exception as exc:
-                if not self._is_oom_error(exc):
-                    raise
-                self._cleanup_cuda(reason=f"oom_recovery_{oom_attempt}")
-                if oom_attempt == 4:
-                    raise RuntimeError(f"{label}: CUDA OOM after adaptive retries") from exc
-
-                current_max_new = max(128, int(current_max_new * 0.7))
-                current_input_limit = max(1024, int(current_input_limit * 0.85))
-                self.debug.log(
-                    "ai.oom",
-                    "retrying with reduced budget",
-                    label=label,
-                    oom_attempt=oom_attempt,
-                    max_new_tokens=current_max_new,
-                    max_input_tokens=current_input_limit,
-                )
-        raise RuntimeError(f"{label}: generation failed unexpectedly")
+        try:
+            text, input_tokens, generated_tokens = self._generate(
+                prompt,
+                max_new_tokens=current_max_new,
+                input_token_limit=current_input_limit,
+                label=label,
+            )
+            return text, input_tokens, generated_tokens, current_max_new, current_input_limit
+        except Exception as exc:
+            if not self._is_oom_error(exc):
+                raise
+            self._cleanup_cuda(reason="oom_fail_fast")
+            self.debug.log(
+                "ai.oom",
+                "fail_fast",
+                label=label,
+                max_new_tokens=current_max_new,
+                max_input_tokens=current_input_limit,
+            )
+            raise RuntimeError(
+                f"{label}: CUDA OOM with max_new_tokens={current_max_new} and "
+                f"max_input_tokens={current_input_limit}; aborting without offload/backoff"
+            ) from exc
 
     def _generate(self, prompt: str, *, max_new_tokens: int, input_token_limit: int, label: str) -> Tuple[str, int, int]:
         self._cleanup_cuda(reason="pre_generate")
@@ -383,12 +378,18 @@ class TransformersAIClient(AIClient):
         dtype = self._resolve_dtype(self.config.torch_dtype)
         if dtype is not None:
             model_kwargs["torch_dtype"] = dtype
-        if self.device == "cuda":
-            model_kwargs["device_map"] = "auto"
 
         self.model = AutoModelForCausalLM.from_pretrained(self.config.model_id, **model_kwargs)
-        if self.device != "cuda":
+        try:
             self.model.to(self.device)
+        except Exception as exc:
+            if self.device == "cuda" and self._is_oom_error(exc):
+                self._cleanup_cuda(reason="oom_model_load")
+                raise RuntimeError(
+                    f"ai.load: CUDA OOM while loading {self.config.model_id} on GPU; "
+                    "offloading is disabled for performance predictability"
+                ) from exc
+            raise
         self.model.eval()
         self.debug.log(
             "ai.load",

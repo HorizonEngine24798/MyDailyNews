@@ -7,6 +7,7 @@
     "device": "cuda",
     "torch_dtype": "auto",
     "max_input_tokens": 3072,
+    "max_new_tokens": 1536,
     "json_retries": 1,
     "local_files_only": false,
     "enable_thinking": false
@@ -17,6 +18,7 @@
     "device": "cuda",
     "torch_dtype": "auto",
     "max_input_tokens": 4096,
+    "max_new_tokens": 2048,
     "json_retries": 1,
     "local_files_only": false,
     "enable_thinking": false
@@ -127,7 +129,12 @@
     "max_headlines_per_ai_batch": 6,
     "max_selected_articles": 10,
     "fill_selected_articles": true,
-    "article_text_max_chars": 2200
+    "article_text_max_chars": 2200,
+    "max_selected_per_source": 3,
+    "max_selected_per_event_cluster": 2,
+    "prefer_multi_source_clusters": true,
+    "multi_source_cluster_bonus": 0.35,
+    "event_cluster_time_window_hours": 18
   },
   "filtering": {
     "time_window_hours": 36,
@@ -137,10 +144,15 @@
     "max_headlines_per_ai_batch": 4,
     "max_selected_articles": 6,
     "fill_selected_articles": false,
-    "article_text_max_chars": 2500
+    "article_text_max_chars": 2500,
+    "max_selected_per_source": 2,
+    "max_selected_per_event_cluster": 2,
+    "prefer_multi_source_clusters": true,
+    "multi_source_cluster_bonus": 0.35,
+    "event_cluster_time_window_hours": 18
   },
   "enrichment": {
-    "enabled": true,
+    "enabled": false,
     "past_news_days": 30,
     "max_past_news_results": 4,
     "max_wikipedia_results": 3,
@@ -152,6 +164,32 @@
     "max_article_workers": 1,
     "max_enrichment_workers": 1,
     "use_shared_snapshot": true
+  },
+  "analysis": {
+    "evidence_distillation": {
+      "enabled": false,
+      "model_role": "summary",
+      "include_reader_qa": true,
+      "max_input_tokens": 2300,
+      "max_new_tokens": 700,
+      "max_articles": 8,
+      "max_article_chars": 700,
+      "max_context_sources_per_article": 2,
+      "max_story_clusters": 6,
+      "max_claims_per_cluster": 4,
+      "max_questions": 6,
+      "cache_ttl_seconds": 604800
+    },
+    "delta_extraction": {
+      "enabled": false,
+      "model_role": "summary",
+      "input_source": "evidence_or_articles",
+      "require_prior_reports": false,
+      "max_input_tokens": 1700,
+      "max_new_tokens": 380,
+      "max_prior_reports": 3,
+      "cache_ttl_seconds": 604800
+    }
   },
   "cache": {
     "enabled": true,

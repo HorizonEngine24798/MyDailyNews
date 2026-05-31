@@ -23,12 +23,14 @@ class BriefGenerator:
         max_context_chars: int,
         input_token_limit: int | None = None,
         max_new_tokens: int | None = None,
+        include_enrichment_context: bool = True,
         debug: DebugLogger | None = None,
     ) -> None:
         self.client = client
         self.max_context_chars = max(200, max_context_chars)
         self.input_token_limit = input_token_limit
         self.max_new_tokens = max_new_tokens
+        self.include_enrichment_context = bool(include_enrichment_context)
         self.debug = debug or DebugLogger(False)
         self.warnings: List[str] = []
 
@@ -40,6 +42,8 @@ class BriefGenerator:
         prior_reports: List[PriorReport],
         brief_goal: str,
         date: str,
+        evidence_packet: Dict[str, Any] | None = None,
+        delta_packet: Dict[str, Any] | None = None,
         brief_name: str = "",
     ) -> Dict[str, Any]:
         self.warnings = []
@@ -50,6 +54,8 @@ class BriefGenerator:
             prior_reports,
             brief_goal,
             date,
+            evidence_packet=evidence_packet or {},
+            delta_packet=delta_packet or {},
         )
         self.debug.log("brief.ai", "synthesizing", articles=len(used_articles), prompt_chars=len(prompt))
         label = "final brief generation"
@@ -71,6 +77,13 @@ class BriefGenerator:
         result.setdefault("title", f"Daily Brief - {date}")
         result["major_headlines"] = self._major_headlines_payload(used_articles)
         result["selected_articles"] = self._selected_articles_payload(used_articles)
+        result["references"] = self._references_payload(used_articles)
+        self._ensure_signal_slots(
+            result,
+            used_articles,
+            evidence_packet=evidence_packet or {},
+            delta_packet=delta_packet or {},
+        )
         self.debug.log("brief.ai", "complete", articles=len(used_articles))
         return result
 
@@ -82,11 +95,14 @@ class BriefGenerator:
         prior_reports: List[PriorReport],
         brief_goal: str,
         date: str,
+        evidence_packet: Dict[str, Any],
+        delta_packet: Dict[str, Any],
     ) -> tuple[str, List[SelectedArticle]]:
         target_input_tokens = max(1024, int(self.input_token_limit or self.client.max_input_tokens))
         prompt_budget_tokens = max(900, int(target_input_tokens * 0.9))
         ordered_articles = sorted(articles, key=lambda item: item.decision.score, reverse=True)
         active_reports = prior_reports[:3]
+        analysis_options = self._analysis_payload_options(evidence_packet, delta_packet)
         excerpt_options = [
             self.max_context_chars,
             min(self.max_context_chars, 650),
@@ -94,13 +110,16 @@ class BriefGenerator:
             280,
         ]
         dropped_article_ids: list[str] = []
+        analysis_mode_reduced = False
         used_articles = ordered_articles[:]
         prompt = ""
 
         for excerpt_chars in excerpt_options:
             candidate_articles = used_articles[:]
             candidate_reports = active_reports[:]
+            analysis_index = 0
             while candidate_articles:
+                analysis_mode, evidence_payload, delta_payload = analysis_options[analysis_index]
                 prompt = self._render_prompt(
                     candidate_articles,
                     excerpt_chars,
@@ -109,6 +128,8 @@ class BriefGenerator:
                     candidate_reports,
                     brief_goal,
                     date,
+                    evidence_packet=evidence_payload,
+                    delta_packet=delta_payload,
                 )
                 estimated_tokens = self.client.estimate_tokens(prompt)
                 self.debug.log(
@@ -117,23 +138,35 @@ class BriefGenerator:
                     articles=len(candidate_articles),
                     prior_reports=len(candidate_reports),
                     excerpt_chars=excerpt_chars,
+                    analysis_mode=analysis_mode,
                     estimated_tokens=estimated_tokens,
                     budget_tokens=prompt_budget_tokens,
                 )
                 if estimated_tokens <= prompt_budget_tokens:
                     used_articles = candidate_articles
+                    if analysis_mode != "full":
+                        analysis_mode_reduced = True
                     if dropped_article_ids:
                         self.warnings.append(
                             "final brief prompt dropped lower-ranked article(s) to stay within the local model budget: "
                             + ", ".join(dropped_article_ids)
                         )
+                    if analysis_mode_reduced:
+                        self.warnings.append(
+                            "final brief prompt used compacted analysis context to stay within the local model budget."
+                        )
                     return prompt, used_articles
                 if len(candidate_reports) > 1:
                     candidate_reports = candidate_reports[:-1]
                     continue
+                if analysis_index < len(analysis_options) - 1:
+                    analysis_index += 1
+                    analysis_mode_reduced = True
+                    continue
                 if len(candidate_articles) > 4:
                     dropped = candidate_articles.pop()
                     dropped_article_ids.append(dropped.candidate.id)
+                    analysis_index = 0
                     continue
                 used_articles = candidate_articles
                 break
@@ -150,8 +183,26 @@ class BriefGenerator:
                     f"final brief prompt still estimated above budget ({estimated_tokens}>{prompt_budget_tokens}); "
                     "the backend input limit may truncate the prompt."
                 )
+            if analysis_mode_reduced:
+                self.warnings.append("final brief prompt used compacted analysis context to stay within the local model budget.")
             return prompt, used_articles
-        return self._render_prompt([], 0, memory, topics, active_reports[:1], brief_goal, date), []
+        fallback_mode, fallback_evidence, fallback_delta = analysis_options[-1]
+        if fallback_mode != "full":
+            self.warnings.append("final brief prompt used compacted analysis context to stay within the local model budget.")
+        return (
+            self._render_prompt(
+                [],
+                0,
+                memory,
+                topics,
+                active_reports[:1],
+                brief_goal,
+                date,
+                evidence_packet=fallback_evidence,
+                delta_packet=fallback_delta,
+            ),
+            [],
+        )
 
     def _render_prompt(
         self,
@@ -162,6 +213,8 @@ class BriefGenerator:
         prior_reports: List[PriorReport],
         brief_goal: str,
         date: str,
+        evidence_packet: Dict[str, Any],
+        delta_packet: Dict[str, Any],
     ) -> str:
         payload = [self._article_payload(article, excerpt_chars) for article in articles]
         return BRIEF_USER.format(
@@ -170,34 +223,37 @@ class BriefGenerator:
             brief_goal=brief_goal,
             topics=_compact_json(self._topics_payload(topics)),
             prior_reports=_compact_json(self._prior_reports_payload(prior_reports)),
+            evidence_packet=_compact_json(evidence_packet),
+            delta_packet=_compact_json(delta_packet),
             articles=_compact_json(payload),
         )
 
     def _article_payload(self, article: SelectedArticle, excerpt_chars: int) -> Dict[str, Any]:
         topic = article.decision.topic or article.candidate.metadata.get("topic_name", "")
-        context_sources = [
-            {
-                "kind": item.kind,
-                "source": item.source,
-                "title": item.title[:120],
-                "summary": item.summary[:180],
-                "items": item.items[:3],
-            }
-            for item in article.context_sources[:2]
-        ]
-        return {
+        payload: Dict[str, Any] = {
             "id": article.candidate.id,
             "topic": topic,
             "headline": article.candidate.title,
             "source": article.candidate.source,
-            "url": article.candidate.url,
             "published_at": datetime_to_iso(article.candidate.published_at),
             "score": article.decision.score,
             "article_text": (article.article_text or article.candidate.snippet)[:excerpt_chars],
             "extraction_status": article.extraction_status,
-            "context_note": article.enrichment_reason,
-            "context_sources": context_sources,
+            "event_cluster": self._event_cluster_payload(article.candidate.metadata),
         }
+        if self.include_enrichment_context:
+            payload["context_note"] = article.enrichment_reason
+            payload["context_sources"] = [
+                {
+                    "kind": item.kind,
+                    "source": item.source,
+                    "title": item.title[:120],
+                    "summary": item.summary[:180],
+                    "items": item.items[:3],
+                }
+                for item in article.context_sources[:2]
+            ]
+        return payload
 
     @staticmethod
     def _topics_payload(topics: List[TopicConfig]) -> List[dict]:
@@ -234,6 +290,7 @@ class BriefGenerator:
                 "url": article.candidate.url,
                 "score": article.decision.score,
                 "topic": article.decision.topic or article.candidate.metadata.get("topic_name", ""),
+                "event_cluster": BriefGenerator._event_cluster_payload(article.candidate.metadata),
             }
             for article in articles
         ]
@@ -249,9 +306,315 @@ class BriefGenerator:
                 "score": article.decision.score,
                 "topic": article.decision.topic or article.candidate.metadata.get("topic_name", ""),
                 "snippet": (article.candidate.snippet or "")[:180],
+                "event_cluster": BriefGenerator._event_cluster_payload(article.candidate.metadata),
             }
             for article in articles
         ]
+
+    @staticmethod
+    def _references_payload(articles: List[SelectedArticle]) -> List[dict]:
+        references: List[dict] = []
+        seen: set[str] = set()
+        for article in articles:
+            title = str(article.candidate.title or "").strip()
+            source = str(article.candidate.source or "").strip()
+            url = str(article.candidate.url or "").strip()
+            key = url or f"{title}|{source}"
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            references.append(
+                {
+                    "title": title,
+                    "source": source,
+                    "url": url,
+                }
+            )
+        return references
+
+    @staticmethod
+    def _event_cluster_payload(metadata: Dict[str, Any]) -> Dict[str, Any]:
+        cluster_id = str(metadata.get("event_cluster_id", "")).strip()
+        if not cluster_id:
+            return {}
+        return {
+            "id": cluster_id,
+            "label": str(metadata.get("event_cluster_label", ""))[:180],
+            "size": int(metadata.get("event_cluster_size", 1) or 1),
+            "source_count": int(metadata.get("event_cluster_source_count", 1) or 1),
+            "multi_source": bool(metadata.get("event_cluster_multi_source", False)),
+            "latest_published_at": str(metadata.get("event_cluster_latest_published_at", ""))[:64],
+        }
+
+    def _analysis_payload_options(
+        self,
+        evidence_packet: Dict[str, Any],
+        delta_packet: Dict[str, Any],
+    ) -> List[tuple[str, Dict[str, Any], Dict[str, Any]]]:
+        options_raw = [
+            ("full", self._compact_evidence_packet(evidence_packet, mode="full"), self._compact_delta_packet(delta_packet, mode="full")),
+            ("compact", self._compact_evidence_packet(evidence_packet, mode="compact"), self._compact_delta_packet(delta_packet, mode="compact")),
+            ("minimal", self._compact_evidence_packet(evidence_packet, mode="minimal"), self._compact_delta_packet(delta_packet, mode="minimal")),
+            ("none", {}, {}),
+        ]
+        deduped: List[tuple[str, Dict[str, Any], Dict[str, Any]]] = []
+        seen: set[str] = set()
+        for label, evidence, delta in options_raw:
+            signature = _compact_json({"evidence": evidence, "delta": delta})
+            if signature in seen:
+                continue
+            seen.add(signature)
+            deduped.append((label, evidence, delta))
+        return deduped or [("none", {}, {})]
+
+    @staticmethod
+    def _compact_evidence_packet(packet: Dict[str, Any], mode: str) -> Dict[str, Any]:
+        if not isinstance(packet, dict) or not packet:
+            return {}
+        overview_limit = {"full": 380, "compact": 240, "minimal": 180}.get(mode, 180)
+        cluster_limit = {"full": 6, "compact": 5, "minimal": 3}.get(mode, 3)
+        claim_limit = {"full": 4, "compact": 3, "minimal": 2}.get(mode, 2)
+        point_limit = {"full": 4, "compact": 3, "minimal": 2}.get(mode, 2)
+        question_limit = {"full": 6, "compact": 4, "minimal": 2}.get(mode, 2)
+
+        clusters = []
+        for item in packet.get("story_clusters", [])[:cluster_limit]:
+            if not isinstance(item, dict):
+                continue
+            claims = []
+            for claim in item.get("key_claims", [])[:claim_limit]:
+                if not isinstance(claim, dict):
+                    continue
+                claims.append(
+                    {
+                        "claim": str(claim.get("claim", ""))[:140],
+                        "support_article_ids": [str(value)[:80] for value in claim.get("support_article_ids", [])[:4]],
+                        "confidence": str(claim.get("confidence", ""))[:20],
+                    }
+                )
+            clusters.append(
+                {
+                    "cluster_id": str(item.get("cluster_id", ""))[:60],
+                    "topic": str(item.get("topic", ""))[:80],
+                    "label": str(item.get("label", ""))[:100],
+                    "summary": str(item.get("summary", ""))[:220],
+                    "article_ids": [str(value)[:80] for value in item.get("article_ids", [])[:5]],
+                    "key_claims": claims,
+                    "consensus_points": [str(value)[:120] for value in item.get("consensus_points", [])[:point_limit]],
+                    "contested_points": [str(value)[:120] for value in item.get("contested_points", [])[:point_limit]],
+                    "known_unknowns": [str(value)[:120] for value in item.get("known_unknowns", [])[:point_limit]],
+                    "watch_signals": [str(value)[:120] for value in item.get("watch_signals", [])[:point_limit]],
+                }
+            )
+
+        reader_qa = []
+        for item in packet.get("reader_qa", [])[:question_limit]:
+            if not isinstance(item, dict):
+                continue
+            reader_qa.append(
+                {
+                    "question": str(item.get("question", ""))[:140],
+                    "answer": str(item.get("answer", ""))[:180],
+                    "article_ids": [str(value)[:80] for value in item.get("article_ids", [])[:4]],
+                }
+            )
+
+        return {
+            "overview": str(packet.get("overview", ""))[:overview_limit],
+            "story_clusters": clusters,
+            "global_watch_signals": [str(value)[:120] for value in packet.get("global_watch_signals", [])[:point_limit + 2]],
+            "reader_qa": reader_qa,
+        }
+
+    @staticmethod
+    def _compact_delta_packet(packet: Dict[str, Any], mode: str) -> Dict[str, Any]:
+        if not isinstance(packet, dict) or not packet:
+            return {}
+        item_limit = {"full": 5, "compact": 3, "minimal": 2}.get(mode, 2)
+        summary_limit = {"full": 180, "compact": 140, "minimal": 110}.get(mode, 110)
+        note_limit = {"full": 220, "compact": 160, "minimal": 120}.get(mode, 120)
+
+        def _entries(key: str) -> List[Dict[str, Any]]:
+            rows: List[Dict[str, Any]] = []
+            for item in packet.get(key, [])[:item_limit]:
+                if not isinstance(item, dict):
+                    continue
+                rows.append(
+                    {
+                        "item": str(item.get("item", ""))[:100],
+                        "summary": str(item.get("summary", ""))[:summary_limit],
+                        "article_ids": [str(value)[:80] for value in item.get("article_ids", [])[:4]],
+                    }
+                )
+            return rows
+
+        gaps = []
+        for item in packet.get("evidence_gaps", [])[:item_limit]:
+            if not isinstance(item, dict):
+                continue
+            gaps.append(
+                {
+                    "gap": str(item.get("gap", ""))[:120],
+                    "why_it_matters": str(item.get("why_it_matters", ""))[:summary_limit],
+                }
+            )
+
+        return {
+            "baseline_coverage_note": str(packet.get("baseline_coverage_note", ""))[:note_limit],
+            "new": _entries("new"),
+            "escalated": _entries("escalated"),
+            "weakened": _entries("weakened"),
+            "reframed": _entries("reframed"),
+            "unchanged_but_important": _entries("unchanged_but_important"),
+            "evidence_gaps": gaps,
+        }
+
+    def _ensure_signal_slots(
+        self,
+        result: Dict[str, Any],
+        articles: List[SelectedArticle],
+        *,
+        evidence_packet: Dict[str, Any],
+        delta_packet: Dict[str, Any],
+    ) -> None:
+        knowns = self._normalized_string_list(result.get("knowns", []), limit=8)
+        unknowns = self._normalized_string_list(result.get("unknowns", []), limit=8)
+        watch_signals = self._normalized_string_list(result.get("watch_signals", []), limit=10)
+
+        if not knowns:
+            knowns = self._fallback_knowns(result, articles, evidence_packet, delta_packet)
+        if not unknowns:
+            unknowns = self._fallback_unknowns(evidence_packet, delta_packet)
+        if not watch_signals:
+            watch_signals = self._fallback_watch_signals(result, evidence_packet, delta_packet)
+
+        result["knowns"] = knowns
+        result["unknowns"] = unknowns
+        result["watch_signals"] = watch_signals
+
+    @staticmethod
+    def _normalized_string_list(value: Any, *, limit: int) -> List[str]:
+        items: List[str] = []
+        if isinstance(value, list):
+            for raw in value:
+                text = str(raw).strip()
+                if not text:
+                    continue
+                items.append(text[:220])
+        seen: set[str] = set()
+        deduped: List[str] = []
+        for item in items:
+            key = item.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(item)
+            if len(deduped) >= limit:
+                break
+        return deduped
+
+    def _fallback_knowns(
+        self,
+        result: Dict[str, Any],
+        articles: List[SelectedArticle],
+        evidence_packet: Dict[str, Any],
+        delta_packet: Dict[str, Any],
+    ) -> List[str]:
+        candidates: List[str] = []
+        for cluster in evidence_packet.get("story_clusters", []):
+            if not isinstance(cluster, dict):
+                continue
+            for point in cluster.get("consensus_points", [])[:2]:
+                text = str(point).strip()
+                if text:
+                    candidates.append(text)
+        for item in delta_packet.get("unchanged_but_important", [])[:4]:
+            if not isinstance(item, dict):
+                continue
+            summary = str(item.get("summary", "")).strip()
+            label = str(item.get("item", "")).strip()
+            if summary:
+                candidates.append(summary)
+            elif label:
+                candidates.append(label)
+        for report in result.get("topic_reports", [])[:3]:
+            if not isinstance(report, dict):
+                continue
+            summary = str(report.get("narrative_summary", "")).strip()
+            if summary:
+                candidates.append(summary)
+        if not candidates:
+            for article in articles[:4]:
+                headline = str(article.candidate.title).strip()
+                source = str(article.candidate.source).strip()
+                if headline:
+                    label = headline
+                    if source:
+                        label = f"{headline} ({source})"
+                    candidates.append(label)
+        return self._normalized_string_list(candidates, limit=8)
+
+    def _fallback_unknowns(
+        self,
+        evidence_packet: Dict[str, Any],
+        delta_packet: Dict[str, Any],
+    ) -> List[str]:
+        candidates: List[str] = []
+        for cluster in evidence_packet.get("story_clusters", []):
+            if not isinstance(cluster, dict):
+                continue
+            for point in cluster.get("known_unknowns", [])[:2]:
+                text = str(point).strip()
+                if text:
+                    candidates.append(text)
+            for point in cluster.get("contested_points", [])[:1]:
+                text = str(point).strip()
+                if text:
+                    candidates.append(text)
+        for item in delta_packet.get("evidence_gaps", [])[:4]:
+            if not isinstance(item, dict):
+                continue
+            gap = str(item.get("gap", "")).strip()
+            why = str(item.get("why_it_matters", "")).strip()
+            if gap and why:
+                candidates.append(f"{gap} ({why})")
+            elif gap:
+                candidates.append(gap)
+        return self._normalized_string_list(candidates, limit=8)
+
+    def _fallback_watch_signals(
+        self,
+        result: Dict[str, Any],
+        evidence_packet: Dict[str, Any],
+        delta_packet: Dict[str, Any],
+    ) -> List[str]:
+        candidates: List[str] = []
+        for report in result.get("topic_reports", [])[:6]:
+            if not isinstance(report, dict):
+                continue
+            for item in report.get("what_to_watch", [])[:2]:
+                text = str(item).strip()
+                if text:
+                    candidates.append(text)
+        for item in evidence_packet.get("global_watch_signals", [])[:6]:
+            text = str(item).strip()
+            if text:
+                candidates.append(text)
+        for cluster in evidence_packet.get("story_clusters", [])[:4]:
+            if not isinstance(cluster, dict):
+                continue
+            for item in cluster.get("watch_signals", [])[:2]:
+                text = str(item).strip()
+                if text:
+                    candidates.append(text)
+        for key in ("new", "escalated"):
+            for item in delta_packet.get(key, [])[:3]:
+                if not isinstance(item, dict):
+                    continue
+                label = str(item.get("item", "")).strip()
+                if label:
+                    candidates.append(label)
+        return self._normalized_string_list(candidates, limit=10)
 
 
 def brief_metadata(

@@ -26,6 +26,25 @@ def render_markdown(brief: Dict[str, Any]) -> str:
         lines.append(str(brief["lead"]))
         lines.append("")
 
+    knowns = brief.get("knowns", [])
+    unknowns = brief.get("unknowns", [])
+    watch_signals = brief.get("watch_signals", [])
+    if knowns or unknowns or watch_signals:
+        lines.append("## Signal Map")
+        if knowns:
+            lines.append("Knowns:")
+            for item in knowns:
+                lines.append(f"- {item}")
+        if unknowns:
+            lines.append("Unknowns:")
+            for item in unknowns:
+                lines.append(f"- {item}")
+        if watch_signals:
+            lines.append("Watch signals:")
+            for item in watch_signals:
+                lines.append(f"- {item}")
+        lines.append("")
+
     topic_reports = brief.get("topic_reports", [])
     if topic_reports:
         lines.append("## Topic Reports")
@@ -56,28 +75,40 @@ def render_markdown(brief: Dict[str, Any]) -> str:
             lines.append(str(section.get("summary", "")))
             lines.append("")
 
-    selected_articles = brief.get("selected_articles", [])
-    if selected_articles:
-        lines.append("## Source Notes")
-        for article in selected_articles:
-            lines.append(f"### {article.get('headline', 'Untitled')}")
-            lines.append(f"- Source: {article.get('source', '')}")
-            lines.append(f"- Score: {article.get('score', '')}")
-            lines.append(f"- URL: {article.get('url', '')}")
-            snippet = article.get("snippet", "")
-            if snippet:
-                lines.append(f"- Snippet: {snippet}")
-            lines.append("")
-
-    headlines = brief.get("major_headlines", [])
-    if headlines:
-        lines.append("## Major Headlines")
-        for item in headlines:
-            topic = item.get("topic")
-            topic_text = f", {topic}" if topic else ""
-            lines.append(f"- {item.get('headline', '')} ({item.get('source', '')}{topic_text}, score {item.get('score', '')})")
-            if item.get("url"):
-                lines.append(f"  {item['url']}")
+    references = brief.get("references", [])
+    if not isinstance(references, list) or not references:
+        references = []
+        for article in brief.get("selected_articles", []):
+            if not isinstance(article, dict):
+                continue
+            references.append(
+                {
+                    "title": article.get("headline", ""),
+                    "source": article.get("source", ""),
+                    "url": article.get("url", ""),
+                }
+            )
+    if references:
+        lines.append("## References")
+        seen: set[str] = set()
+        for item in references:
+            if not isinstance(item, dict):
+                continue
+            title = str(item.get("title", "") or "").strip()
+            source = str(item.get("source", "") or "").strip()
+            url = str(item.get("url", "") or "").strip()
+            key = url or f"{title}|{source}"
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            if title and source:
+                lines.append(f"- {title} ({source})")
+            elif title:
+                lines.append(f"- {title}")
+            elif source:
+                lines.append(f"- {source}")
+            if url:
+                lines.append(f"  {url}")
         lines.append("")
 
     return "\n".join(lines).strip() + "\n"

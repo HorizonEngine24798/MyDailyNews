@@ -9,7 +9,9 @@ Horizon: https://github.com/Thysrael/Horizon
 License: MIT
 """
 
-from typing import Dict, List
+import json
+from pathlib import Path
+from typing import Any, Dict, List
 from urllib.parse import urlparse
 
 from .ai.base import set_ai_artifact_root
@@ -37,6 +39,7 @@ from .headline_selection import (
     topic_is_enabled as topic_is_enabled_helper,
     union_candidates_by_id as union_candidates_by_id_helper,
 )
+from .intermediate_serialization import to_jsonable
 from .models import (
     AppConfig,
     BriefOutput,
@@ -49,6 +52,7 @@ from .models import (
     SelectedArticle,
     TopicConfig,
 )
+from .pipeline_stages import PipelineRunOptions
 from .retrieval.article import ArticleRetriever
 from .retrieval.google_news import GoogleNewsQueryRetriever
 from .retrieval.reports import PriorReportRetriever
@@ -95,8 +99,14 @@ class NewsOrchestrator:
             self.debug,
         )
         self.warnings: List[str] = []
+        self.run_options = PipelineRunOptions()
+        self.stopped_after_stage: str = ""
+        self.stage_artifact_paths: List[str] = []
+        self._stage_run_label: str = ""
+        self._stage_artifact_root = Path(config.output_dir) / "diagnostics" / "stages"
 
-    def run(self) -> PipelineResult:
+    def run(self, run_options: PipelineRunOptions | None = None) -> PipelineResult:
+        self._prepare_run_options(run_options or PipelineRunOptions())
         with self.debug.span("pipeline.total"):
             now = utc_now()
             today = now.date()
@@ -121,6 +131,9 @@ class NewsOrchestrator:
                 sources=enabled_sources,
                 general_topics=len(general_topics),
                 detailed_topics=len(detailed_topics),
+                briefs=",".join(self.run_options.briefs),
+                stop_after_stage=self.run_options.stop_after_stage or "none",
+                save_intermediate=self.run_options.save_intermediate,
                 enrichment=self.config.enrichment.enabled,
                 use_shared_snapshot=self.config.runtime.use_shared_snapshot,
             )
@@ -128,8 +141,43 @@ class NewsOrchestrator:
                 with self.debug.span("prior_reports.fetch"):
                     prior_reports = self.fetch_prior_reports(today)
                 self.debug.set_metric("prior_reports.count", len(prior_reports))
+                self._record_stage_artifact(
+                    stage="prior_reports",
+                    payload=self._stage_payload(
+                        summary={
+                            "prior_reports_count": len(prior_reports),
+                            "prior_report_ids": [report.id for report in prior_reports],
+                        },
+                        intermediate={"prior_reports": prior_reports},
+                    ),
+                )
+                if self._stop_requested("prior_reports"):
+                    return self._stopped_result()
 
                 snapshot = self._build_snapshot(now, general_topics, detailed_topics)
+                if snapshot is None:
+                    snapshot_payload: Dict[str, Any] = {
+                        "snapshot_enabled": False,
+                        "reason": "runtime.use_shared_snapshot=false",
+                    }
+                else:
+                    snapshot_payload = {
+                        "snapshot_enabled": True,
+                        "snapshot_since": datetime_to_iso(snapshot.fetched_since),
+                        "rss_candidates": len(snapshot.rss_candidates),
+                        "topic_candidates": len(snapshot.topic_candidates),
+                        "merged_candidates": len(snapshot.merged_candidates),
+                    }
+                self._record_stage_artifact(
+                    stage="snapshot",
+                    payload=self._stage_payload(
+                        summary=snapshot_payload,
+                        intermediate={"snapshot": snapshot},
+                    ),
+                )
+                if self._stop_requested("snapshot"):
+                    return self._stopped_result()
+
                 shared_candidates_by_brief: Dict[str, List[NewsCandidate]] = {}
                 shared_decisions: Dict[str, HeadlineDecision] | None = None
                 if snapshot is not None:
@@ -140,8 +188,34 @@ class NewsOrchestrator:
                         detailed_topics,
                     )
                     self.warnings.extend(shared_warnings)
-                outputs = [
-                    self._run_brief(
+                    shared_payload = {
+                        "used_shared_scoring": True,
+                        "general_candidates_for_ai": len(shared_candidates_by_brief.get("general", [])),
+                        "detailed_candidates_for_ai": len(shared_candidates_by_brief.get("detailed", [])),
+                        "shared_decisions": len(shared_decisions or {}),
+                    }
+                else:
+                    shared_payload = {
+                        "used_shared_scoring": False,
+                        "reason": "snapshot_unavailable",
+                    }
+                self._record_stage_artifact(
+                    stage="shared_headline_scoring",
+                    payload=self._stage_payload(
+                        summary=shared_payload,
+                        intermediate={
+                            "shared_candidates_by_brief": shared_candidates_by_brief,
+                            "shared_decisions": shared_decisions or {},
+                            "shared_warnings": shared_warnings if snapshot is not None else [],
+                        },
+                    ),
+                )
+                if self._stop_requested("shared_headline_scoring"):
+                    return self._stopped_result()
+
+                outputs: List[BriefOutput] = []
+                if "general" in self.run_options.briefs:
+                    general_output = self._run_brief(
                         name="general",
                         output_suffix="general",
                         topics=general_topics,
@@ -157,8 +231,14 @@ class NewsOrchestrator:
                         ),
                         limited_candidates_override=shared_candidates_by_brief.get("general"),
                         shared_decisions=shared_decisions,
-                    ),
-                    self._run_brief(
+                    )
+                    if general_output is not None:
+                        outputs.append(general_output)
+                    if self.stopped_after_stage:
+                        return self._stopped_result(outputs=outputs)
+
+                if "detailed" in self.run_options.briefs:
+                    detailed_output = self._run_brief(
                         name="detailed",
                         output_suffix="detailed",
                         topics=detailed_topics,
@@ -173,8 +253,12 @@ class NewsOrchestrator:
                         ),
                         limited_candidates_override=shared_candidates_by_brief.get("detailed"),
                         shared_decisions=shared_decisions,
-                    ),
-                ]
+                    )
+                    if detailed_output is not None:
+                        outputs.append(detailed_output)
+                    if self.stopped_after_stage:
+                        return self._stopped_result(outputs=outputs)
+
                 self.debug.set_metric("pipeline.outputs", len(outputs))
                 self.debug.set_metric("pipeline.status", "completed")
                 self.debug.log("pipeline", "complete", outputs=len(outputs), warnings=len(self.warnings))
@@ -183,6 +267,79 @@ class NewsOrchestrator:
                 self.debug.set_metric("pipeline.status", "failed")
                 self.debug.set_metric("pipeline.error", f"{type(exc).__name__}: {exc}")
                 raise
+
+    def _prepare_run_options(self, options: PipelineRunOptions) -> None:
+        self.run_options = options
+        self.stopped_after_stage = ""
+        self.stage_artifact_paths = []
+        self._stage_run_label = utc_now().strftime("%Y%m%d_%H%M%S")
+        artifact_dir = str(options.stage_artifact_dir or "").strip()
+        if artifact_dir:
+            self._stage_artifact_root = Path(artifact_dir)
+        else:
+            self._stage_artifact_root = Path(self.config.output_dir) / "diagnostics" / "stages"
+
+    def _stopped_result(self, outputs: List[BriefOutput] | None = None) -> PipelineResult:
+        self.debug.set_metric("pipeline.outputs", len(outputs or []))
+        self.debug.set_metric("pipeline.status", "stopped")
+        self.debug.log(
+            "pipeline",
+            "stopped",
+            stage=self.stopped_after_stage or self.run_options.stop_after_stage,
+            outputs=len(outputs or []),
+        )
+        return PipelineResult(outputs=list(outputs or []), warnings=self.warnings)
+
+    def _stage_payload(
+        self,
+        *,
+        summary: Dict[str, Any],
+        intermediate: Dict[str, Any] | None = None,
+    ) -> Dict[str, Any]:
+        payload = dict(summary)
+        if self.run_options.save_intermediate and intermediate:
+            payload["intermediate"] = intermediate
+        return payload
+
+    def _stop_requested(self, stage: str) -> bool:
+        requested = str(self.run_options.stop_after_stage or "").strip().lower()
+        if not requested or requested != stage:
+            return False
+        self.mark_stopped_after_stage(stage)
+        return True
+
+    def mark_stopped_after_stage(self, stage: str) -> None:
+        if self.stopped_after_stage:
+            return
+        self.stopped_after_stage = stage
+        self.warnings.append(f"Run stopped after stage '{stage}' by request.")
+
+    def _record_stage_artifact(self, *, stage: str, payload: Dict[str, Any], brief_name: str = "pipeline") -> str:
+        should_dump = bool(
+            self.run_options.dump_stage_artifacts
+            or self.run_options.stop_after_stage
+            or self.run_options.save_intermediate
+        )
+        if not should_dump:
+            return ""
+        try:
+            target_dir = self._stage_artifact_root / self._stage_run_label / brief_name
+            target_dir.mkdir(parents=True, exist_ok=True)
+            artifact_path = target_dir / f"{stage}.json"
+            artifact_payload = {
+                "run_label": self._stage_run_label,
+                "brief": brief_name,
+                "stage": stage,
+                "generated_at": utc_now().isoformat(),
+                "payload": to_jsonable(payload),
+            }
+            artifact_path.write_text(json.dumps(artifact_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            path_text = str(artifact_path)
+            self.stage_artifact_paths.append(path_text)
+            return path_text
+        except Exception as exc:
+            self.warnings.append(f"Stage artifact write failed ({brief_name}/{stage}): {type(exc).__name__}: {exc}")
+            return ""
 
     def _run_brief(
         self,
@@ -197,7 +354,7 @@ class NewsOrchestrator:
         brief_goal: str,
         limited_candidates_override: List[NewsCandidate] | None = None,
         shared_decisions: Dict[str, HeadlineDecision] | None = None,
-    ) -> BriefOutput:
+    ) -> BriefOutput | None:
         return run_brief_helper(
             self,
             name=name,

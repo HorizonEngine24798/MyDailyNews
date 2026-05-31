@@ -1,33 +1,57 @@
 # MyDailyNews
 
-Local-first dual news briefing with a deliberately shallow LLM pipeline.
+MyDailyNews is a local-first dual-brief news pipeline focused on high-signal synthesis with bounded LLM usage.
 
-Attribution:
+## What It Generates
 
-- Horizon: https://github.com/Thysrael/Horizon
-- License: MIT
-- Borrowed ideas: shared source ingest, normalized headline candidates, RSS discovery, topic-focused search, and final brief rendering.
+- `general` brief: broad daily coverage.
+- `detailed` brief: deeper topic-focused coverage.
+- Both are written to Markdown and JSON.
 
-## Current Pipeline
-
-The runtime now favors fewer, smaller local-model calls:
+## Core Pipeline
 
 ```text
-fetch/dedupe
--> heuristic prefilter
--> headline scoring LLM (score only)
--> article fulltext fetch
--> optional non-LLM enrichment
--> one-shot final brief synthesis
+RSS + Google News topic queries
+-> URL dedupe + title dedupe
+-> deterministic event clustering + source-diversity-aware candidate limiting
+-> headline scoring LLM (JSON score-only)
+-> selected article full-text fetch
+-> optional enrichment (Wikipedia + related recent headlines)
+-> optional evidence distillation (LLM, single pass)
+-> optional delta extraction (LLM, single pass)
+-> deterministic delta scaffold fallback (when delta packet is absent)
+-> final synthesis LLM
+-> markdown/json output
 ```
 
-Removed from the hot path:
+## New Synthesis Features
 
-- per-article LLM enrichment planning
-- per-article LLM brief generation
-- narrative-map headline contracts
+- Deterministic event clusters are attached to candidates and carried into analysis/final prompts.
+- Source-diversity and per-cluster selection caps reduce single-source dominance.
+- Optional evidence distillation packet:
+  - story clusters, claims, consensus/contested points, known unknowns, watch signals, reader Q&A.
+- Optional delta extraction packet:
+  - new/escalated/weakened/reframed/unchanged/evidence gaps.
+- Deterministic prior-report delta scaffold:
+  - used as fallback when delta stage is disabled or produces no packet.
+- Final output always includes uncertainty/watch slots:
+  - `knowns`, `unknowns`, `watch_signals`.
 
-## Run
+## Runtime Design
+
+- LLM depth is intentionally shallow:
+  - headline scoring + final synthesis are the baseline calls.
+  - evidence and delta are optional and each run at most one call per brief.
+- Prompt budgets are actively trimmed to avoid OOM and runaway latency.
+- Worker defaults are conservative for local GPU/VRAM stability.
+
+## Data Sources
+
+- `sources.rss`: direct publisher feeds.
+- `sources.google_news`: Google News RSS queries per topic.
+- `sources.prior_reports`: local prior brief files for continuity and delta.
+
+## Quick Start
 
 ```powershell
 cd d:\Project\MyDailyNews
@@ -35,85 +59,104 @@ pip install -r requirements.txt
 python main.py --config config.json
 ```
 
-Debug logs:
+## Run Modes
+
+Standard run:
+
+```powershell
+python main.py --config config.json
+```
+
+Debug run with diagnostics:
 
 ```powershell
 python main.py --config config.json --debug
 ```
 
-With `--debug`, the CLI also saves a structured analytics artifact:
-
-```text
-output/diagnostics/analytics/YYYYMMDD_HHMMSS_debug_analytics.json
-```
-
-No enrichment:
+Run without enrichment:
 
 ```powershell
 python main.py --config config.json --no-enrichment --debug
 ```
 
-Outputs:
+Run only one brief:
+
+```powershell
+python main.py --config config.json --brief general --debug
+```
+
+Stop after a specific stage (for stage-by-stage debugging):
+
+```powershell
+python main.py --config config.json --brief general --stop-after-stage headline_select --debug
+```
+
+`--stop-after-stage` automatically enables intermediate payload saving unless you pass `--no-save-intermediate`.
+
+Dump stage checkpoint artifacts:
+
+```powershell
+python main.py --config config.json --brief general --stop-after-stage article_fetch --dump-stage-artifacts --debug
+```
+
+Save full intermediate payloads explicitly:
+
+```powershell
+python main.py --config config.json --brief detailed --save-intermediate --debug
+```
+
+Disable intermediate payload saving in stage-by-stage runs:
+
+```powershell
+python main.py --config config.json --brief detailed --stop-after-stage final_brief --no-save-intermediate --debug
+```
+
+List supported stage names:
+
+```powershell
+python main.py --list-stages
+```
+
+List built-in model presets:
+
+```powershell
+python main.py --list-model-presets
+```
+
+Stage-by-stage helper script (bash):
+
+```bash
+./tools/run_pipeline_stages.sh full
+./tools/run_pipeline_stages.sh step headline_select
+./tools/run_pipeline_stages.sh all-steps
+```
+
+## Enabling Optional Analysis Stages
+
+Edit `config.json`:
+
+```json
+{
+  "analysis": {
+    "evidence_distillation": { "enabled": true },
+    "delta_extraction": { "enabled": true }
+  }
+}
+```
+
+You can enable one, both, or neither.
+
+## Output Files
 
 ```text
 output/YYYY-MM-DD_general_brief.md
 output/YYYY-MM-DD_general_brief.json
 output/YYYY-MM-DD_detailed_brief.md
 output/YYYY-MM-DD_detailed_brief.json
+output/diagnostics/analytics/YYYYMMDD_HHMMSS_debug_analytics.json   (when --debug)
 ```
 
-## Model Split
-
-The repo is wired for two local model roles:
-
-- `ai_summary`: smaller scorer model for headline usefulness scoring
-- `ai_final`: larger writer model for one-shot final synthesis
-
-Default direction:
-
-- summary: `qwen3-1.7b`
-- final: `qwen3-8b`
-
-The summary stage is intentionally cheap. It only returns:
-
-```json
-{
-  "decisions": [
-    {
-      "id": "candidate id",
-      "score": 8.0
-    }
-  ]
-}
-```
-
-## Default Limits
-
-The default config is now conservative enough for local runs:
-
-- general candidate pool to LLM: `30`
-- detailed candidate pool to LLM: `12`
-- general headline batch size: `6`
-- detailed headline batch size: `4`
-- article text budget per selected article: `2200` general / `2500` detailed chars
-- final synthesis context per article: `800` chars
-
-These are meant to control VRAM and prompt size before chasing throughput.
-
-## Backends
-
-Supported:
-
-- `transformers`
-- `llama_cpp_server`
-
-List presets:
-
-```powershell
-python main.py --list-model-presets
-```
-
-## Repository Layout
+## Key Files
 
 ```text
 main.py
@@ -123,23 +166,22 @@ config.json / config.example.json
   Runtime configuration.
 
 mydailynews/orchestrator.py
-  Main dual-brief pipeline coordinator.
+  End-to-end pipeline coordination.
 
-mydailynews/ai/headline_analyzer.py
-  Small-contract headline scorer.
+mydailynews/headline_selection.py
+  Heuristic filtering, event clustering, and diversity-aware selection.
+
+mydailynews/analysis_pipeline.py
+  Optional evidence distillation and delta extraction stages.
+
+mydailynews/brief_execution.py
+  Brief run execution, stage wiring, deterministic delta scaffold fallback.
 
 mydailynews/brief.py
-  One-shot final brief synthesis with prompt budget trimming.
-
-mydailynews/enrichment.py
-  Optional non-LLM context retrieval.
-
-mydailynews/retrieval/
-  RSS, Google News, full article, prior report, Wikipedia, and related-news retrieval.
+  Final synthesis prompt building and output normalization.
 ```
 
-## Notes
+## Attribution
 
-- This repo intentionally does not do concurrent LLM scoring.
-- The main latency strategy is fewer calls, smaller prompts, and a smaller scorer model.
-- `llm_call_probe.py` remains useful for measuring prompt sizes and stage counts when tuning local configs.
+- Horizon inspiration: https://github.com/Thysrael/Horizon
+- License: MIT

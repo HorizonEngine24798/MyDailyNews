@@ -6,9 +6,12 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from .models import (
+    AnalysisConfig,
     AIConfig,
     AppConfig,
     CacheConfig,
+    DeltaExtractionConfig,
+    EvidenceDistillationConfig,
     EnrichmentConfig,
     FilteringConfig,
     GoogleNewsSourceConfig,
@@ -199,6 +202,21 @@ def _normalize_backend(value: Any) -> str:
     return aliases.get(raw, raw)
 
 
+def _normalize_analysis_model_role(value: Any, field_name: str) -> str:
+    role = str(value or "summary").strip().lower()
+    if role not in {"summary", "final"}:
+        raise ValueError(f"{field_name} must be 'summary' or 'final'")
+    return role
+
+
+def _normalize_delta_input_source(value: Any) -> str:
+    mode = str(value or "evidence_or_articles").strip().lower()
+    allowed = {"evidence_or_articles", "evidence_only", "articles_only"}
+    if mode not in allowed:
+        raise ValueError("analysis.delta_extraction.input_source must be one of: evidence_or_articles, evidence_only, articles_only")
+    return mode
+
+
 def get_ai_model_presets() -> Dict[str, Dict[str, Any]]:
     return deepcopy(AI_MODEL_PRESETS)
 
@@ -266,6 +284,83 @@ def _load_filtering(raw: Dict[str, Any], defaults: Dict[str, Any]) -> FilteringC
         max_selected_articles=int(raw.get("max_selected_articles", defaults["max_selected_articles"])),
         fill_selected_articles=bool(raw.get("fill_selected_articles", defaults["fill_selected_articles"])),
         article_text_max_chars=int(raw.get("article_text_max_chars", defaults["article_text_max_chars"])),
+        max_selected_per_source=max(0, int(raw.get("max_selected_per_source", defaults["max_selected_per_source"]))),
+        max_selected_per_event_cluster=max(
+            0,
+            int(raw.get("max_selected_per_event_cluster", defaults["max_selected_per_event_cluster"])),
+        ),
+        prefer_multi_source_clusters=bool(
+            raw.get("prefer_multi_source_clusters", defaults["prefer_multi_source_clusters"])
+        ),
+        multi_source_cluster_bonus=max(
+            0.0,
+            float(raw.get("multi_source_cluster_bonus", defaults["multi_source_cluster_bonus"])),
+        ),
+        event_cluster_time_window_hours=max(
+            2,
+            min(72, int(raw.get("event_cluster_time_window_hours", defaults["event_cluster_time_window_hours"]))),
+        ),
+    )
+
+
+def _load_analysis(raw: Dict[str, Any]) -> AnalysisConfig:
+    analysis_raw = raw.get("analysis", {})
+    if analysis_raw is None:
+        analysis_raw = {}
+    if not isinstance(analysis_raw, dict):
+        raise ValueError("Config section analysis must be an object")
+
+    evidence_raw = analysis_raw.get("evidence_distillation", {})
+    if evidence_raw is None:
+        evidence_raw = {}
+    if not isinstance(evidence_raw, dict):
+        raise ValueError("Config section analysis.evidence_distillation must be an object")
+
+    delta_raw = analysis_raw.get("delta_extraction", {})
+    if delta_raw is None:
+        delta_raw = {}
+    if not isinstance(delta_raw, dict):
+        raise ValueError("Config section analysis.delta_extraction must be an object")
+
+    evidence_defaults = EvidenceDistillationConfig()
+    delta_defaults = DeltaExtractionConfig()
+    return AnalysisConfig(
+        evidence_distillation=EvidenceDistillationConfig(
+            enabled=bool(evidence_raw.get("enabled", evidence_defaults.enabled)),
+            model_role=_normalize_analysis_model_role(
+                evidence_raw.get("model_role", evidence_defaults.model_role),
+                "analysis.evidence_distillation.model_role",
+            ),
+            include_reader_qa=bool(evidence_raw.get("include_reader_qa", evidence_defaults.include_reader_qa)),
+            max_input_tokens=max(256, int(evidence_raw.get("max_input_tokens", evidence_defaults.max_input_tokens))),
+            max_new_tokens=max(64, int(evidence_raw.get("max_new_tokens", evidence_defaults.max_new_tokens))),
+            max_articles=max(1, int(evidence_raw.get("max_articles", evidence_defaults.max_articles))),
+            max_article_chars=max(120, int(evidence_raw.get("max_article_chars", evidence_defaults.max_article_chars))),
+            max_context_sources_per_article=max(
+                1,
+                int(evidence_raw.get("max_context_sources_per_article", evidence_defaults.max_context_sources_per_article)),
+            ),
+            max_story_clusters=max(1, int(evidence_raw.get("max_story_clusters", evidence_defaults.max_story_clusters))),
+            max_claims_per_cluster=max(
+                1,
+                int(evidence_raw.get("max_claims_per_cluster", evidence_defaults.max_claims_per_cluster)),
+            ),
+            max_questions=max(0, int(evidence_raw.get("max_questions", evidence_defaults.max_questions))),
+            cache_ttl_seconds=max(0, int(evidence_raw.get("cache_ttl_seconds", evidence_defaults.cache_ttl_seconds))),
+        ),
+        delta_extraction=DeltaExtractionConfig(
+            enabled=bool(delta_raw.get("enabled", delta_defaults.enabled)),
+            model_role=_normalize_analysis_model_role(
+                delta_raw.get("model_role", delta_defaults.model_role),
+                "analysis.delta_extraction.model_role",
+            ),
+            input_source=_normalize_delta_input_source(delta_raw.get("input_source", delta_defaults.input_source)),
+            require_prior_reports=bool(delta_raw.get("require_prior_reports", delta_defaults.require_prior_reports)),
+            max_input_tokens=max(256, int(delta_raw.get("max_input_tokens", delta_defaults.max_input_tokens))),
+            max_new_tokens=max(64, int(delta_raw.get("max_new_tokens", delta_defaults.max_new_tokens))),
+            max_prior_reports=max(1, int(delta_raw.get("max_prior_reports", delta_defaults.max_prior_reports))),
+            cache_ttl_seconds=max(0, int(delta_raw.get("cache_ttl_seconds", delta_defaults.cache_ttl_seconds))),
+        ),
     )
 
 
@@ -327,6 +422,7 @@ def load_config(path: Path) -> AppConfig:
     memory_raw = raw["user_memory"]
     sources_raw = raw["sources"]
     runtime_raw = raw.get("runtime", {})
+    analysis = _load_analysis(raw)
     if not isinstance(runtime_raw, dict):
         raise ValueError("Config section runtime must be an object")
 
@@ -341,6 +437,11 @@ def load_config(path: Path) -> AppConfig:
             "max_selected_articles": 6,
             "fill_selected_articles": False,
             "article_text_max_chars": 2500,
+            "max_selected_per_source": 2,
+            "max_selected_per_event_cluster": 2,
+            "prefer_multi_source_clusters": True,
+            "multi_source_cluster_bonus": 0.35,
+            "event_cluster_time_window_hours": 18,
         },
     )
     general_filtering = _load_filtering(
@@ -354,6 +455,11 @@ def load_config(path: Path) -> AppConfig:
             "max_selected_articles": 10,
             "fill_selected_articles": True,
             "article_text_max_chars": 2200,
+            "max_selected_per_source": 3,
+            "max_selected_per_event_cluster": 2,
+            "prefer_multi_source_clusters": True,
+            "multi_source_cluster_bonus": 0.35,
+            "event_cluster_time_window_hours": 18,
         },
     )
 
@@ -410,4 +516,5 @@ def load_config(path: Path) -> AppConfig:
             max_enrichment_workers=_worker_count(runtime_raw, "max_enrichment_workers", 1),
             use_shared_snapshot=bool(runtime_raw.get("use_shared_snapshot", True)),
         ),
+        analysis=analysis,
     )
