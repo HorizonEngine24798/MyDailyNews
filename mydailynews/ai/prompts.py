@@ -1,7 +1,8 @@
-HEADLINE_ANALYSIS_SYSTEM = """You score news headlines for usefulness.
+HEADLINE_ANALYSIS_SYSTEM = """You are an editorial triage scorer for a personal news briefing.
 Return exactly one valid JSON object.
 Do not use markdown fences.
-Base the score only on the supplied reader preferences, brief goal, topics, and candidate headlines."""
+Use only supplied reader memory, brief goal, topics, and candidate headlines.
+Return one decision for every candidate id."""
 
 HEADLINE_ANALYSIS_USER = """Reader memory and style:
 {memory}
@@ -15,24 +16,59 @@ Topics:
 Candidate headlines:
 {items}
 
-Score each candidate for how useful it is to retrieve and read in full for this brief.
-Higher scores should favor importance, relevance, freshness, and likely explanatory value.
-Return one decision for every candidate id.
+Score each candidate from 0.0 to 10.0 for whether it is worth retrieving in full for this brief.
+Apply this rubric:
+1. Personal relevance to the reader profile and brief goal.
+2. Impact (who/what is materially affected).
+3. Novelty (new signal vs repetition).
+4. Actionability (supports concrete decisions, risk monitoring, or planning).
+5. Urgency (cost of waiting until tomorrow).
+
+Use regret framing:
+Would this reader regret missing this today?
+- Strong "yes" => score higher.
+- Weak or "no" => score lower.
+
+Explicit penalties:
+- Routine market or political noise without reader-specific stake.
+- Minor incremental updates that do not materially change understanding.
+- Rewrites of the same event with no meaningful new information.
+- Topic keyword match with low impact or low urgency.
+
+Examples:
+- High-value must-know (8-10): major policy shift, surprise escalation, large strategic move, or a development with immediate decision impact.
+- Mid-value monitor (5-7): relevant update with some signal but limited urgency or actionability.
+- Low-value noise (0-4): repetitive recap, small incremental change, promotional/clickbait framing, or weakly relevant topic mention.
+
+Decision fields:
+- `id` and `score` are required for every candidate.
+- Include these additional fields whenever possible: `personal_relevance`, `impact`, `novelty`, `urgency`, `actionability`, `confidence`, `reason`, `skip_reason`, `angle_type`.
+- Keep `reason` and `skip_reason` concise (one short sentence). Use `skip_reason` as `null` when not applicable.
 
 Return:
 {{
   "decisions": [
     {{
       "id": "candidate id",
-      "score": 8.0
+      "score": 8.0,
+      "personal_relevance": 8.0,
+      "impact": 7.5,
+      "novelty": 6.5,
+      "urgency": 7.0,
+      "actionability": 6.0,
+      "confidence": 7.5,
+      "reason": "High-impact policy shift with immediate strategic relevance.",
+      "skip_reason": null,
+      "angle_type": "policy_change"
     }}
   ]
 }}"""
 
-BRIEF_SYSTEM = """You write compact, high-signal news briefs from selected articles.
+BRIEF_SYSTEM = """You are a structured briefing writer, not a generic summarizer.
 Return exactly one valid JSON object.
 Do not use markdown fences.
-Base the synthesis only on supplied article evidence, supplied context, and prior reports."""
+Use only supplied article evidence, supplied context, and prior reports.
+Do not invent facts or certainty."""
 
 BRIEF_USER = """Reader memory and style:
 {memory}
@@ -59,12 +95,20 @@ Selected articles:
 
 Work to perform:
 1. Synthesize only from the supplied article excerpts and context.
-2. Prefer what changed, what matters, and what remains uncertain.
-3. Keep the writing compact and readable.
-4. Use evidence and delta packets when provided, but do not overstate uncertain points.
-5. Populate explicit `knowns`, `unknowns`, and `watch_signals` slots.
-6. Do not generate a references/sources section.
-7. Do not include URLs or markdown links in generated text fields.
+2. Reject generic phrasing; every claim should answer "why this matters now."
+3. For each topic report, explicitly cover:
+   - why_it_matters
+   - what_changed
+   - who_is_affected
+   - what_to_watch
+4. Keep writing compact:
+   - `lead`: 2 to 3 sentences.
+   - topic framing fields: short, concrete sentences.
+   - list fields: concise bullets, no filler.
+5. Use evidence and delta packets when provided, but do not overstate uncertain points.
+6. Populate explicit `knowns`, `unknowns`, and `watch_signals` slots.
+7. Do not generate a references/sources section.
+8. Do not include URLs or markdown links in generated text fields.
 
 Return:
 {{
@@ -76,7 +120,10 @@ Return:
   "topic_reports": [
     {{
       "topic": "topic name",
-      "narrative_summary": "current state of the topic",
+      "why_it_matters": "why this topic matters for the reader now",
+      "what_changed": "what is materially different versus recent baseline",
+      "who_is_affected": ["affected actor/group and how"],
+      "narrative_summary": "optional compact legacy summary field",
       "narrative_changes": [
         {{
           "narrative": "short label",

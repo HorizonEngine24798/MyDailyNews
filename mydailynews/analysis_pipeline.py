@@ -159,6 +159,7 @@ class EvidenceDistiller:
             min(self.config.max_article_chars, 560),
             min(self.config.max_article_chars, 380),
             240,
+            180,
         ]
         dropped_article_ids: list[str] = []
         used_articles = ordered_articles[:]
@@ -195,12 +196,15 @@ class EvidenceDistiller:
                             + ", ".join(dropped_article_ids)
                         )
                     return prompt, used_articles, candidate_reports
+                self.debug.increment("analysis.evidence.prompt_pressure_checks", 1)
                 if len(candidate_reports) > 1:
                     candidate_reports = candidate_reports[:-1]
+                    self.debug.increment("analysis.evidence.prompt_compaction.drop_prior_report", 1)
                     continue
                 if len(candidate_articles) > 2:
                     dropped = candidate_articles.pop()
                     dropped_article_ids.append(dropped.candidate.id)
+                    self.debug.increment("analysis.evidence.prompt_compaction.drop_article", 1)
                     continue
                 used_articles = candidate_articles
                 break
@@ -251,7 +255,7 @@ class EvidenceDistiller:
         date: str,
     ) -> str:
         fingerprint = {
-            "v": 1,
+            "v": 2,
             "stage": "evidence_distillation",
             "backend": self.client.config.backend,
             "model": self.client.config.effective_model_label,
@@ -514,15 +518,19 @@ class DeltaExtractor:
                             + ", ".join(dropped_article_ids)
                         )
                     return prompt, candidate_articles, candidate_reports, candidate_evidence
+                self.debug.increment("analysis.delta.prompt_pressure_checks", 1)
                 if len(candidate_reports) > 1:
                     candidate_reports = candidate_reports[:-1]
+                    self.debug.increment("analysis.delta.prompt_compaction.drop_prior_report", 1)
                     continue
                 if candidate_evidence and self.config.input_source in {"evidence_or_articles", "evidence_only"}:
                     candidate_evidence = {}
+                    self.debug.increment("analysis.delta.prompt_compaction.drop_evidence_packet", 1)
                     continue
                 if len(candidate_articles) > 2:
                     dropped = candidate_articles.pop()
                     dropped_article_ids.append(dropped.candidate.id)
+                    self.debug.increment("analysis.delta.prompt_compaction.drop_article", 1)
                     continue
                 used_articles = candidate_articles
                 used_reports = candidate_reports
@@ -582,7 +590,7 @@ class DeltaExtractor:
         date: str,
     ) -> str:
         fingerprint = {
-            "v": 1,
+            "v": 2,
             "stage": "delta_extraction",
             "backend": self.client.config.backend,
             "model": self.client.config.effective_model_label,

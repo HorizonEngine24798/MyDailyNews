@@ -75,6 +75,8 @@ class BriefGenerator:
             raise ValueError(f"final brief generation: missing key(s): {', '.join(sorted(missing))}")
 
         result.setdefault("title", f"Daily Brief - {date}")
+        result["topic_reports"] = self._normalize_topic_reports(result.get("topic_reports", []))
+        result["sections"] = self._normalize_sections(result.get("sections", []))
         result["major_headlines"] = self._major_headlines_payload(used_articles)
         result["selected_articles"] = self._selected_articles_payload(used_articles)
         result["references"] = self._references_payload(used_articles)
@@ -469,6 +471,112 @@ class BriefGenerator:
             "evidence_gaps": gaps,
         }
 
+    @staticmethod
+    def _trim_text(value: Any, *, max_chars: int) -> str:
+        text = " ".join(str(value or "").split()).strip()
+        if not text:
+            return ""
+        return text[:max_chars]
+
+    @classmethod
+    def _to_string_list(cls, value: Any, *, max_items: int, max_chars: int) -> List[str]:
+        if isinstance(value, list):
+            raw_items = value
+        elif isinstance(value, str):
+            raw_items = [value]
+        else:
+            raw_items = []
+        cleaned: List[str] = []
+        for raw in raw_items:
+            text = cls._trim_text(raw, max_chars=max_chars)
+            if text:
+                cleaned.append(text)
+        return cls._normalized_string_list(cleaned, limit=max_items)
+
+    @classmethod
+    def _normalize_narrative_changes(cls, value: Any) -> List[Dict[str, str]]:
+        if not isinstance(value, list):
+            return []
+        rows: List[Dict[str, str]] = []
+        for raw in value[:8]:
+            if not isinstance(raw, dict):
+                continue
+            narrative = cls._trim_text(raw.get("narrative", ""), max_chars=90)
+            status = cls._trim_text(raw.get("status", ""), max_chars=24)
+            summary = cls._trim_text(raw.get("summary", ""), max_chars=220)
+            if not (narrative or summary):
+                continue
+            rows.append(
+                {
+                    "narrative": narrative,
+                    "status": status,
+                    "summary": summary,
+                }
+            )
+        return rows
+
+    @classmethod
+    def _normalize_topic_reports(cls, value: Any) -> List[Dict[str, Any]]:
+        if not isinstance(value, list):
+            return []
+        reports: List[Dict[str, Any]] = []
+        for raw in value[:10]:
+            if not isinstance(raw, dict):
+                continue
+            topic = cls._trim_text(raw.get("topic", ""), max_chars=120) or "Topic"
+            why_it_matters = cls._trim_text(raw.get("why_it_matters", ""), max_chars=240)
+            what_changed = cls._trim_text(raw.get("what_changed", ""), max_chars=240)
+            narrative_summary = cls._trim_text(
+                raw.get("narrative_summary", "") or raw.get("summary", ""),
+                max_chars=280,
+            )
+            if not why_it_matters and narrative_summary:
+                why_it_matters = narrative_summary
+
+            narrative_changes = cls._normalize_narrative_changes(raw.get("narrative_changes", []))
+            if not what_changed and narrative_changes:
+                what_changed = cls._trim_text(narrative_changes[0].get("summary", ""), max_chars=240)
+            if not what_changed and narrative_summary:
+                what_changed = narrative_summary
+
+            who_is_affected = cls._to_string_list(raw.get("who_is_affected", []), max_items=5, max_chars=120)
+            what_to_watch = cls._to_string_list(
+                raw.get("what_to_watch", raw.get("watch_signals", [])),
+                max_items=6,
+                max_chars=150,
+            )
+            if not narrative_summary:
+                parts = [why_it_matters, what_changed]
+                narrative_summary = cls._trim_text(". ".join([part for part in parts if part]), max_chars=280)
+
+            reports.append(
+                {
+                    "topic": topic,
+                    "why_it_matters": why_it_matters,
+                    "what_changed": what_changed,
+                    "who_is_affected": who_is_affected,
+                    "narrative_summary": narrative_summary,
+                    "narrative_changes": narrative_changes,
+                    "what_to_watch": what_to_watch,
+                }
+            )
+        return reports
+
+    @classmethod
+    def _normalize_sections(cls, value: Any) -> List[Dict[str, str]]:
+        if not isinstance(value, list):
+            return []
+        sections: List[Dict[str, str]] = []
+        for raw in value[:10]:
+            if not isinstance(raw, dict):
+                continue
+            heading = cls._trim_text(raw.get("heading", ""), max_chars=120)
+            summary = cls._trim_text(raw.get("summary", ""), max_chars=260)
+            if not (heading or summary):
+                continue
+            sections.append({"heading": heading or "Section", "summary": summary})
+        return sections
+
     def _ensure_signal_slots(
         self,
         result: Dict[str, Any],
@@ -540,9 +648,10 @@ class BriefGenerator:
         for report in result.get("topic_reports", [])[:3]:
             if not isinstance(report, dict):
                 continue
-            summary = str(report.get("narrative_summary", "")).strip()
-            if summary:
-                candidates.append(summary)
+            for key in ("why_it_matters", "what_changed", "narrative_summary"):
+                text = str(report.get(key, "")).strip()
+                if text:
+                    candidates.append(text)
         if not candidates:
             for article in articles[:4]:
                 headline = str(article.candidate.title).strip()

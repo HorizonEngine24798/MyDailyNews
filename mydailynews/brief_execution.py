@@ -9,8 +9,12 @@ from .ai.headline_analyzer import HeadlineAnalyzer
 from .analysis_pipeline import DeltaExtractor, EvidenceDistiller
 from .brief import BriefGenerator, brief_metadata
 from .enrichment import SimpleEnricher
+from .headline_selection import selection_rationale_rows, selection_reason_counters
 from .models import (
+    AnalysisRolloutModeConfig,
     BriefOutput,
+    DeltaExtractionConfig,
+    EvidenceDistillationConfig,
     HeadlineDecision,
     NewsCandidate,
     PriorReport,
@@ -20,6 +24,64 @@ from .models import (
 )
 from .output import write_json, write_markdown
 from .retrieval.article import ArticleRetriever
+
+ANALYSIS_ROLLOUT_PRESETS: Dict[str, Dict[str, Dict[str, Any]]] = {
+    "safe_local": {
+        "general": {
+            "evidence_enabled": False,
+            "delta_enabled": False,
+        },
+        "detailed": {
+            "evidence_enabled": True,
+            "delta_enabled": False,
+            "evidence_max_input_tokens": 1500,
+            "evidence_max_new_tokens": 360,
+            "evidence_max_articles": 4,
+            "evidence_max_article_chars": 420,
+            "delta_max_input_tokens": 1200,
+            "delta_max_new_tokens": 220,
+            "delta_max_prior_reports": 2,
+        },
+    },
+    "balanced_local": {
+        "general": {
+            "evidence_enabled": False,
+            "delta_enabled": False,
+        },
+        "detailed": {
+            "evidence_enabled": True,
+            "delta_enabled": True,
+            "evidence_max_input_tokens": 1900,
+            "evidence_max_new_tokens": 520,
+            "evidence_max_articles": 6,
+            "evidence_max_article_chars": 560,
+            "delta_max_input_tokens": 1450,
+            "delta_max_new_tokens": 300,
+            "delta_max_prior_reports": 3,
+        },
+    },
+    "quality_focused": {
+        "general": {
+            "evidence_enabled": True,
+            "delta_enabled": False,
+            "evidence_max_input_tokens": 1700,
+            "evidence_max_new_tokens": 420,
+            "evidence_max_articles": 4,
+            "evidence_max_article_chars": 460,
+        },
+        "detailed": {
+            "evidence_enabled": True,
+            "delta_enabled": True,
+            "evidence_max_input_tokens": 2300,
+            "evidence_max_new_tokens": 700,
+            "evidence_max_articles": 8,
+            "evidence_max_article_chars": 700,
+            "delta_max_input_tokens": 1700,
+            "delta_max_new_tokens": 380,
+            "delta_max_prior_reports": 3,
+        },
+    },
+}
 
 
 def _tokenize_delta_text(text: str) -> set[str]:
@@ -274,6 +336,173 @@ def _checkpoint_stage(
     return False
 
 
+def _coerce_optional_bool(value: Any) -> bool | None:
+    if value is None:
+        return None
+    return bool(value)
+
+
+def _coerce_optional_int(value: Any, *, minimum: int = 1) -> int | None:
+    if value is None:
+        return None
+    return max(minimum, int(value))
+
+
+def _rollout_mode_from_object(raw: Any) -> AnalysisRolloutModeConfig:
+    if raw is None:
+        raw = {}
+    if isinstance(raw, dict):
+        getter = raw.get
+    else:
+        getter = lambda key, default=None: getattr(raw, key, default)
+    return AnalysisRolloutModeConfig(
+        evidence_enabled=_coerce_optional_bool(getter("evidence_enabled")),
+        delta_enabled=_coerce_optional_bool(getter("delta_enabled")),
+        evidence_max_input_tokens=_coerce_optional_int(getter("evidence_max_input_tokens"), minimum=256),
+        evidence_max_new_tokens=_coerce_optional_int(getter("evidence_max_new_tokens"), minimum=64),
+        evidence_max_articles=_coerce_optional_int(getter("evidence_max_articles"), minimum=1),
+        evidence_max_article_chars=_coerce_optional_int(getter("evidence_max_article_chars"), minimum=120),
+        delta_max_input_tokens=_coerce_optional_int(getter("delta_max_input_tokens"), minimum=256),
+        delta_max_new_tokens=_coerce_optional_int(getter("delta_max_new_tokens"), minimum=64),
+        delta_max_prior_reports=_coerce_optional_int(getter("delta_max_prior_reports"), minimum=1),
+    )
+
+
+def _merge_rollout_modes(base: AnalysisRolloutModeConfig, override: AnalysisRolloutModeConfig) -> AnalysisRolloutModeConfig:
+    merged = AnalysisRolloutModeConfig(**vars(base))
+    for key, value in vars(override).items():
+        if value is None:
+            continue
+        setattr(merged, key, value)
+    return merged
+
+
+def _to_evidence_config(raw: Any) -> EvidenceDistillationConfig:
+    defaults = EvidenceDistillationConfig()
+    if raw is None:
+        raw = defaults
+    return EvidenceDistillationConfig(
+        enabled=bool(getattr(raw, "enabled", defaults.enabled)),
+        model_role=str(getattr(raw, "model_role", defaults.model_role)),
+        include_reader_qa=bool(getattr(raw, "include_reader_qa", defaults.include_reader_qa)),
+        max_input_tokens=max(256, int(getattr(raw, "max_input_tokens", defaults.max_input_tokens))),
+        max_new_tokens=max(64, int(getattr(raw, "max_new_tokens", defaults.max_new_tokens))),
+        max_articles=max(1, int(getattr(raw, "max_articles", defaults.max_articles))),
+        max_article_chars=max(120, int(getattr(raw, "max_article_chars", defaults.max_article_chars))),
+        max_context_sources_per_article=max(
+            1,
+            int(getattr(raw, "max_context_sources_per_article", defaults.max_context_sources_per_article)),
+        ),
+        max_story_clusters=max(1, int(getattr(raw, "max_story_clusters", defaults.max_story_clusters))),
+        max_claims_per_cluster=max(1, int(getattr(raw, "max_claims_per_cluster", defaults.max_claims_per_cluster))),
+        max_questions=max(0, int(getattr(raw, "max_questions", defaults.max_questions))),
+        cache_ttl_seconds=max(0, int(getattr(raw, "cache_ttl_seconds", defaults.cache_ttl_seconds))),
+    )
+
+
+def _to_delta_config(raw: Any) -> DeltaExtractionConfig:
+    defaults = DeltaExtractionConfig()
+    if raw is None:
+        raw = defaults
+    return DeltaExtractionConfig(
+        enabled=bool(getattr(raw, "enabled", defaults.enabled)),
+        model_role=str(getattr(raw, "model_role", defaults.model_role)),
+        input_source=str(getattr(raw, "input_source", defaults.input_source)),
+        require_prior_reports=bool(getattr(raw, "require_prior_reports", defaults.require_prior_reports)),
+        max_input_tokens=max(256, int(getattr(raw, "max_input_tokens", defaults.max_input_tokens))),
+        max_new_tokens=max(64, int(getattr(raw, "max_new_tokens", defaults.max_new_tokens))),
+        max_prior_reports=max(1, int(getattr(raw, "max_prior_reports", defaults.max_prior_reports))),
+        cache_ttl_seconds=max(0, int(getattr(raw, "cache_ttl_seconds", defaults.cache_ttl_seconds))),
+    )
+
+
+def _apply_rollout_mode_overrides(
+    evidence_config: EvidenceDistillationConfig,
+    delta_config: DeltaExtractionConfig,
+    mode: AnalysisRolloutModeConfig,
+) -> None:
+    if mode.evidence_enabled is not None:
+        evidence_config.enabled = bool(mode.evidence_enabled)
+    if mode.delta_enabled is not None:
+        delta_config.enabled = bool(mode.delta_enabled)
+    if mode.evidence_max_input_tokens is not None:
+        evidence_config.max_input_tokens = min(
+            int(evidence_config.max_input_tokens),
+            int(mode.evidence_max_input_tokens),
+        )
+    if mode.evidence_max_new_tokens is not None:
+        evidence_config.max_new_tokens = min(
+            int(evidence_config.max_new_tokens),
+            int(mode.evidence_max_new_tokens),
+        )
+    if mode.evidence_max_articles is not None:
+        evidence_config.max_articles = min(
+            int(evidence_config.max_articles),
+            int(mode.evidence_max_articles),
+        )
+    if mode.evidence_max_article_chars is not None:
+        evidence_config.max_article_chars = min(
+            int(evidence_config.max_article_chars),
+            int(mode.evidence_max_article_chars),
+        )
+    if mode.delta_max_input_tokens is not None:
+        delta_config.max_input_tokens = min(
+            int(delta_config.max_input_tokens),
+            int(mode.delta_max_input_tokens),
+        )
+    if mode.delta_max_new_tokens is not None:
+        delta_config.max_new_tokens = min(
+            int(delta_config.max_new_tokens),
+            int(mode.delta_max_new_tokens),
+        )
+    if mode.delta_max_prior_reports is not None:
+        delta_config.max_prior_reports = min(
+            int(delta_config.max_prior_reports),
+            int(mode.delta_max_prior_reports),
+        )
+
+
+def resolve_analysis_stage_configs(analysis: Any, brief_name: str) -> tuple[EvidenceDistillationConfig, DeltaExtractionConfig, Dict[str, Any]]:
+    evidence_config = _to_evidence_config(getattr(analysis, "evidence_distillation", None))
+    delta_config = _to_delta_config(getattr(analysis, "delta_extraction", None))
+
+    metadata: Dict[str, Any] = {
+        "rollout_enabled": False,
+        "rollout_profile": "",
+        "rollout_mode": brief_name,
+        "evidence_requested_enabled": bool(evidence_config.enabled),
+        "delta_requested_enabled": bool(delta_config.enabled),
+        "evidence_skip_reason": "disabled",
+        "delta_skip_reason": "disabled",
+    }
+    rollout = getattr(analysis, "rollout", None)
+    if rollout is None or not bool(getattr(rollout, "enabled", False)):
+        metadata["evidence_effective_enabled"] = bool(evidence_config.enabled)
+        metadata["delta_effective_enabled"] = bool(delta_config.enabled)
+        metadata["evidence_skip_reason"] = "enabled" if evidence_config.enabled else "disabled"
+        metadata["delta_skip_reason"] = "enabled" if delta_config.enabled else "disabled"
+        return evidence_config, delta_config, metadata
+
+    metadata["rollout_enabled"] = True
+    profile = str(getattr(rollout, "profile", "safe_local")).strip().lower() or "safe_local"
+    if profile not in ANALYSIS_ROLLOUT_PRESETS:
+        profile = "safe_local"
+    metadata["rollout_profile"] = profile
+
+    mode_key = "detailed" if brief_name == "detailed" else "general"
+    preset_mode_raw = ANALYSIS_ROLLOUT_PRESETS.get(profile, ANALYSIS_ROLLOUT_PRESETS["safe_local"]).get(mode_key, {})
+    preset_mode = _rollout_mode_from_object(preset_mode_raw)
+    explicit_mode = _rollout_mode_from_object(getattr(rollout, mode_key, None))
+    effective_mode = _merge_rollout_modes(preset_mode, explicit_mode)
+
+    _apply_rollout_mode_overrides(evidence_config, delta_config, effective_mode)
+    metadata["evidence_effective_enabled"] = bool(evidence_config.enabled)
+    metadata["delta_effective_enabled"] = bool(delta_config.enabled)
+    metadata["evidence_skip_reason"] = "enabled" if evidence_config.enabled else "rollout_disabled"
+    metadata["delta_skip_reason"] = "enabled" if delta_config.enabled else "rollout_disabled"
+    return evidence_config, delta_config, metadata
+
+
 def run_brief(
     orchestrator,
     *,
@@ -476,6 +705,21 @@ def run_brief(
             with orchestrator.debug.span(f"brief.{name}.headline_select"):
                 selected = orchestrator.select_articles(limited_candidates, decisions, topics, filtering)
             orchestrator.debug.set_metric(f"brief.{name}.selected", len(selected))
+            selection_counts = selection_reason_counters(decisions)
+            selected_reason_counts = selection_counts.get("selected", {})
+            skipped_reason_counts = selection_counts.get("skipped", {})
+            for code, count in selected_reason_counts.items():
+                orchestrator.debug.set_metric(f"brief.{name}.selection.selected_reason.{code}", int(count))
+            for code, count in skipped_reason_counts.items():
+                orchestrator.debug.set_metric(f"brief.{name}.selection.skipped_reason.{code}", int(count))
+            orchestrator.debug.set_metric(
+                f"brief.{name}.selection.selected_reason_total",
+                sum(int(value) for value in selected_reason_counts.values()),
+            )
+            orchestrator.debug.set_metric(
+                f"brief.{name}.selection.skipped_reason_total",
+                sum(int(value) for value in skipped_reason_counts.values()),
+            )
             selected_sources = {
                 (str(item.candidate.source or "").strip().lower())
                 for item in selected
@@ -506,6 +750,8 @@ def run_brief(
                 selected_sources=len(selected_sources),
                 selected_clusters=len(selected_cluster_ids),
                 multi_source_clusters=len(selected_multi_source_clusters),
+                selected_reason_codes=selected_reason_counts,
+                skipped_reason_codes=skipped_reason_counts,
             )
             if _checkpoint_stage(
                 orchestrator,
@@ -517,12 +763,16 @@ def run_brief(
                     "selected_sources": len(selected_sources),
                     "selected_event_clusters": len(selected_cluster_ids),
                     "selected_multi_source_clusters": len(selected_multi_source_clusters),
+                    "selected_reason_codes": selected_reason_counts,
+                    "skipped_reason_codes": skipped_reason_counts,
+                    "composite_ranking_enabled": bool(getattr(filtering, "use_multifactor_composite_ranking", False)),
                 },
                 intermediate={
                     "selected": selected,
                     "decisions": decisions,
                     "limited_candidates": limited_candidates,
                     "topics": topics,
+                    "selection_rationale": selection_rationale_rows(limited_candidates, decisions),
                 },
             ):
                 return None
@@ -552,6 +802,9 @@ def run_brief(
                     brief=name,
                     score=article.decision.score,
                     topic=article.decision.topic,
+                    selection_reason=article.selection_reason_code or article.decision.selection_reason_code,
+                    rank_score=article.selection_rank_score or article.decision.selection_rank_score,
+                    rank_mode=article.selection_rank_mode or article.decision.selection_rank_mode,
                     source=article.candidate.source,
                     title=article.candidate.title,
                 )
@@ -599,8 +852,26 @@ def run_brief(
 
             evidence_packet: Dict[str, Any] = {}
             include_enrichment_context = bool(getattr(orchestrator.config.enrichment, "enabled", True))
-            evidence_config = orchestrator.config.analysis.evidence_distillation
-            orchestrator.debug.set_metric(f"brief.{name}.analysis.evidence.enabled", bool(evidence_config.enabled))
+            evidence_config, delta_config, analysis_rollout_meta = resolve_analysis_stage_configs(
+                orchestrator.config.analysis,
+                name,
+            )
+            orchestrator.debug.set_metric(
+                f"brief.{name}.analysis.rollout.enabled",
+                bool(analysis_rollout_meta.get("rollout_enabled", False)),
+            )
+            orchestrator.debug.set_metric(
+                f"brief.{name}.analysis.rollout.profile",
+                str(analysis_rollout_meta.get("rollout_profile", "")),
+            )
+            orchestrator.debug.set_metric(
+                f"brief.{name}.analysis.evidence.enabled_requested",
+                bool(analysis_rollout_meta.get("evidence_requested_enabled", False)),
+            )
+            orchestrator.debug.set_metric(
+                f"brief.{name}.analysis.evidence.enabled",
+                bool(evidence_config.enabled),
+            )
             if evidence_config.enabled:
                 evidence_client = (
                     orchestrator.summary_ai_client
@@ -646,6 +917,18 @@ def run_brief(
                         )
                         evidence_packet = {}
                 run_warnings.extend(evidence_distiller.warnings)
+                evidence_pressure_warnings = sum(
+                    1
+                    for warning in evidence_distiller.warnings
+                    if "budget" in str(warning).lower() or "dropped lower-ranked article" in str(warning).lower()
+                )
+                orchestrator.debug.set_metric(
+                    f"brief.{name}.analysis.evidence.prompt_pressure_warnings",
+                    int(evidence_pressure_warnings),
+                )
+            else:
+                reason = str(analysis_rollout_meta.get("evidence_skip_reason", "disabled"))
+                orchestrator.debug.set_metric(f"brief.{name}.analysis.evidence.skipped_reason.{reason}", 1)
             orchestrator.debug.set_metric(
                 f"brief.{name}.analysis.evidence.story_clusters",
                 len(evidence_packet.get("story_clusters", [])) if evidence_packet else 0,
@@ -660,6 +943,8 @@ def run_brief(
                 stage="evidence_distillation",
                 summary={
                     "enabled": bool(evidence_config.enabled),
+                    "requested_enabled": bool(analysis_rollout_meta.get("evidence_requested_enabled", False)),
+                    "rollout_profile": str(analysis_rollout_meta.get("rollout_profile", "")),
                     "story_clusters": len(evidence_packet.get("story_clusters", [])) if evidence_packet else 0,
                     "reader_qa": len(evidence_packet.get("reader_qa", [])) if evidence_packet else 0,
                     "global_watch_signals": len(evidence_packet.get("global_watch_signals", [])) if evidence_packet else 0,
@@ -674,7 +959,10 @@ def run_brief(
                 return None
 
             delta_packet: Dict[str, Any] = {}
-            delta_config = orchestrator.config.analysis.delta_extraction
+            orchestrator.debug.set_metric(
+                f"brief.{name}.analysis.delta.enabled_requested",
+                bool(analysis_rollout_meta.get("delta_requested_enabled", False)),
+            )
             orchestrator.debug.set_metric(f"brief.{name}.analysis.delta.enabled", bool(delta_config.enabled))
             if delta_config.enabled:
                 delta_client = (
@@ -726,6 +1014,18 @@ def run_brief(
                         )
                         delta_packet = {}
                 run_warnings.extend(delta_extractor.warnings)
+                delta_pressure_warnings = sum(
+                    1
+                    for warning in delta_extractor.warnings
+                    if "budget" in str(warning).lower() or "dropped lower-ranked article" in str(warning).lower()
+                )
+                orchestrator.debug.set_metric(
+                    f"brief.{name}.analysis.delta.prompt_pressure_warnings",
+                    int(delta_pressure_warnings),
+                )
+            else:
+                reason = str(analysis_rollout_meta.get("delta_skip_reason", "disabled"))
+                orchestrator.debug.set_metric(f"brief.{name}.analysis.delta.skipped_reason.{reason}", 1)
 
             deterministic_delta_packet = build_deterministic_delta_scaffold(
                 selected,
@@ -746,6 +1046,10 @@ def run_brief(
                     unchanged=len(delta_packet.get("unchanged_but_important", [])),
                 )
                 orchestrator.debug.set_metric(f"brief.{name}.analysis.delta.scaffold_used", True)
+                orchestrator.debug.set_metric(
+                    f"brief.{name}.analysis.delta.scaffold_reason.{scaffold_reason}",
+                    1,
+                )
             else:
                 orchestrator.debug.set_metric(f"brief.{name}.analysis.delta.scaffold_used", False)
             orchestrator.debug.set_metric(
@@ -762,6 +1066,8 @@ def run_brief(
                 stage="delta_extraction",
                 summary={
                     "enabled": bool(delta_config.enabled),
+                    "requested_enabled": bool(analysis_rollout_meta.get("delta_requested_enabled", False)),
+                    "rollout_profile": str(analysis_rollout_meta.get("rollout_profile", "")),
                     "new_items": len(delta_packet.get("new", [])) if delta_packet else 0,
                     "escalated_items": len(delta_packet.get("escalated", [])) if delta_packet else 0,
                     "reframed_items": len(delta_packet.get("reframed", [])) if delta_packet else 0,
@@ -840,6 +1146,19 @@ def run_brief(
                 brief_name=name,
                 warnings=run_warnings,
             )
+            brief["metadata"]["selection_reason_codes"] = selection_counts
+            brief["metadata"]["composite_ranking_enabled"] = bool(
+                getattr(filtering, "use_multifactor_composite_ranking", False)
+            )
+            brief["metadata"]["analysis_rollout"] = {
+                "enabled": bool(analysis_rollout_meta.get("rollout_enabled", False)),
+                "profile": str(analysis_rollout_meta.get("rollout_profile", "")),
+                "mode": str(analysis_rollout_meta.get("rollout_mode", name)),
+                "evidence_requested_enabled": bool(analysis_rollout_meta.get("evidence_requested_enabled", False)),
+                "evidence_enabled": bool(evidence_config.enabled),
+                "delta_requested_enabled": bool(analysis_rollout_meta.get("delta_requested_enabled", False)),
+                "delta_enabled": bool(delta_config.enabled),
+            }
             if evidence_packet:
                 brief.setdefault("analysis", {})
                 brief["analysis"]["evidence_packet"] = evidence_packet

@@ -1,0 +1,20 @@
+{
+  "records": [
+    {
+      "stage": "headline_scoring",
+      "prompt_tokens": 2000
+    },
+    {
+      "stage": "headline_scoring",
+      "prompt_tokens": 2100
+    },
+    {
+      "stage": "final_brief_generation",
+      "prompt_tokens": 3300
+    },
+    {
+      "stage": "final_brief_generation",
+      "prompt_tokens": 3500
+    }
+  ]
+}

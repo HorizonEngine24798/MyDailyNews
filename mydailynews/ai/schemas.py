@@ -15,6 +15,15 @@ HEADLINE_ANALYSIS_JSON_SCHEMA = JSONSchemaSpec(
                     "properties": {
                         "id": {"type": "string"},
                         "score": {"type": "number"},
+                        "personal_relevance": {"type": "number"},
+                        "impact": {"type": "number"},
+                        "novelty": {"type": "number"},
+                        "urgency": {"type": "number"},
+                        "actionability": {"type": "number"},
+                        "confidence": {"type": "number"},
+                        "reason": {"type": "string"},
+                        "skip_reason": {"type": ["string", "null"]},
+                        "angle_type": {"type": "string"},
                     },
                     "required": ["id", "score"],
                 },
@@ -31,8 +40,41 @@ FINAL_BRIEF_JSON_SCHEMA = JSONSchemaSpec(
         "properties": {
             "title": {"type": "string"},
             "lead": {"type": "string"},
-            "topic_reports": {"type": "array", "items": {"type": "object"}},
-            "sections": {"type": "array", "items": {"type": "object"}},
+            "topic_reports": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "topic": {"type": "string"},
+                        "why_it_matters": {"type": "string"},
+                        "what_changed": {"type": "string"},
+                        "who_is_affected": {"type": "array", "items": {"type": "string"}},
+                        "narrative_summary": {"type": "string"},
+                        "narrative_changes": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "narrative": {"type": "string"},
+                                    "status": {"type": "string"},
+                                    "summary": {"type": "string"},
+                                },
+                            },
+                        },
+                        "what_to_watch": {"type": "array", "items": {"type": "string"}},
+                    },
+                },
+            },
+            "sections": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "heading": {"type": "string"},
+                        "summary": {"type": "string"},
+                    },
+                },
+            },
             "knowns": {"type": "array", "items": {"type": "string"}},
             "unknowns": {"type": "array", "items": {"type": "string"}},
             "watch_signals": {"type": "array", "items": {"type": "string"}},

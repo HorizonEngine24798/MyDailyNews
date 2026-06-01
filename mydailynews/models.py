@@ -50,6 +50,10 @@ class FilteringConfig:
     prefer_multi_source_clusters: bool = True
     multi_source_cluster_bonus: float = 0.35
     event_cluster_time_window_hours: int = 18
+    use_multifactor_composite_ranking: bool = False
+    min_novelty_for_selection: float = 0.0
+    source_preference_bonus: float = 0.35
+    source_avoid_penalty: float = 1.25
 
 
 @dataclass
@@ -108,9 +112,31 @@ class DeltaExtractionConfig:
 
 
 @dataclass
+class AnalysisRolloutModeConfig:
+    evidence_enabled: Optional[bool] = None
+    delta_enabled: Optional[bool] = None
+    evidence_max_input_tokens: Optional[int] = None
+    evidence_max_new_tokens: Optional[int] = None
+    evidence_max_articles: Optional[int] = None
+    evidence_max_article_chars: Optional[int] = None
+    delta_max_input_tokens: Optional[int] = None
+    delta_max_new_tokens: Optional[int] = None
+    delta_max_prior_reports: Optional[int] = None
+
+
+@dataclass
+class AnalysisRolloutConfig:
+    enabled: bool = False
+    profile: str = "safe_local"
+    general: AnalysisRolloutModeConfig = field(default_factory=AnalysisRolloutModeConfig)
+    detailed: AnalysisRolloutModeConfig = field(default_factory=AnalysisRolloutModeConfig)
+
+
+@dataclass
 class AnalysisConfig:
     evidence_distillation: EvidenceDistillationConfig = field(default_factory=EvidenceDistillationConfig)
     delta_extraction: DeltaExtractionConfig = field(default_factory=DeltaExtractionConfig)
+    rollout: AnalysisRolloutConfig = field(default_factory=AnalysisRolloutConfig)
 
 
 @dataclass
@@ -118,17 +144,80 @@ class UserMemory:
     avoided_topics: List[str] = field(default_factory=list)
     preferred_sources: List[str] = field(default_factory=list)
     avoided_sources: List[str] = field(default_factory=list)
+    role: str = ""
+    geography_focus: List[str] = field(default_factory=list)
+    time_horizon: str = "tactical"
+    beats: Dict[str, float] = field(default_factory=dict)
+    wants: List[str] = field(default_factory=list)
+    avoid: List[str] = field(default_factory=list)
+    portfolio_or_stake_notes: str = ""
+    preferred_depth: str = "analytical"
     briefing_style: str = "Concise, explanatory, and skeptical of hype."
     custom_instructions: str = ""
+
+    @staticmethod
+    def _clean_text(value: Any, max_chars: int) -> str:
+        text = " ".join(str(value or "").split())
+        return text[:max_chars]
+
+    @classmethod
+    def _render_list(
+        cls,
+        values: List[str],
+        *,
+        max_items: int = 6,
+        max_chars: int = 48,
+    ) -> str:
+        rendered: List[str] = []
+        seen: set[str] = set()
+        for raw in values:
+            item = cls._clean_text(raw, max_chars)
+            if not item:
+                continue
+            key = item.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            rendered.append(item)
+            if len(rendered) >= max_items:
+                break
+        return ", ".join(rendered) if rendered else "none specified"
+
+    @classmethod
+    def _render_beats(cls, beats: Dict[str, float]) -> str:
+        ranked: List[tuple[str, float]] = []
+        for raw_name, raw_weight in (beats or {}).items():
+            name = cls._clean_text(raw_name, 44)
+            if not name:
+                continue
+            try:
+                weight = float(raw_weight)
+            except Exception:
+                weight = 0.0
+            weight = max(0.0, min(3.0, weight))
+            ranked.append((name, weight))
+        if not ranked:
+            return "none specified"
+        ranked.sort(key=lambda row: (-row[1], row[0].lower()))
+        compact = [f"{name}({weight:.2f})" for name, weight in ranked[:6]]
+        return ", ".join(compact)
 
     def to_prompt(self) -> str:
         return "\n".join(
             [
-                f"Avoided topics: {', '.join(self.avoided_topics) or 'none specified'}",
-                f"Preferred sources: {', '.join(self.preferred_sources) or 'none specified'}",
-                f"Avoided sources: {', '.join(self.avoided_sources) or 'none specified'}",
-                f"Briefing style: {self.briefing_style}",
-                f"Custom instructions: {self.custom_instructions or 'none'}",
+                f"Role: {self._clean_text(self.role, 90) or 'none specified'}",
+                f"Geography focus: {self._render_list(self.geography_focus)}",
+                f"Time horizon: {self._clean_text(self.time_horizon, 24) or 'tactical'}",
+                f"Preferred depth: {self._clean_text(self.preferred_depth, 24) or 'analytical'}",
+                f"Priority beats: {self._render_beats(self.beats)}",
+                f"Wants: {self._render_list(self.wants)}",
+                f"Avoid classes: {self._render_list(self.avoid)}",
+                f"Portfolio/stake notes: {self._clean_text(self.portfolio_or_stake_notes, 180) or 'none'}",
+                f"Avoided topics: {self._render_list(self.avoided_topics)}",
+                f"Preferred sources: {self._render_list(self.preferred_sources)}",
+                f"Avoided sources: {self._render_list(self.avoided_sources)}",
+                f"Briefing style: {self._clean_text(self.briefing_style, 180) or 'none specified'}",
+                f"Custom instructions: {self._clean_text(self.custom_instructions, 220) or 'none'}",
             ]
         )
 
@@ -242,6 +331,18 @@ class HeadlineDecision:
     candidate_id: str
     score: float
     topic: str = ""
+    personal_relevance: float = 5.0
+    impact: float = 5.0
+    novelty: float = 5.0
+    urgency: float = 5.0
+    actionability: float = 5.0
+    confidence: float = 5.0
+    reason: str = ""
+    skip_reason: Optional[str] = None
+    angle_type: str = ""
+    selection_reason_code: str = ""
+    selection_rank_score: float = 0.0
+    selection_rank_mode: str = "score"
 
 
 @dataclass
@@ -287,6 +388,9 @@ class PriorReport:
 class SelectedArticle:
     candidate: NewsCandidate
     decision: HeadlineDecision
+    selection_reason_code: str = ""
+    selection_rank_score: float = 0.0
+    selection_rank_mode: str = "score"
     article_text: str = ""
     extraction_status: str = "pending"
     enrichment_needed: bool = False

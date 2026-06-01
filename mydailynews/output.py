@@ -49,13 +49,34 @@ def render_markdown(brief: Dict[str, Any]) -> str:
     if topic_reports:
         lines.append("## Topic Reports")
         for report in topic_reports:
+            if not isinstance(report, dict):
+                continue
             lines.append(f"### {report.get('topic', 'Topic')}")
-            lines.append(str(report.get("narrative_summary", "")))
+            why_it_matters = str(report.get("why_it_matters", "")).strip()
+            what_changed = str(report.get("what_changed", "")).strip()
+            narrative_summary = str(report.get("narrative_summary", "")).strip()
+            who_is_affected = report.get("who_is_affected", [])
+            if isinstance(who_is_affected, str):
+                who_is_affected = [who_is_affected]
+            if why_it_matters:
+                lines.append(f"Why it matters: {why_it_matters}")
+            if what_changed:
+                lines.append(f"What changed: {what_changed}")
+            if not why_it_matters and not what_changed and narrative_summary:
+                lines.append(narrative_summary)
+            if who_is_affected:
+                lines.append("Who is affected:")
+                for item in who_is_affected:
+                    text = str(item).strip()
+                    if text:
+                        lines.append(f"- {text}")
             lines.append("")
             changes = report.get("narrative_changes", [])
             if changes:
                 lines.append("Narrative changes:")
                 for change in changes:
+                    if not isinstance(change, dict):
+                        continue
                     lines.append(
                         f"- {change.get('narrative', 'Narrative')}: "
                         f"{change.get('status', '')} - {change.get('summary', '')}"

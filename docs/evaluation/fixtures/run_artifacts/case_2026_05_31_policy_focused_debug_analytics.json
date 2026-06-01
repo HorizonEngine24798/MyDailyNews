@@ -1,0 +1,18 @@
+{
+  "durations_sec": {
+    "pipeline.total": 200.0
+  },
+  "metrics": {
+    "brief.general.warnings": 1
+  },
+  "ai": {
+    "by_bucket": {
+      "headline_scoring": {
+        "input_tokens": 5600
+      },
+      "final_brief_generation": {
+        "input_tokens": 3400
+      }
+    }
+  }
+}

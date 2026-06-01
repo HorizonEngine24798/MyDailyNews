@@ -7,6 +7,7 @@ import sys
 import time
 import types
 import unittest
+from unittest.mock import patch
 from datetime import timedelta
 from typing import Any, Dict
 
@@ -21,12 +22,20 @@ if "trafilatura" not in sys.modules:
 from mydailynews.ai.headline_analyzer import HeadlineAnalyzer
 from mydailynews.ai.llama_cpp_server_client import LlamaCppServerClient
 from mydailynews.ai.base import set_ai_artifact_root, write_ai_json_artifact, write_ai_text_artifact
+from mydailynews.ai.prompts import BRIEF_SYSTEM, BRIEF_USER, HEADLINE_ANALYSIS_SYSTEM, HEADLINE_ANALYSIS_USER
+from mydailynews.ai.schemas import FINAL_BRIEF_JSON_SCHEMA, HEADLINE_ANALYSIS_JSON_SCHEMA
 from mydailynews.analysis_pipeline import DeltaExtractor, EvidenceDistiller
 from mydailynews.brief import BriefGenerator
 import mydailynews.brief_execution as brief_execution_module
 from mydailynews.debug import DebugLogger
 from mydailynews.config import _worker_count, load_config
-from mydailynews.headline_selection import limit_candidates_for_ai, select_articles
+from mydailynews.headline_selection import (
+    candidate_heuristic_score,
+    decisions_for_brief,
+    limit_candidates_for_ai,
+    select_articles,
+    selection_reason_counters,
+)
 from mydailynews.models import (
     AIConfig,
     DeltaExtractionConfig,
@@ -42,6 +51,7 @@ from mydailynews.models import (
     UserMemory,
 )
 from mydailynews.orchestrator import NewsOrchestrator
+from mydailynews.output import render_markdown
 from mydailynews.retrieval.google_news import GoogleNewsQueryRetriever
 from mydailynews.scrapers.rss import RSSScraper
 from mydailynews.utils import utc_now
@@ -336,6 +346,81 @@ class PipelineBasicsTests(unittest.TestCase):
         self.assertTrue(loaded.analysis.delta_extraction.require_prior_reports)
         self.assertEqual(loaded.analysis.delta_extraction.max_prior_reports, 2)
 
+    def test_analysis_rollout_section_is_loaded_when_present(self) -> None:
+        base = json.loads(Path("D:/Project/MyDailyNews/config.example.json").read_text(encoding="utf-8"))
+        base["analysis"]["rollout"] = {
+            "enabled": True,
+            "profile": "balanced_local",
+            "general": {
+                "evidence_enabled": False,
+                "delta_enabled": False,
+            },
+            "detailed": {
+                "evidence_enabled": True,
+                "delta_enabled": True,
+                "evidence_max_input_tokens": 1800,
+                "evidence_max_new_tokens": 420,
+                "evidence_max_articles": 5,
+                "evidence_max_article_chars": 460,
+                "delta_max_input_tokens": 1400,
+                "delta_max_new_tokens": 260,
+                "delta_max_prior_reports": 2,
+            },
+        }
+
+        tmp_dir = Path("D:/Project/MyDailyNews/.codex_tmp_test/config_analysis_rollout_present")
+        if tmp_dir.exists():
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        config_path = tmp_dir / "with_analysis_rollout.json"
+        config_path.write_text(json.dumps(base, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        loaded = load_config(config_path)
+        self.assertTrue(loaded.analysis.rollout.enabled)
+        self.assertEqual(loaded.analysis.rollout.profile, "balanced_local")
+        self.assertTrue(bool(loaded.analysis.rollout.detailed.evidence_enabled))
+        self.assertTrue(bool(loaded.analysis.rollout.detailed.delta_enabled))
+        self.assertEqual(int(loaded.analysis.rollout.detailed.evidence_max_articles or 0), 5)
+        self.assertEqual(int(loaded.analysis.rollout.detailed.delta_max_prior_reports or 0), 2)
+
+    def test_analysis_rollout_profile_drives_mode_specific_stage_enablement(self) -> None:
+        analysis = types.SimpleNamespace(
+            evidence_distillation=EvidenceDistillationConfig(
+                enabled=False,
+                max_input_tokens=2300,
+                max_new_tokens=700,
+                max_articles=8,
+                max_article_chars=700,
+            ),
+            delta_extraction=DeltaExtractionConfig(
+                enabled=False,
+                max_input_tokens=1700,
+                max_new_tokens=380,
+                max_prior_reports=3,
+            ),
+            rollout=types.SimpleNamespace(
+                enabled=True,
+                profile="safe_local",
+                general=types.SimpleNamespace(),
+                detailed=types.SimpleNamespace(),
+            ),
+        )
+
+        evidence_general, delta_general, meta_general = brief_execution_module.resolve_analysis_stage_configs(analysis, "general")
+        evidence_detailed, delta_detailed, meta_detailed = brief_execution_module.resolve_analysis_stage_configs(analysis, "detailed")
+
+        self.assertFalse(evidence_general.enabled)
+        self.assertFalse(delta_general.enabled)
+        self.assertEqual(meta_general["rollout_profile"], "safe_local")
+
+        self.assertTrue(evidence_detailed.enabled)
+        self.assertFalse(delta_detailed.enabled)
+        self.assertLessEqual(evidence_detailed.max_input_tokens, 1500)
+        self.assertLessEqual(evidence_detailed.max_new_tokens, 360)
+        self.assertLessEqual(evidence_detailed.max_articles, 4)
+        self.assertLessEqual(evidence_detailed.max_article_chars, 420)
+        self.assertEqual(meta_detailed["rollout_profile"], "safe_local")
+
     def test_filtering_diversity_settings_are_loaded(self) -> None:
         base = json.loads(Path("D:/Project/MyDailyNews/config.example.json").read_text(encoding="utf-8"))
         base["filtering"]["max_selected_per_source"] = 1
@@ -343,6 +428,10 @@ class PipelineBasicsTests(unittest.TestCase):
         base["filtering"]["prefer_multi_source_clusters"] = False
         base["filtering"]["multi_source_cluster_bonus"] = 0.8
         base["filtering"]["event_cluster_time_window_hours"] = 10
+        base["filtering"]["use_multifactor_composite_ranking"] = True
+        base["filtering"]["min_novelty_for_selection"] = 3.0
+        base["filtering"]["source_preference_bonus"] = 0.5
+        base["filtering"]["source_avoid_penalty"] = 1.6
         base["general_filtering"]["max_selected_per_source"] = 4
         base["general_filtering"]["max_selected_per_event_cluster"] = 3
 
@@ -359,8 +448,56 @@ class PipelineBasicsTests(unittest.TestCase):
         self.assertFalse(loaded.filtering.prefer_multi_source_clusters)
         self.assertAlmostEqual(loaded.filtering.multi_source_cluster_bonus, 0.8)
         self.assertEqual(loaded.filtering.event_cluster_time_window_hours, 10)
+        self.assertTrue(loaded.filtering.use_multifactor_composite_ranking)
+        self.assertAlmostEqual(loaded.filtering.min_novelty_for_selection, 3.0)
+        self.assertAlmostEqual(loaded.filtering.source_preference_bonus, 0.5)
+        self.assertAlmostEqual(loaded.filtering.source_avoid_penalty, 1.6)
         self.assertEqual(loaded.general_filtering.max_selected_per_source, 4)
         self.assertEqual(loaded.general_filtering.max_selected_per_event_cluster, 3)
+
+    def test_user_memory_v2_fields_are_loaded_and_prompted(self) -> None:
+        base = json.loads(Path("D:/Project/MyDailyNews/config.example.json").read_text(encoding="utf-8"))
+        base["user_memory"].update(
+            {
+                "role": "Policy analyst",
+                "geography_focus": ["United States", "European Union"],
+                "time_horizon": "strategic",
+                "beats": {
+                    "AI policy": 1.0,
+                    "Semiconductor supply chain": 0.7,
+                },
+                "wants": ["policy change", "regulatory enforcement"],
+                "avoid": ["celebrity gossip", "live sports scores"],
+                "portfolio_or_stake_notes": "Direct enterprise exposure to AI compute costs.",
+                "preferred_depth": "deep",
+            }
+        )
+
+        tmp_dir = Path("D:/Project/MyDailyNews/.codex_tmp_test/config_user_memory_v2")
+        if tmp_dir.exists():
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        config_path = tmp_dir / "with_user_memory_v2.json"
+        config_path.write_text(json.dumps(base, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        loaded = load_config(config_path)
+        self.assertEqual(loaded.user_memory.role, "Policy analyst")
+        self.assertEqual(loaded.user_memory.geography_focus, ["United States", "European Union"])
+        self.assertEqual(loaded.user_memory.time_horizon, "strategic")
+        self.assertAlmostEqual(float(loaded.user_memory.beats.get("AI policy", 0.0)), 1.0, places=4)
+        self.assertAlmostEqual(float(loaded.user_memory.beats.get("Semiconductor supply chain", 0.0)), 0.7, places=4)
+        self.assertEqual(loaded.user_memory.wants, ["policy change", "regulatory enforcement"])
+        self.assertEqual(loaded.user_memory.avoid, ["celebrity gossip", "live sports scores"])
+        self.assertEqual(loaded.user_memory.preferred_depth, "deep")
+
+        prompt = loaded.user_memory.to_prompt()
+        self.assertIn("Role: Policy analyst", prompt)
+        self.assertIn("geography focus: united states, european union", prompt.lower())
+        self.assertIn("Time horizon: strategic", prompt)
+        self.assertIn("Preferred depth: deep", prompt)
+        self.assertIn("Priority beats: AI policy(1.00), Semiconductor supply chain(0.70)", prompt)
+        self.assertIn("Wants: policy change, regulatory enforcement", prompt)
+        self.assertIn("Avoid classes: celebrity gossip, live sports scores", prompt)
 
     def test_limit_candidates_for_ai_adds_event_cluster_metadata(self) -> None:
         now = utc_now()
@@ -538,6 +675,259 @@ class PipelineBasicsTests(unittest.TestCase):
         )
         self.assertEqual(selected[0].candidate.id, "multi")
 
+    def test_candidate_heuristic_score_uses_user_memory_v2_signals(self) -> None:
+        now = utc_now()
+        since = now - timedelta(hours=24)
+        candidate = NewsCandidate(
+            id="policy-us",
+            source="Example Source",
+            category="test",
+            title="US Senate advances new AI regulation framework",
+            url="https://example.com/policy-us",
+            snippet="Regulatory enforcement actions and policy change are expected this quarter.",
+            published_at=now,
+        )
+        topics = [TopicConfig(name="AI policy", queries=["AI regulation", "policy change"])]
+
+        neutral_score = candidate_heuristic_score(
+            candidate,
+            topics,
+            since,
+            user_memory=UserMemory(),
+        )
+        tuned_score = candidate_heuristic_score(
+            candidate,
+            topics,
+            since,
+            user_memory=UserMemory(
+                geography_focus=["United States"],
+                wants=["policy change", "regulatory enforcement"],
+                beats={"AI policy": 1.0},
+            ),
+        )
+        penalized_score = candidate_heuristic_score(
+            candidate,
+            topics,
+            since,
+            user_memory=UserMemory(
+                avoid=["ai regulation"],
+                avoided_topics=["policy"],
+            ),
+        )
+
+        self.assertGreater(tuned_score, neutral_score)
+        self.assertLess(penalized_score, neutral_score)
+
+    def test_select_articles_applies_user_memory_v2_rank_adjustments(self) -> None:
+        now = utc_now()
+        geo_candidate = NewsCandidate(
+            id="geo",
+            source="Source A",
+            category="test",
+            title="United States Senate advances AI policy change",
+            url="https://example.com/geo",
+            snippet="Regulatory enforcement and policy change timeline accelerates.",
+            published_at=now,
+            metadata={"event_cluster_id": "evt-1"},
+        )
+        avoid_candidate = NewsCandidate(
+            id="avoid",
+            source="Source B",
+            category="test",
+            title="Celebrity gossip recap and sports scores roundup",
+            url="https://example.com/avoid",
+            snippet="Entertainment chatter with no policy impact.",
+            published_at=now,
+            metadata={"event_cluster_id": "evt-2"},
+        )
+        decisions = {
+            "geo": HeadlineDecision(candidate_id="geo", score=7.5, topic="World"),
+            "avoid": HeadlineDecision(candidate_id="avoid", score=7.6, topic="World"),
+        }
+        filtering = FilteringConfig(
+            headline_score_cutoff=0.0,
+            max_selected_articles=1,
+            fill_selected_articles=False,
+            prefer_multi_source_clusters=False,
+            use_multifactor_composite_ranking=False,
+        )
+        memory = UserMemory(
+            geography_focus=["United States"],
+            wants=["policy change", "regulatory enforcement"],
+            avoid=["celebrity gossip", "sports scores"],
+            beats={"AI policy": 1.0},
+        )
+        selected = select_articles(
+            [geo_candidate, avoid_candidate],
+            decisions,
+            [TopicConfig(name="World")],
+            filtering,
+            user_memory=memory,
+        )
+
+        self.assertEqual(selected[0].candidate.id, "geo")
+        self.assertGreater(decisions["geo"].selection_rank_score, decisions["avoid"].selection_rank_score)
+
+    def test_select_articles_composite_ranking_can_override_scalar_score(self) -> None:
+        now = utc_now()
+        score_led = NewsCandidate(
+            id="score-led",
+            source="Source A",
+            category="test",
+            title="Score-led item",
+            url="https://example.com/score-led",
+            snippet="snippet",
+            published_at=now,
+            metadata={"event_cluster_id": "evt-1"},
+        )
+        composite_led = NewsCandidate(
+            id="composite-led",
+            source="Source B",
+            category="test",
+            title="Composite-led item",
+            url="https://example.com/composite-led",
+            snippet="snippet",
+            published_at=now,
+            metadata={"event_cluster_id": "evt-2"},
+        )
+        decisions = {
+            "score-led": HeadlineDecision(
+                candidate_id="score-led",
+                score=9.0,
+                topic="World",
+                personal_relevance=2.0,
+                impact=2.0,
+                novelty=2.0,
+                actionability=2.0,
+                urgency=2.0,
+                confidence=2.0,
+                reason="Low-value despite high scalar score.",
+            ),
+            "composite-led": HeadlineDecision(
+                candidate_id="composite-led",
+                score=7.0,
+                topic="World",
+                personal_relevance=9.0,
+                impact=9.0,
+                novelty=8.5,
+                actionability=8.0,
+                urgency=7.0,
+                confidence=8.0,
+                reason="High multifactor relevance and impact.",
+                angle_type="policy_change",
+            ),
+        }
+
+        composite_filtering = FilteringConfig(
+            headline_score_cutoff=0.0,
+            max_selected_articles=1,
+            fill_selected_articles=False,
+            prefer_multi_source_clusters=False,
+            use_multifactor_composite_ranking=True,
+        )
+        selected_composite = select_articles(
+            [score_led, composite_led],
+            decisions,
+            [TopicConfig(name="World")],
+            composite_filtering,
+        )
+        self.assertEqual(selected_composite[0].candidate.id, "composite-led")
+        self.assertEqual(selected_composite[0].selection_reason_code, "selected_high_composite")
+
+        scalar_filtering = FilteringConfig(
+            headline_score_cutoff=0.0,
+            max_selected_articles=1,
+            fill_selected_articles=False,
+            prefer_multi_source_clusters=False,
+            use_multifactor_composite_ranking=False,
+        )
+        selected_scalar = select_articles(
+            [score_led, composite_led],
+            decisions,
+            [TopicConfig(name="World")],
+            scalar_filtering,
+        )
+        self.assertEqual(selected_scalar[0].candidate.id, "score-led")
+        self.assertEqual(selected_scalar[0].selection_reason_code, "selected_high_score")
+
+    def test_select_articles_records_reason_codes_and_counters(self) -> None:
+        now = utc_now()
+        rows: list[tuple[NewsCandidate, HeadlineDecision]] = []
+
+        def _row(
+            item_id: str,
+            source: str,
+            cluster_id: str,
+            score: float,
+            *,
+            novelty: float = 6.0,
+            impact: float = 7.0,
+        ) -> None:
+            candidate = NewsCandidate(
+                id=item_id,
+                source=source,
+                category="test",
+                title=f"Headline {item_id}",
+                url=f"https://example.com/{item_id}",
+                snippet="snippet",
+                published_at=now,
+                metadata={"event_cluster_id": cluster_id},
+            )
+            decision = HeadlineDecision(
+                candidate_id=item_id,
+                score=score,
+                topic="World",
+                personal_relevance=8.0,
+                impact=impact,
+                novelty=novelty,
+                actionability=7.0,
+                urgency=6.0,
+                confidence=7.0,
+                reason=f"Reason for {item_id}",
+            )
+            rows.append((candidate, decision))
+
+        _row("a1", "Source A", "evt-1", 9.2)
+        _row("a2", "Source A", "evt-2", 9.0)
+        _row("b1", "Source B", "evt-1", 8.8)
+        _row("c1", "Source C", "evt-3", 8.4)
+        _row("low", "Source D", "evt-4", 6.5, novelty=1.0, impact=4.0)
+        _row("cut", "Source E", "evt-5", 4.0)
+
+        candidates = [item[0] for item in rows]
+        decisions = {item[1].candidate_id: item[1] for item in rows}
+        filtering = FilteringConfig(
+            headline_score_cutoff=5.0,
+            max_selected_articles=2,
+            fill_selected_articles=False,
+            max_selected_per_source=1,
+            max_selected_per_event_cluster=1,
+            prefer_multi_source_clusters=False,
+            use_multifactor_composite_ranking=True,
+            min_novelty_for_selection=2.5,
+        )
+        selected = select_articles(
+            candidates,
+            decisions,
+            [TopicConfig(name="World")],
+            filtering,
+        )
+        selected_ids = [item.candidate.id for item in selected]
+        self.assertEqual(selected_ids, ["a1", "c1"])
+        self.assertTrue(all(item.selection_reason_code.startswith("selected_") for item in selected))
+
+        self.assertEqual(decisions["a2"].selection_reason_code, "skipped_source_cap")
+        self.assertEqual(decisions["b1"].selection_reason_code, "skipped_cluster_cap")
+        self.assertEqual(decisions["low"].selection_reason_code, "skipped_low_novelty")
+        self.assertEqual(decisions["cut"].selection_reason_code, "skipped_below_cutoff")
+
+        reason_counts = selection_reason_counters(decisions)
+        self.assertEqual(reason_counts["selected"].get("selected_high_composite"), 2)
+        self.assertEqual(reason_counts["skipped"].get("skipped_source_cap"), 1)
+        self.assertEqual(reason_counts["skipped"].get("skipped_cluster_cap"), 1)
+        self.assertEqual(reason_counts["skipped"].get("skipped_low_novelty"), 1)
+        self.assertEqual(reason_counts["skipped"].get("skipped_below_cutoff"), 1)
+
     def test_evidence_distiller_trims_prompt_and_respects_reader_qa_toggle(self) -> None:
         class _DummyClient:
             def __init__(self) -> None:
@@ -636,6 +1026,85 @@ class PipelineBasicsTests(unittest.TestCase):
         self.assertIn("reader_qa", result)
         self.assertEqual(result["reader_qa"], [])
         self.assertTrue(any("dropped lower-ranked article(s)" in item for item in distiller.warnings))
+
+    def test_evidence_distiller_records_prompt_pressure_compaction_counters(self) -> None:
+        class _DummyClient:
+            def __init__(self) -> None:
+                self.calls = 0
+                self.config = types.SimpleNamespace(
+                    backend="transformers",
+                    effective_model_label="dummy-summary",
+                    response_format="json_object",
+                )
+                self.max_input_tokens = 1200
+                self.max_new_tokens = 512
+
+            @staticmethod
+            def estimate_tokens(_text: str) -> int:
+                return 999999
+
+            def complete_json(self, *_args, **_kwargs):
+                self.calls += 1
+                return {
+                    "overview": "Overview text.",
+                    "story_clusters": [],
+                    "global_watch_signals": [],
+                    "reader_qa": [],
+                }
+
+        debug = DebugLogger(True)
+        selected: list[SelectedArticle] = []
+        for index in range(6):
+            candidate = NewsCandidate(
+                id=f"item-{index}",
+                source="Example",
+                category="test",
+                title=f"Headline {index}",
+                url=f"https://example.com/{index}",
+                snippet="snippet",
+                published_at=utc_now(),
+            )
+            selected.append(
+                SelectedArticle(
+                    candidate=candidate,
+                    decision=HeadlineDecision(candidate_id=candidate.id, score=9 - index, topic="World"),
+                    article_text=("A" * 2400) + f"#{index}",
+                    extraction_status="ok",
+                )
+            )
+        prior_reports = [
+            PriorReport(id=f"r-{index}", date="2026-05-29", title=f"Prior {index}", path="p", summary="s")
+            for index in range(3)
+        ]
+
+        distiller = EvidenceDistiller(
+            _DummyClient(),
+            EvidenceDistillationConfig(
+                enabled=True,
+                max_input_tokens=1000,
+                max_new_tokens=320,
+                max_articles=6,
+                max_article_chars=1200,
+            ),
+            debug=debug,
+        )
+        result = distiller.distill(
+            selected,
+            UserMemory(),
+            [TopicConfig(name="World")],
+            prior_reports,
+            "General brief.",
+            "2026-05-30",
+            brief_name="general",
+        )
+
+        self.assertIn("overview", result)
+        self.assertTrue(any("dropped lower-ranked article(s)" in item for item in distiller.warnings))
+        analytics = debug.analytics_payload()
+        counts = analytics.get("counts", {})
+        self.assertGreater(int(counts.get("analysis.evidence.prompt_pressure_checks", 0)), 0)
+        self.assertGreater(int(counts.get("analysis.evidence.prompt_compaction.drop_prior_report", 0)), 0)
+        self.assertGreater(int(counts.get("analysis.evidence.prompt_compaction.drop_article", 0)), 0)
 
     def test_evidence_distiller_cache_hit_avoids_repeat_ai_call(self) -> None:
         class _DummyClient:
@@ -982,6 +1451,105 @@ class PipelineBasicsTests(unittest.TestCase):
         self.assertIn("new", first)
         self.assertIn("evidence_gaps", first)
 
+    def test_delta_extractor_records_prompt_pressure_compaction_counters(self) -> None:
+        class _DummyClient:
+            def __init__(self) -> None:
+                self.calls = 0
+                self.config = types.SimpleNamespace(
+                    backend="transformers",
+                    effective_model_label="dummy-summary",
+                    response_format="json_object",
+                )
+                self.max_input_tokens = 1200
+                self.max_new_tokens = 400
+
+            @staticmethod
+            def estimate_tokens(_text: str) -> int:
+                return 999999
+
+            def complete_json(self, *_args, **_kwargs):
+                self.calls += 1
+                return {
+                    "baseline_coverage_note": "coverage was thin",
+                    "new": [{"item": "x", "summary": "y", "article_ids": ["item-1"]}],
+                    "escalated": [],
+                    "weakened": [],
+                    "reframed": [],
+                    "unchanged_but_important": [],
+                    "evidence_gaps": [{"gap": "g", "why_it_matters": "m"}],
+                }
+
+        debug = DebugLogger(True)
+        selected: list[SelectedArticle] = []
+        for index in range(6):
+            candidate = NewsCandidate(
+                id=f"item-{index}",
+                source="Example",
+                category="test",
+                title=f"Headline {index}",
+                url=f"https://example.com/{index}",
+                snippet="snippet",
+                published_at=utc_now(),
+            )
+            selected.append(
+                SelectedArticle(
+                    candidate=candidate,
+                    decision=HeadlineDecision(candidate_id=candidate.id, score=9 - index, topic="World"),
+                    article_text=("A" * 2200) + f"#{index}",
+                    extraction_status="ok",
+                )
+            )
+        prior_reports = [
+            PriorReport(id=f"r-{index}", date="2026-05-29", title=f"Prior {index}", path="p", summary="s")
+            for index in range(3)
+        ]
+        evidence_packet = {
+            "overview": "Overview",
+            "story_clusters": [
+                {
+                    "cluster_id": "cluster-1",
+                    "topic": "World",
+                    "label": "Label",
+                    "summary": "S" * 600,
+                    "article_ids": ["item-0", "item-1"],
+                    "watch_signals": ["Watch 1", "Watch 2"],
+                }
+            ],
+            "global_watch_signals": ["Global 1", "Global 2"],
+            "reader_qa": [{"question": "Q", "answer": "A", "article_ids": ["item-0"]}],
+        }
+
+        extractor = DeltaExtractor(
+            _DummyClient(),
+            DeltaExtractionConfig(
+                enabled=True,
+                input_source="evidence_or_articles",
+                max_input_tokens=1000,
+                max_new_tokens=320,
+                max_prior_reports=3,
+            ),
+            debug=debug,
+        )
+        result = extractor.extract(
+            selected,
+            UserMemory(),
+            [TopicConfig(name="World")],
+            prior_reports,
+            "General brief.",
+            "2026-05-30",
+            evidence_packet=evidence_packet,
+            brief_name="general",
+        )
+
+        self.assertIn("baseline_coverage_note", result)
+        self.assertTrue(any("dropped lower-ranked article(s)" in item for item in extractor.warnings))
+        analytics = debug.analytics_payload()
+        counts = analytics.get("counts", {})
+        self.assertGreater(int(counts.get("analysis.delta.prompt_pressure_checks", 0)), 0)
+        self.assertGreater(int(counts.get("analysis.delta.prompt_compaction.drop_prior_report", 0)), 0)
+        self.assertGreater(int(counts.get("analysis.delta.prompt_compaction.drop_evidence_packet", 0)), 0)
+        self.assertGreater(int(counts.get("analysis.delta.prompt_compaction.drop_article", 0)), 0)
+
     def test_deterministic_delta_scaffold_derives_overlap_and_new_items(self) -> None:
         prior_reports = [
             PriorReport(
@@ -1190,6 +1758,211 @@ class PipelineBasicsTests(unittest.TestCase):
         payload = json.loads(Path(result.json_path).read_text(encoding="utf-8"))
         self.assertEqual(payload["analysis"]["delta_model_role"], "deterministic_scaffold")
         self.assertTrue(bool(payload["analysis"]["delta_packet"].get("deterministic_scaffold")))
+
+    def test_run_brief_rollout_safe_local_disables_optional_stages_for_general(self) -> None:
+        class _DummyAIClient:
+            def __init__(self, label: str) -> None:
+                self.config = types.SimpleNamespace(backend="transformers", effective_model_label=label)
+                self.unload_calls = 0
+
+            def unload(self) -> None:
+                self.unload_calls += 1
+
+        candidate = NewsCandidate(
+            id="item-rollout-general",
+            source="Example",
+            category="test",
+            title="Central bank signals possible rate cuts amid cooling inflation",
+            url="https://example.com/item-rollout-general",
+            snippet="Policy officials signal cuts if inflation continues easing.",
+            published_at=utc_now(),
+        )
+        decision = HeadlineDecision(candidate_id=candidate.id, score=8.5, topic="World")
+        filtering = types.SimpleNamespace(
+            time_window_hours=24,
+            max_headlines_per_source=8,
+            max_candidates_for_ai=8,
+            max_headlines_per_ai_batch=4,
+            headline_score_cutoff=6.0,
+            max_selected_articles=3,
+            fill_selected_articles=True,
+            article_text_max_chars=1500,
+        )
+        output_dir = Path("D:/Project/MyDailyNews/.codex_tmp_test/pr7_rollout_general_output")
+        if output_dir.exists():
+            shutil.rmtree(output_dir, ignore_errors=True)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        orchestrator = types.SimpleNamespace()
+        orchestrator.debug = DebugLogger(True)
+        orchestrator.warnings = []
+        orchestrator.summary_ai_client = _DummyAIClient("summary")
+        orchestrator.final_ai_client = _DummyAIClient("final")
+        orchestrator.http_cache = None
+        orchestrator.synth_cache = None
+        orchestrator.config = types.SimpleNamespace(
+            user_agent="test-agent",
+            user_memory=UserMemory(),
+            output_dir=str(output_dir),
+            ai_summary=types.SimpleNamespace(backend="transformers", effective_model_label="summary"),
+            ai_final=types.SimpleNamespace(
+                backend="transformers",
+                effective_model_label="final",
+                max_input_tokens=2048,
+                max_new_tokens=400,
+            ),
+            cache=types.SimpleNamespace(http_fresh_seconds=60, synth_fresh_seconds=3600),
+            runtime=types.SimpleNamespace(max_enrichment_workers=1),
+            enrichment=types.SimpleNamespace(max_context_chars_per_article=450),
+            analysis=types.SimpleNamespace(
+                evidence_distillation=EvidenceDistillationConfig(enabled=True),
+                delta_extraction=DeltaExtractionConfig(
+                    enabled=True,
+                    max_prior_reports=3,
+                ),
+                rollout=types.SimpleNamespace(
+                    enabled=True,
+                    profile="safe_local",
+                    general=types.SimpleNamespace(),
+                    detailed=types.SimpleNamespace(),
+                ),
+            ),
+        )
+
+        orchestrator._snapshot_candidates_for_brief = lambda _snapshot, _since: ([], [], [candidate])
+        orchestrator._decisions_for_brief = lambda _candidates, shared_decisions, _topics: shared_decisions
+        orchestrator.select_articles = lambda candidates, decisions, _topics, _filtering: [
+            SelectedArticle(candidate=item, decision=decisions[item.id]) for item in candidates if item.id in decisions
+        ]
+        orchestrator._populate_article_texts = lambda _name, selected, _retriever, _warnings: [
+            setattr(item, "article_text", "full text") or setattr(item, "extraction_status", "ok") for item in selected
+        ]
+        orchestrator._record_article_fetch_metrics = lambda *_args, **_kwargs: None
+        orchestrator._record_enrichment_metrics = lambda *_args, **_kwargs: None
+
+        original_article_retriever = brief_execution_module.ArticleRetriever
+        original_enricher = brief_execution_module.SimpleEnricher
+        original_brief_generator = brief_execution_module.BriefGenerator
+        original_evidence_distiller = brief_execution_module.EvidenceDistiller
+        original_delta_extractor = brief_execution_module.DeltaExtractor
+        captured = {"distill_calls": 0, "delta_calls": 0}
+
+        class _FakeArticleRetriever:
+            def __init__(self, *_args, **_kwargs) -> None:
+                pass
+
+            @staticmethod
+            def fetch_text(_url):
+                return "full text", "ok"
+
+        class _FakeEnricher:
+            def __init__(self, *_args, **_kwargs) -> None:
+                self.warnings: list[str] = []
+
+            def enrich_many(self, _articles, max_workers=1):  # noqa: ARG002
+                return None
+
+        class _FakeEvidenceDistiller:
+            def __init__(self, *_args, **_kwargs) -> None:
+                self.warnings: list[str] = []
+
+            def distill(self, *_args, **_kwargs):
+                captured["distill_calls"] += 1
+                return {
+                    "overview": "evidence overview",
+                    "story_clusters": [],
+                    "global_watch_signals": [],
+                    "reader_qa": [],
+                }
+
+        class _FakeDeltaExtractor:
+            def __init__(self, *_args, **_kwargs) -> None:
+                self.warnings: list[str] = []
+
+            def extract(self, *_args, **_kwargs):
+                captured["delta_calls"] += 1
+                return {
+                    "baseline_coverage_note": "delta note",
+                    "new": [],
+                    "escalated": [],
+                    "weakened": [],
+                    "reframed": [],
+                    "unchanged_but_important": [],
+                    "evidence_gaps": [],
+                }
+
+        class _FakeBriefGenerator:
+            def __init__(self, *_args, **_kwargs) -> None:
+                self.warnings: list[str] = []
+
+            def generate(self, *_args, **_kwargs):
+                return {
+                    "title": "Daily Brief - 2026-05-30",
+                    "lead": "Lead",
+                    "topic_reports": [],
+                    "sections": [],
+                    "knowns": [],
+                    "unknowns": [],
+                    "watch_signals": [],
+                    "major_headlines": [],
+                    "selected_articles": [],
+                }
+
+        brief_execution_module.ArticleRetriever = _FakeArticleRetriever
+        brief_execution_module.SimpleEnricher = _FakeEnricher
+        brief_execution_module.BriefGenerator = _FakeBriefGenerator
+        brief_execution_module.EvidenceDistiller = _FakeEvidenceDistiller
+        brief_execution_module.DeltaExtractor = _FakeDeltaExtractor
+        try:
+            result = brief_execution_module.run_brief(
+                orchestrator,
+                name="general",
+                output_suffix="general",
+                topics=[TopicConfig(name="World")],
+                filtering=filtering,
+                prior_reports=[
+                    PriorReport(
+                        id="r1",
+                        date="2026-05-29",
+                        title="Prior",
+                        path="p",
+                        summary="s",
+                        major_headlines=[{"headline": "Central bank signals possible rate cuts as inflation cools"}],
+                    )
+                ],
+                now=utc_now(),
+                date="2026-05-30",
+                snapshot=types.SimpleNamespace(fetched_since=utc_now(), metadata={"warnings": []}),
+                brief_goal="General brief.",
+                limited_candidates_override=[candidate],
+                shared_decisions={candidate.id: decision},
+            )
+        finally:
+            brief_execution_module.ArticleRetriever = original_article_retriever
+            brief_execution_module.SimpleEnricher = original_enricher
+            brief_execution_module.BriefGenerator = original_brief_generator
+            brief_execution_module.EvidenceDistiller = original_evidence_distiller
+            brief_execution_module.DeltaExtractor = original_delta_extractor
+
+        self.assertEqual(captured["distill_calls"], 0)
+        self.assertEqual(captured["delta_calls"], 0)
+        payload = json.loads(Path(result.json_path).read_text(encoding="utf-8"))
+        rollout_meta = payload["metadata"]["analysis_rollout"]
+        self.assertTrue(bool(rollout_meta.get("enabled")))
+        self.assertEqual(rollout_meta.get("profile"), "safe_local")
+        self.assertTrue(bool(rollout_meta.get("evidence_requested_enabled")))
+        self.assertFalse(bool(rollout_meta.get("evidence_enabled")))
+        self.assertTrue(bool(rollout_meta.get("delta_requested_enabled")))
+        self.assertFalse(bool(rollout_meta.get("delta_enabled")))
+        self.assertEqual(payload["analysis"]["delta_model_role"], "deterministic_scaffold")
+        self.assertTrue(bool(payload["analysis"]["delta_packet"].get("deterministic_scaffold")))
+
+        metrics = orchestrator.debug.analytics_payload().get("metrics", {})
+        self.assertTrue(bool(metrics.get("brief.general.analysis.rollout.enabled")))
+        self.assertEqual(metrics.get("brief.general.analysis.rollout.profile"), "safe_local")
+        self.assertEqual(metrics.get("brief.general.analysis.evidence.skipped_reason.rollout_disabled"), 1)
+        self.assertEqual(metrics.get("brief.general.analysis.delta.skipped_reason.rollout_disabled"), 1)
+        self.assertEqual(metrics.get("brief.general.analysis.delta.scaffold_reason.disabled"), 1)
 
     def test_run_brief_includes_evidence_packet_when_enabled(self) -> None:
         class _DummyAIClient:
@@ -1882,6 +2655,249 @@ class PipelineBasicsTests(unittest.TestCase):
         decisions = analyzer.analyze([candidate], UserMemory(), topics, "Detailed AI policy brief.")
         self.assertEqual(decisions["example:ai"].topic, "AI policy")
 
+    def test_headline_prompt_rubric_refresh_contains_pr2_anchors(self) -> None:
+        system_text = HEADLINE_ANALYSIS_SYSTEM.lower()
+        user_text = HEADLINE_ANALYSIS_USER.lower()
+
+        self.assertIn("editorial triage scorer", system_text)
+        self.assertIn("regret", user_text)
+        self.assertIn("personal relevance", user_text)
+        self.assertIn("impact", user_text)
+        self.assertIn("novelty", user_text)
+        self.assertIn("actionability", user_text)
+        self.assertIn("urgency", user_text)
+        self.assertIn("topic keyword match with low impact", user_text)
+        self.assertIn("high-value must-know", user_text)
+        self.assertIn("low-value noise", user_text)
+
+    def test_headline_prompt_contract_supports_multifactor_shape_and_compactness(self) -> None:
+        normalized = " ".join((HEADLINE_ANALYSIS_USER + "\n" + HEADLINE_ANALYSIS_SYSTEM).split())
+        self.assertIn('"decisions"', HEADLINE_ANALYSIS_USER)
+        self.assertIn('"id"', HEADLINE_ANALYSIS_USER)
+        self.assertIn('"score"', HEADLINE_ANALYSIS_USER)
+        self.assertIn('"reason"', HEADLINE_ANALYSIS_USER)
+        self.assertIn('"skip_reason"', HEADLINE_ANALYSIS_USER)
+        self.assertIn('"angle_type"', HEADLINE_ANALYSIS_USER)
+        self.assertLessEqual(len(normalized), 4400)
+
+    def test_headline_analysis_schema_supports_multifactor_optional_fields(self) -> None:
+        schema = HEADLINE_ANALYSIS_JSON_SCHEMA.schema
+        decision_props = schema["properties"]["decisions"]["items"]["properties"]
+        required = schema["properties"]["decisions"]["items"]["required"]
+
+        self.assertIn("id", required)
+        self.assertIn("score", required)
+        self.assertIn("personal_relevance", decision_props)
+        self.assertIn("impact", decision_props)
+        self.assertIn("novelty", decision_props)
+        self.assertIn("urgency", decision_props)
+        self.assertIn("actionability", decision_props)
+        self.assertIn("confidence", decision_props)
+        self.assertIn("reason", decision_props)
+        self.assertIn("skip_reason", decision_props)
+        self.assertIn("angle_type", decision_props)
+
+    def test_brief_prompt_structured_voice_contains_pr6_anchors(self) -> None:
+        system_text = BRIEF_SYSTEM.lower()
+        user_text = BRIEF_USER.lower()
+
+        self.assertIn("structured briefing writer", system_text)
+        self.assertIn("generic summarizer", system_text)
+        self.assertIn("reject generic phrasing", user_text)
+        self.assertIn("why_it_matters", user_text)
+        self.assertIn("what_changed", user_text)
+        self.assertIn("who_is_affected", user_text)
+        self.assertIn("what_to_watch", user_text)
+        self.assertIn("do not invent facts", system_text)
+
+    def test_final_brief_schema_supports_structured_topic_fields(self) -> None:
+        schema = FINAL_BRIEF_JSON_SCHEMA.schema
+        topic_props = schema["properties"]["topic_reports"]["items"]["properties"]
+
+        self.assertIn("topic", topic_props)
+        self.assertIn("why_it_matters", topic_props)
+        self.assertIn("what_changed", topic_props)
+        self.assertIn("who_is_affected", topic_props)
+        self.assertIn("narrative_changes", topic_props)
+        self.assertIn("what_to_watch", topic_props)
+
+    def test_headline_analyzer_parses_multifactor_fields_with_clamping(self) -> None:
+        class _DummyClient:
+            def __init__(self) -> None:
+                self.config = types.SimpleNamespace(
+                    backend="transformers",
+                    effective_model_label="dummy",
+                    response_format="json_object",
+                )
+                self.max_input_tokens = 2048
+                self.max_new_tokens = 256
+
+            @staticmethod
+            def estimate_tokens(text: str) -> int:
+                return max(1, len(text) // 4)
+
+            @staticmethod
+            def complete_json(*_args, **_kwargs):
+                return {
+                    "decisions": [
+                        {
+                            "id": "example:ai",
+                            "score": 12.2,
+                            "personal_relevance": -2,
+                            "impact": 8.4,
+                            "novelty": 11,
+                            "urgency": -0.1,
+                            "actionability": 7.1,
+                            "confidence": 100,
+                            "reason": "A" * 220,
+                            "skip_reason": None,
+                            "angle_type": "policy_change",
+                        }
+                    ]
+                }
+
+        debug = DebugLogger(True)
+        analyzer = HeadlineAnalyzer(_DummyClient(), batch_size=4, debug=debug)
+        topics = [TopicConfig(name="AI policy")]
+        candidate = NewsCandidate(
+            id="example:ai",
+            source="Example",
+            category="test",
+            title="AI regulation proposal",
+            url="https://example.com/ai",
+            snippet="snippet",
+            published_at=utc_now(),
+        )
+
+        decisions = analyzer.analyze([candidate], UserMemory(), topics, "Detailed AI policy brief.")
+        decision = decisions["example:ai"]
+
+        self.assertEqual(decision.score, 10.0)
+        self.assertEqual(decision.personal_relevance, 0.0)
+        self.assertEqual(decision.impact, 8.4)
+        self.assertEqual(decision.novelty, 10.0)
+        self.assertEqual(decision.urgency, 0.0)
+        self.assertEqual(decision.actionability, 7.1)
+        self.assertEqual(decision.confidence, 10.0)
+        self.assertTrue(decision.reason)
+        self.assertLessEqual(len(decision.reason), 180)
+        self.assertIsNone(decision.skip_reason)
+        self.assertEqual(decision.angle_type, "policy_change")
+
+        analytics = debug.analytics_payload()
+        self.assertEqual(analytics["metrics"]["headline.multifactor.decisions"], 1)
+        self.assertEqual(analytics["metrics"]["headline.multifactor.present_ratio.personal_relevance"], 1.0)
+        self.assertEqual(analytics["metrics"]["headline.multifactor.present_ratio.reason"], 1.0)
+
+    def test_headline_analyzer_defaults_multifactor_for_legacy_id_score_payload(self) -> None:
+        class _DummyClient:
+            def __init__(self) -> None:
+                self.config = types.SimpleNamespace(
+                    backend="transformers",
+                    effective_model_label="dummy",
+                    response_format="json_object",
+                )
+                self.max_input_tokens = 2048
+                self.max_new_tokens = 256
+
+            @staticmethod
+            def estimate_tokens(text: str) -> int:
+                return max(1, len(text) // 4)
+
+            @staticmethod
+            def complete_json(*_args, **_kwargs):
+                return {"decisions": [{"id": "example:legacy", "score": 7.8}]}
+
+        analyzer = HeadlineAnalyzer(_DummyClient(), batch_size=4)
+        candidate = NewsCandidate(
+            id="example:legacy",
+            source="Example",
+            category="test",
+            title="Legacy output shape",
+            url="https://example.com/legacy",
+            snippet="snippet",
+            published_at=utc_now(),
+        )
+        decisions = analyzer.analyze([candidate], UserMemory(), [TopicConfig(name="World")], "General brief.")
+        decision = decisions["example:legacy"]
+
+        self.assertEqual(decision.score, 7.8)
+        self.assertEqual(decision.personal_relevance, 5.0)
+        self.assertEqual(decision.impact, 5.0)
+        self.assertEqual(decision.novelty, 5.0)
+        self.assertEqual(decision.urgency, 5.0)
+        self.assertEqual(decision.actionability, 5.0)
+        self.assertEqual(decision.confidence, 5.0)
+        self.assertEqual(decision.reason, "")
+        self.assertIsNone(decision.skip_reason)
+        self.assertEqual(decision.angle_type, "")
+
+    def test_decisions_for_brief_preserves_multifactor_fields(self) -> None:
+        candidate = NewsCandidate(
+            id="example:shared",
+            source="Example",
+            category="test",
+            title="Shared candidate",
+            url="https://example.com/shared",
+            snippet="snippet",
+            published_at=utc_now(),
+            metadata={},
+        )
+        shared = HeadlineDecision(
+            candidate_id=candidate.id,
+            score=8.0,
+            topic="",
+            personal_relevance=9.0,
+            impact=8.0,
+            novelty=7.0,
+            urgency=6.0,
+            actionability=5.0,
+            confidence=8.5,
+            reason="High-impact policy change.",
+            skip_reason=None,
+            angle_type="policy_change",
+        )
+        scoped = decisions_for_brief(
+            [candidate],
+            {candidate.id: shared},
+            [TopicConfig(name="Policy", queries=["policy"])],
+        )
+        decision = scoped[candidate.id]
+        self.assertEqual(decision.personal_relevance, 9.0)
+        self.assertEqual(decision.impact, 8.0)
+        self.assertEqual(decision.novelty, 7.0)
+        self.assertEqual(decision.urgency, 6.0)
+        self.assertEqual(decision.actionability, 5.0)
+        self.assertEqual(decision.confidence, 8.5)
+        self.assertEqual(decision.reason, "High-impact policy change.")
+        self.assertEqual(decision.angle_type, "policy_change")
+
+    def test_headline_analyzer_cache_fingerprint_version_for_multifactor_schema(self) -> None:
+        class _DummyClient:
+            def __init__(self) -> None:
+                self.config = types.SimpleNamespace(
+                    backend="transformers",
+                    effective_model_label="dummy",
+                    response_format="json_object",
+                )
+                self.max_input_tokens = 2048
+                self.max_new_tokens = 256
+
+            @staticmethod
+            def estimate_tokens(text: str) -> int:
+                return max(1, len(text) // 4)
+
+            @staticmethod
+            def complete_json(*_args, **_kwargs):
+                return {"decisions": []}
+
+        analyzer = HeadlineAnalyzer(_DummyClient(), batch_size=2)
+        payload = [{"id": "c1", "title": "Title"}]
+        with patch("mydailynews.ai.headline_analyzer.JSONCache.make_key", side_effect=lambda raw: raw):
+            raw_key = analyzer._batch_cache_key(payload, UserMemory(), [TopicConfig(name="World")], "General brief.")
+        fingerprint = json.loads(raw_key)
+        self.assertEqual(fingerprint["v"], 7)
+
     def test_shared_snapshot_scoring_unions_candidates_once(self) -> None:
         import mydailynews.orchestrator as orchestrator_module
 
@@ -2079,6 +3095,118 @@ class PipelineBasicsTests(unittest.TestCase):
         self.assertEqual(selected_cluster.get("source_count"), 2)
         self.assertTrue(bool(selected_cluster.get("multi_source")))
         self.assertEqual(major_cluster.get("id"), "evt-001")
+
+    def test_brief_generator_normalizes_topic_report_structured_fields(self) -> None:
+        class _DummyClient:
+            def __init__(self) -> None:
+                self.config = types.SimpleNamespace(
+                    backend="transformers",
+                    effective_model_label="dummy-final",
+                    response_format="json_object",
+                )
+                self.max_input_tokens = 1200
+                self.max_new_tokens = 240
+
+            @staticmethod
+            def estimate_tokens(text: str) -> int:
+                return max(1, len(text) // 4)
+
+            @staticmethod
+            def complete_json(*_args, **_kwargs):
+                return {
+                    "title": "Daily Brief - 2026-05-30",
+                    "lead": "Lead summary.",
+                    "topic_reports": [
+                        {
+                            "topic": "Policy",
+                            "narrative_summary": "Legacy topic summary.",
+                            "narrative_changes": [
+                                {
+                                    "narrative": "Export controls",
+                                    "status": "escalating",
+                                    "summary": "Rules tightened across advanced chips.",
+                                }
+                            ],
+                            "what_to_watch": ["Agency implementation timeline"],
+                        }
+                    ],
+                    "sections": [],
+                }
+
+        candidate = NewsCandidate(
+            id="item-1",
+            source="Example",
+            category="test",
+            title="Headline",
+            url="https://example.com/1",
+            snippet="snippet",
+            published_at=utc_now(),
+        )
+        selected = [
+            SelectedArticle(
+                candidate=candidate,
+                decision=HeadlineDecision(candidate_id=candidate.id, score=8.0, topic="Policy"),
+                article_text="full text",
+                extraction_status="ok",
+            )
+        ]
+        generator = BriefGenerator(
+            _DummyClient(),
+            max_context_chars=480,
+            input_token_limit=1200,
+            max_new_tokens=240,
+        )
+        brief = generator.generate(
+            selected,
+            UserMemory(),
+            [TopicConfig(name="Policy")],
+            [],
+            "General brief.",
+            "2026-05-30",
+        )
+
+        report = brief["topic_reports"][0]
+        self.assertEqual(report.get("topic"), "Policy")
+        self.assertEqual(report.get("why_it_matters"), "Legacy topic summary.")
+        self.assertEqual(report.get("what_changed"), "Rules tightened across advanced chips.")
+        self.assertEqual(report.get("who_is_affected"), [])
+        self.assertIn("Agency implementation timeline", report.get("what_to_watch", []))
+
+    def test_render_markdown_includes_structured_topic_fields(self) -> None:
+        markdown = render_markdown(
+            {
+                "title": "Daily Brief - 2026-05-30",
+                "lead": "Lead summary.",
+                "knowns": ["Known point"],
+                "unknowns": ["Unknown point"],
+                "watch_signals": ["Watch point"],
+                "topic_reports": [
+                    {
+                        "topic": "AI policy",
+                        "why_it_matters": "Policy timing now affects deployment plans.",
+                        "what_changed": "Draft guidance shifted from principles to enforceable controls.",
+                        "who_is_affected": ["Enterprise AI teams", "Chip suppliers"],
+                        "narrative_changes": [
+                            {
+                                "narrative": "Compliance burden",
+                                "status": "escalating",
+                                "summary": "Reporting requirements widened across model classes.",
+                            }
+                        ],
+                        "what_to_watch": ["Final regulator publication date"],
+                    }
+                ],
+                "sections": [],
+                "references": [],
+            }
+        )
+
+        self.assertIn("Why it matters: Policy timing now affects deployment plans.", markdown)
+        self.assertIn("What changed: Draft guidance shifted from principles to enforceable controls.", markdown)
+        self.assertIn("Who is affected:", markdown)
+        self.assertIn("- Enterprise AI teams", markdown)
+        self.assertIn("What to watch:", markdown)
+        self.assertIn("- Final regulator publication date", markdown)
 
     def test_brief_generator_includes_analysis_packets_in_prompt(self) -> None:
         captured: Dict[str, Any] = {}

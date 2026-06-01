@@ -1,0 +1,56 @@
+{
+  "title": "Policy Focused Brief",
+  "selected_articles": [
+    {
+      "id": "pf1",
+      "headline": "Parliament advances export-control enforcement bill",
+      "source": "Policy Wire",
+      "url": "https://example.com/news/pf1",
+      "event_cluster": {
+        "id": "p1"
+      }
+    },
+    {
+      "id": "pf2",
+      "headline": "Senate committee revises same export-control draft",
+      "source": "Civic Ledger",
+      "url": "https://example.com/news/pf2",
+      "event_cluster": {
+        "id": "p1"
+      }
+    },
+    {
+      "id": "pf3",
+      "headline": "Local campaign filing deadline extended by court",
+      "source": "State Briefing",
+      "url": "https://example.com/news/pf3",
+      "event_cluster": {
+        "id": "p2"
+      }
+    },
+    {
+      "id": "pf4",
+      "headline": "Central bank proposes AML rules for stablecoin issuers",
+      "source": "Regulation Daily",
+      "url": "https://example.com/news/pf4",
+      "event_cluster": {
+        "id": "p3"
+      }
+    },
+    {
+      "id": "pf5",
+      "headline": "Cross-border data transfer pact enters ratification",
+      "source": "Treaty Monitor",
+      "url": "https://example.com/news/pf5",
+      "event_cluster": {
+        "id": "p4"
+      }
+    }
+  ],
+  "metadata": {
+    "brief_name": "general",
+    "warnings": [
+      "final brief prompt may exceed budget (4100>3800); output may be truncated."
+    ]
+  }
+}
