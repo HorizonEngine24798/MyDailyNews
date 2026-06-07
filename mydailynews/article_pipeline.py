@@ -6,6 +6,24 @@ from typing import Dict, List, Tuple
 from .models import SelectedArticle
 
 
+def _fetch_text_with_optional_resolved_url(article_retriever, url: str) -> Tuple[str, str, str]:
+    if hasattr(article_retriever, "fetch_text_with_url"):
+        text, status, resolved_url = article_retriever.fetch_text_with_url(url)
+        return text, status, resolved_url or url
+    text, status = article_retriever.fetch_text(url)
+    return text, status, url
+
+
+def _apply_article_fetch_result(article: SelectedArticle, text: str, status: str, resolved_url: str) -> None:
+    original_url = article.candidate.url
+    if resolved_url and resolved_url != original_url:
+        article.candidate.metadata.setdefault("original_url", original_url)
+        article.candidate.metadata["resolved_url"] = resolved_url
+        article.candidate.url = resolved_url
+    article.article_text = text or article.candidate.snippet
+    article.extraction_status = status
+
+
 def populate_article_texts(
     *,
     brief_name: str,
@@ -22,16 +40,15 @@ def populate_article_texts(
 
     if worker_count <= 1:
         for article in selected:
-            article.article_text, article.extraction_status = article_retriever.fetch_text(article.candidate.url)
-            if not article.article_text:
-                article.article_text = article.candidate.snippet
+            text, status, resolved_url = _fetch_text_with_optional_resolved_url(article_retriever, article.candidate.url)
+            _apply_article_fetch_result(article, text, status, resolved_url)
         debug.log("article.fetch", "batch_complete", brief=brief_name, selected=len(selected), workers=worker_count)
         return
 
-    results: Dict[int, Tuple[str, str]] = {}
+    results: Dict[int, Tuple[str, str, str]] = {}
     with ThreadPoolExecutor(max_workers=worker_count) as executor:
         future_map = {
-            executor.submit(article_retriever.fetch_text, article.candidate.url): index
+            executor.submit(_fetch_text_with_optional_resolved_url, article_retriever, article.candidate.url): index
             for index, article in enumerate(selected)
         }
         for future in as_completed(future_map):
@@ -48,12 +65,11 @@ def populate_article_texts(
                     article_id=article.candidate.id,
                     error=type(exc).__name__,
                 )
-                results[index] = ("", "worker_exception")
+                results[index] = ("", "worker_exception", article.candidate.url)
 
     for index, article in enumerate(selected):
-        text, status = results.get(index, ("", "worker_missing"))
-        article.article_text = text or article.candidate.snippet
-        article.extraction_status = status
+        text, status, resolved_url = results.get(index, ("", "worker_missing", article.candidate.url))
+        _apply_article_fetch_result(article, text, status, resolved_url)
     debug.log("article.fetch", "batch_complete", brief=brief_name, selected=len(selected), workers=worker_count)
 
 

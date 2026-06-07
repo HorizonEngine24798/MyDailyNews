@@ -11,6 +11,8 @@ from .debug import DebugLogger
 from .models import PriorReport, SelectedArticle, TopicConfig, UserMemory
 from .utils import datetime_to_iso
 
+FINAL_PROMPT_BUDGET_SAFETY_RATIO = 0.95
+
 
 def _compact_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
@@ -101,7 +103,7 @@ class BriefGenerator:
         delta_packet: Dict[str, Any],
     ) -> tuple[str, List[SelectedArticle]]:
         target_input_tokens = max(1024, int(self.input_token_limit or self.client.max_input_tokens))
-        prompt_budget_tokens = target_input_tokens
+        prompt_budget_tokens = max(512, int(target_input_tokens * FINAL_PROMPT_BUDGET_SAFETY_RATIO))
         ordered_articles = sorted(articles, key=lambda item: item.decision.score, reverse=True)
         active_reports = prior_reports[:3]
         analysis_options = self._analysis_payload_options(evidence_packet, delta_packet)
@@ -133,7 +135,7 @@ class BriefGenerator:
                     evidence_packet=evidence_payload,
                     delta_packet=delta_payload,
                 )
-                estimated_tokens = self.client.estimate_tokens(prompt)
+                estimated_tokens = self._estimate_final_input_tokens(prompt)
                 self.debug.log(
                     "brief.prompt",
                     "budget_check",
@@ -149,10 +151,7 @@ class BriefGenerator:
                     if analysis_mode != "full":
                         analysis_mode_reduced = True
                     if dropped_article_ids:
-                        self.warnings.append(
-                            "final brief prompt dropped lower-ranked article(s) to stay within the local model budget: "
-                            + ", ".join(dropped_article_ids)
-                        )
+                        self._append_article_drop_warning(dropped_article_ids, used_articles, prompt_budget_tokens)
                     if analysis_mode_reduced:
                         self.warnings.append(
                             "final brief prompt used compacted analysis context to stay within the local model budget."
@@ -165,29 +164,14 @@ class BriefGenerator:
                     analysis_index += 1
                     analysis_mode_reduced = True
                     continue
-                if len(candidate_articles) > 4:
+                if candidate_articles:
                     dropped = candidate_articles.pop()
                     dropped_article_ids.append(dropped.candidate.id)
                     analysis_index = 0
                     continue
-                used_articles = candidate_articles
-                break
 
         if dropped_article_ids:
-            self.warnings.append(
-                "final brief prompt dropped lower-ranked article(s) to stay within the local model budget: "
-                + ", ".join(dropped_article_ids)
-            )
-        if used_articles and prompt:
-            estimated_tokens = self.client.estimate_tokens(prompt)
-            if estimated_tokens > prompt_budget_tokens:
-                self.warnings.append(
-                    f"final brief prompt still estimated above budget ({estimated_tokens}>{prompt_budget_tokens}); "
-                    "the backend input limit may truncate the prompt."
-                )
-            if analysis_mode_reduced:
-                self.warnings.append("final brief prompt used compacted analysis context to stay within the local model budget.")
-            return prompt, used_articles
+            self._append_article_drop_warning(dropped_article_ids, [], prompt_budget_tokens)
         fallback_mode, fallback_evidence, fallback_delta = analysis_options[-1]
         if fallback_mode != "full":
             self.warnings.append("final brief prompt used compacted analysis context to stay within the local model budget.")
@@ -228,6 +212,35 @@ class BriefGenerator:
             evidence_packet=_compact_json(evidence_packet),
             delta_packet=_compact_json(delta_packet),
             articles=_compact_json(payload),
+        )
+
+    def _estimate_final_input_tokens(self, prompt: str) -> int:
+        return self.client.estimate_tokens(f"System:\n{BRIEF_SYSTEM}\n\nUser:\n{prompt}\n\nAssistant:\n")
+
+    def _append_article_drop_warning(
+        self,
+        dropped_article_ids: List[str],
+        used_articles: List[SelectedArticle],
+        prompt_budget_tokens: int,
+    ) -> None:
+        unique_ids: List[str] = []
+        seen: set[str] = set()
+        for article_id in dropped_article_ids:
+            if article_id in seen:
+                continue
+            seen.add(article_id)
+            unique_ids.append(article_id)
+
+        if used_articles:
+            effective_floor = min(float(item.decision.score) for item in used_articles)
+            suffix = f"; effective final score floor is {effective_floor:.2f}"
+        else:
+            suffix = ""
+        self.warnings.append(
+            "final brief prompt dropped lower-ranked article(s) to stay within the local model budget "
+            f"({prompt_budget_tokens} estimated input tokens): "
+            + ", ".join(unique_ids)
+            + suffix
         )
 
     def _article_payload(self, article: SelectedArticle, excerpt_chars: int) -> Dict[str, Any]:

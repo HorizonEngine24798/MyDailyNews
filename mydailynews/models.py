@@ -48,12 +48,12 @@ class FilteringConfig:
     time_window_hours: int = 36
     headline_score_cutoff: float = 6.8
     max_headlines_per_source: int = 8
-    max_candidates_for_ai: int = 40
+    max_candidates_for_ai: Optional[int] = 40
     max_headlines_per_ai_batch: int = 32
     headline_max_input_tokens: Optional[int] = None
     headline_max_new_tokens: Optional[int] = None
     headline_single_replay_max_new_tokens: Optional[int] = None
-    max_selected_articles: int = 8
+    max_selected_articles: Optional[int] = 8
     fill_selected_articles: bool = False
     article_text_max_chars: int = 6000
     max_selected_per_source: int = 2
@@ -102,6 +102,8 @@ class EvidenceDistillationConfig:
     max_input_tokens: int = 20000
     max_new_tokens: int = 2400
     max_articles: int = 12
+    max_articles_per_batch: int = 12
+    max_articles_dropped_to_avoid_split: int = 4
     max_article_chars: int = 1200
     max_context_sources_per_article: int = 3
     max_story_clusters: int = 10
@@ -118,6 +120,10 @@ class DeltaExtractionConfig:
     require_prior_reports: bool = False
     max_input_tokens: int = 16000
     max_new_tokens: int = 1600
+    max_articles: int = 8
+    max_articles_per_batch: int = 8
+    max_articles_dropped_to_avoid_split: int = 4
+    max_article_chars: int = 420
     max_prior_reports: int = 4
     cache_ttl_seconds: int = 604800
 
@@ -129,9 +135,15 @@ class AnalysisRolloutModeConfig:
     evidence_max_input_tokens: Optional[int] = None
     evidence_max_new_tokens: Optional[int] = None
     evidence_max_articles: Optional[int] = None
+    evidence_max_articles_per_batch: Optional[int] = None
+    evidence_max_articles_dropped_to_avoid_split: Optional[int] = None
     evidence_max_article_chars: Optional[int] = None
     delta_max_input_tokens: Optional[int] = None
     delta_max_new_tokens: Optional[int] = None
+    delta_max_articles: Optional[int] = None
+    delta_max_articles_per_batch: Optional[int] = None
+    delta_max_articles_dropped_to_avoid_split: Optional[int] = None
+    delta_max_article_chars: Optional[int] = None
     delta_max_prior_reports: Optional[int] = None
 
 

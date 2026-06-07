@@ -102,7 +102,7 @@ def main() -> int:
     config_path = Path(args.config)
     if not config_path.exists():
         print(f"Config not found: {config_path}")
-        print("Use config.example.json as the starter config.")
+        print("Create or restore config.json before running the pipeline.")
         return 1
 
     config = load_config(config_path)

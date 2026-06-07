@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
 import re
@@ -7,7 +8,7 @@ from typing import Any, Dict, List
 
 from .ai.headline_analyzer import HeadlineAnalyzer
 from .analysis_pipeline import DeltaExtractor, EvidenceDistiller
-from .brief import BriefGenerator, brief_metadata
+from .brief import FINAL_PROMPT_BUDGET_SAFETY_RATIO, BriefGenerator, brief_metadata
 from .enrichment import SimpleEnricher
 from .headline_selection import selection_rationale_rows, selection_reason_counters
 from .models import (
@@ -363,6 +364,17 @@ def _to_evidence_config(raw: Any) -> EvidenceDistillationConfig:
         max_input_tokens=max(256, int(getattr(raw, "max_input_tokens", defaults.max_input_tokens))),
         max_new_tokens=max(64, int(getattr(raw, "max_new_tokens", defaults.max_new_tokens))),
         max_articles=max(1, int(getattr(raw, "max_articles", defaults.max_articles))),
+        max_articles_per_batch=max(1, int(getattr(raw, "max_articles_per_batch", defaults.max_articles_per_batch))),
+        max_articles_dropped_to_avoid_split=max(
+            0,
+            int(
+                getattr(
+                    raw,
+                    "max_articles_dropped_to_avoid_split",
+                    defaults.max_articles_dropped_to_avoid_split,
+                )
+            ),
+        ),
         max_article_chars=max(120, int(getattr(raw, "max_article_chars", defaults.max_article_chars))),
         max_context_sources_per_article=max(
             1,
@@ -386,6 +398,19 @@ def _to_delta_config(raw: Any) -> DeltaExtractionConfig:
         require_prior_reports=bool(getattr(raw, "require_prior_reports", defaults.require_prior_reports)),
         max_input_tokens=max(256, int(getattr(raw, "max_input_tokens", defaults.max_input_tokens))),
         max_new_tokens=max(64, int(getattr(raw, "max_new_tokens", defaults.max_new_tokens))),
+        max_articles=max(1, int(getattr(raw, "max_articles", defaults.max_articles))),
+        max_articles_per_batch=max(1, int(getattr(raw, "max_articles_per_batch", defaults.max_articles_per_batch))),
+        max_articles_dropped_to_avoid_split=max(
+            0,
+            int(
+                getattr(
+                    raw,
+                    "max_articles_dropped_to_avoid_split",
+                    defaults.max_articles_dropped_to_avoid_split,
+                )
+            ),
+        ),
+        max_article_chars=max(120, int(getattr(raw, "max_article_chars", defaults.max_article_chars))),
         max_prior_reports=max(1, int(getattr(raw, "max_prior_reports", defaults.max_prior_reports))),
         cache_ttl_seconds=max(0, int(getattr(raw, "cache_ttl_seconds", defaults.cache_ttl_seconds))),
     )
@@ -415,6 +440,16 @@ def _apply_rollout_mode_overrides(
             int(evidence_config.max_articles),
             int(mode.evidence_max_articles),
         )
+    if mode.evidence_max_articles_per_batch is not None:
+        evidence_config.max_articles_per_batch = min(
+            int(evidence_config.max_articles_per_batch),
+            int(mode.evidence_max_articles_per_batch),
+        )
+    if mode.evidence_max_articles_dropped_to_avoid_split is not None:
+        evidence_config.max_articles_dropped_to_avoid_split = min(
+            int(evidence_config.max_articles_dropped_to_avoid_split),
+            int(mode.evidence_max_articles_dropped_to_avoid_split),
+        )
     if mode.evidence_max_article_chars is not None:
         evidence_config.max_article_chars = min(
             int(evidence_config.max_article_chars),
@@ -429,6 +464,26 @@ def _apply_rollout_mode_overrides(
         delta_config.max_new_tokens = min(
             int(delta_config.max_new_tokens),
             int(mode.delta_max_new_tokens),
+        )
+    if mode.delta_max_articles is not None:
+        delta_config.max_articles = min(
+            int(delta_config.max_articles),
+            int(mode.delta_max_articles),
+        )
+    if mode.delta_max_articles_per_batch is not None:
+        delta_config.max_articles_per_batch = min(
+            int(delta_config.max_articles_per_batch),
+            int(mode.delta_max_articles_per_batch),
+        )
+    if mode.delta_max_articles_dropped_to_avoid_split is not None:
+        delta_config.max_articles_dropped_to_avoid_split = min(
+            int(delta_config.max_articles_dropped_to_avoid_split),
+            int(mode.delta_max_articles_dropped_to_avoid_split),
+        )
+    if mode.delta_max_article_chars is not None:
+        delta_config.max_article_chars = min(
+            int(delta_config.max_article_chars),
+            int(mode.delta_max_article_chars),
         )
     if mode.delta_max_prior_reports is not None:
         delta_config.max_prior_reports = min(
@@ -476,6 +531,128 @@ def resolve_analysis_stage_configs(analysis: Any, brief_name: str) -> tuple[Evid
     metadata["evidence_skip_reason"] = "enabled" if evidence_config.enabled else "rollout_disabled"
     metadata["delta_skip_reason"] = "enabled" if delta_config.enabled else "rollout_disabled"
     return evidence_config, delta_config, metadata
+
+
+def _prune_selected_for_final_token_budget(
+    orchestrator,
+    *,
+    brief_name: str,
+    selected: List[SelectedArticle],
+    filtering,
+    topics: List[TopicConfig],
+    prior_reports: List[PriorReport],
+    brief_goal: str,
+    date: str,
+    include_enrichment_context: bool,
+    run_warnings: List[str],
+) -> List[SelectedArticle]:
+    if len(selected) <= 1:
+        return selected
+
+    final_input_limit = max(512, int(getattr(orchestrator.config.ai_final, "max_input_tokens", 0) or 0))
+    prompt_budget_tokens = max(512, int(final_input_limit * FINAL_PROMPT_BUDGET_SAFETY_RATIO))
+    base_context_chars = max(1, int(getattr(orchestrator.config.enrichment, "max_context_chars_per_article", 1600)))
+    article_fetch_chars = max(1, int(getattr(filtering, "article_text_max_chars", base_context_chars)))
+    context_chars = min(base_context_chars, article_fetch_chars)
+    if include_enrichment_context:
+        # The early estimate happens before enrichment exists, so reserve room for likely context notes/sources.
+        context_chars += 512
+
+    synthetic_text = ("estimated article context " * max(1, (context_chars // 26) + 1))[:context_chars]
+    sorted_selected = sorted(
+        selected,
+        key=lambda item: (
+            float(item.decision.score),
+            float(item.selection_rank_score or item.decision.selection_rank_score or 0.0),
+        ),
+        reverse=True,
+    )
+    synthetic_by_id = {
+        item.candidate.id: replace(item, article_text=synthetic_text, extraction_status="estimated")
+        for item in sorted_selected
+    }
+    candidate_articles = [synthetic_by_id[item.candidate.id] for item in sorted_selected]
+    estimator = BriefGenerator(
+        orchestrator.final_ai_client,
+        context_chars,
+        input_token_limit=final_input_limit,
+        max_new_tokens=orchestrator.config.ai_final.max_new_tokens,
+        include_enrichment_context=include_enrichment_context,
+    )
+    estimated_tokens = 0
+    dropped_ids: List[str] = []
+    active_reports = prior_reports[:3]
+
+    while len(candidate_articles) > 1:
+        prompt = estimator._render_prompt(
+            candidate_articles,
+            context_chars,
+            orchestrator.config.user_memory,
+            topics,
+            active_reports,
+            brief_goal,
+            date,
+            evidence_packet={},
+            delta_packet={},
+        )
+        estimated_tokens = estimator._estimate_final_input_tokens(prompt)
+        if estimated_tokens <= prompt_budget_tokens:
+            break
+        dropped = candidate_articles.pop()
+        dropped_ids.append(dropped.candidate.id)
+
+    if not dropped_ids:
+        orchestrator.debug.set_metric(f"brief.{brief_name}.selection.final_budget_estimated_tokens", int(estimated_tokens))
+        orchestrator.debug.set_metric(f"brief.{brief_name}.selection.final_budget_tokens", int(prompt_budget_tokens))
+        orchestrator.debug.set_metric(f"brief.{brief_name}.selection.final_budget_dropped", 0)
+        return selected
+
+    if candidate_articles:
+        prompt = estimator._render_prompt(
+            candidate_articles,
+            context_chars,
+            orchestrator.config.user_memory,
+            topics,
+            active_reports,
+            brief_goal,
+            date,
+            evidence_packet={},
+            delta_packet={},
+        )
+        estimated_tokens = estimator._estimate_final_input_tokens(prompt)
+
+    original_by_id = {item.candidate.id: item for item in sorted_selected}
+    pruned = [original_by_id[item.candidate.id] for item in candidate_articles if item.candidate.id in original_by_id]
+    dropped = [original_by_id[item_id] for item_id in dropped_ids if item_id in original_by_id]
+    effective_floor = min((float(item.decision.score) for item in pruned), default=0.0)
+    for item in dropped:
+        item.decision.selection_reason_code = "skipped_final_budget"
+        item.candidate.metadata["selection_skip_reason"] = "skipped_final_budget"
+        item.candidate.metadata.pop("selection_reason_code", None)
+
+    warning = (
+        f"{brief_name}: dynamic final-context budget raised effective headline score floor to "
+        f"{effective_floor:.2f}; kept {len(pruned)}/{len(selected)} selected articles "
+        f"({estimated_tokens}/{prompt_budget_tokens} estimated input tokens), dropped: "
+        + ", ".join(dropped_ids)
+    )
+    run_warnings.append(warning)
+    orchestrator.debug.log(
+        "headline.select",
+        "final_budget_prune",
+        brief=brief_name,
+        before=len(selected),
+        after=len(pruned),
+        dropped=len(dropped),
+        estimated_tokens=estimated_tokens,
+        budget_tokens=prompt_budget_tokens,
+        effective_score_floor=effective_floor,
+    )
+    orchestrator.debug.set_metric(f"brief.{brief_name}.selection.final_budget_estimated_tokens", int(estimated_tokens))
+    orchestrator.debug.set_metric(f"brief.{brief_name}.selection.final_budget_tokens", int(prompt_budget_tokens))
+    orchestrator.debug.set_metric(f"brief.{brief_name}.selection.final_budget_dropped", len(dropped))
+    orchestrator.debug.set_metric(f"brief.{brief_name}.selection.final_budget_effective_score_floor", effective_floor)
+    return pruned
 
 
 def run_brief(
@@ -686,6 +863,19 @@ def run_brief(
 
             with orchestrator.debug.span(f"brief.{name}.headline_select"):
                 selected = orchestrator.select_articles(limited_candidates, decisions, topics, filtering)
+            include_enrichment_context = bool(getattr(orchestrator.config.enrichment, "enabled", True))
+            selected = _prune_selected_for_final_token_budget(
+                orchestrator,
+                brief_name=name,
+                selected=selected,
+                filtering=filtering,
+                topics=topics,
+                prior_reports=prior_reports,
+                brief_goal=brief_goal,
+                date=date,
+                include_enrichment_context=include_enrichment_context,
+                run_warnings=run_warnings,
+            )
             orchestrator.debug.set_metric(f"brief.{name}.selected", len(selected))
             selection_counts = selection_reason_counters(decisions)
             selected_reason_counts = selection_counts.get("selected", {})
@@ -833,7 +1023,6 @@ def run_brief(
                 return None
 
             evidence_packet: Dict[str, Any] = {}
-            include_enrichment_context = bool(getattr(orchestrator.config.enrichment, "enabled", True))
             evidence_config, delta_config, analysis_rollout_meta = resolve_analysis_stage_configs(
                 orchestrator.config.analysis,
                 name,

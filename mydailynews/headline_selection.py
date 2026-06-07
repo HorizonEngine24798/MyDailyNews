@@ -77,8 +77,13 @@ def limit_candidates_for_ai(
     debug,
 ) -> List[NewsCandidate]:
     max_total = filtering.max_candidates_for_ai
-    if max_total <= 0:
-        return []
+    if max_total is None:
+        max_total_label: int | str = "all"
+    else:
+        max_total = int(max_total)
+        if max_total <= 0:
+            return []
+        max_total_label = max_total
 
     preferred_sources = {source.lower().strip() for source in user_memory.preferred_sources if str(source).strip()}
     avoided_sources = {source.lower().strip() for source in user_memory.avoided_sources if str(source).strip()}
@@ -106,19 +111,25 @@ def limit_candidates_for_ai(
 
     score_by_id = {item.id: score for item, score in scored}
     ranked = [item for item, _ in scored]
-    pool_target = min(len(ranked), max_total * 2)
     nonnegative = [item for item in ranked if score_by_id.get(item.id, 0.0) >= 0.0]
-    if len(nonnegative) < max_total:
-        candidate_pool = ranked[:pool_target]
+    if max_total is None:
+        candidate_pool = nonnegative if nonnegative else ranked
     else:
-        candidate_pool = nonnegative[:pool_target]
+        pool_target = min(len(ranked), max_total * 2)
+        if len(nonnegative) < max_total:
+            candidate_pool = ranked[:pool_target]
+        else:
+            candidate_pool = nonnegative[:pool_target]
     debug.log(
         "headline.heuristics",
         "prefilter_complete",
         input=len(candidates),
         pool=len(candidate_pool),
-        max_total=max_total,
+        max_total=max_total_label,
     )
+
+    if max_total is None:
+        return sort_by_heuristic_then_time(candidate_pool, score_by_id, since)
 
     selected: List[NewsCandidate] = []
     selected_ids: set[str] = set()
@@ -817,6 +828,11 @@ def select_articles(
     user_memory: UserMemory | None = None,
 ) -> List[SelectedArticle]:
     selected: List[SelectedArticle] = []
+    max_selected = filtering.max_selected_articles
+    if max_selected is not None:
+        max_selected = int(max_selected)
+        if max_selected <= 0:
+            return []
     seen_duplicate_targets: set[str] = set()
     selected_ids: set[str] = set()
     topic_limits = {
@@ -883,7 +899,7 @@ def select_articles(
         decision = decisions.get(candidate.id)
         if not decision:
             return False
-        if len(selected) >= filtering.max_selected_articles:
+        if max_selected is not None and len(selected) >= max_selected:
             mark_skip(candidate, decision, "skipped_capacity")
             return False
         if require_cutoff and decision.score < filtering.headline_score_cutoff:
@@ -958,7 +974,7 @@ def select_articles(
                 enforce_source_cap=enforce_source_cap,
                 enforce_cluster_cap=enforce_cluster_cap,
             )
-            if len(selected) >= filtering.max_selected_articles:
+            if max_selected is not None and len(selected) >= max_selected:
                 break
 
     select_from_ranked(
@@ -966,19 +982,19 @@ def select_articles(
         enforce_source_cap=True,
         enforce_cluster_cap=True,
     )
-    if filtering.fill_selected_articles and len(selected) < filtering.max_selected_articles:
+    if filtering.fill_selected_articles and max_selected is not None and len(selected) < max_selected:
         select_from_ranked(
             require_cutoff=False,
             enforce_source_cap=True,
             enforce_cluster_cap=True,
         )
-    if filtering.fill_selected_articles and len(selected) < filtering.max_selected_articles and cluster_cap > 0:
+    if filtering.fill_selected_articles and max_selected is not None and len(selected) < max_selected and cluster_cap > 0:
         select_from_ranked(
             require_cutoff=False,
             enforce_source_cap=True,
             enforce_cluster_cap=False,
         )
-    if filtering.fill_selected_articles and len(selected) < filtering.max_selected_articles and source_cap > 0:
+    if filtering.fill_selected_articles and max_selected is not None and len(selected) < max_selected and source_cap > 0:
         select_from_ranked(
             require_cutoff=False,
             enforce_source_cap=False,
@@ -1002,6 +1018,6 @@ def select_articles(
         ):
             mark_skip(candidate, decision, "skipped_low_novelty")
             continue
-        mark_skip(candidate, decision, "skipped_capacity")
+        mark_skip(candidate, decision, "skipped_capacity" if max_selected is not None else "skipped_not_selected")
 
     return selected

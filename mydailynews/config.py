@@ -251,6 +251,22 @@ def _optional_pos_int(value: Any, *, minimum: int = 1) -> int | None:
     return max(minimum, int(value))
 
 
+def _optional_limit(value: Any, *, field_name: str) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"all", "any", "unbounded", "unlimited", "none"}:
+            return None
+        if not normalized:
+            raise ValueError(f"{field_name} must be an integer or 'all'")
+        value = normalized
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field_name} must be an integer or 'all'") from exc
+
+
 def _normalize_backend(value: Any) -> str:
     raw = str(value or "auto").strip().lower().replace("-", "_")
     aliases = {
@@ -291,9 +307,21 @@ def _load_analysis_rollout_mode(value: Any, field_name: str) -> AnalysisRolloutM
         evidence_max_input_tokens=_optional_pos_int(value.get("evidence_max_input_tokens"), minimum=256),
         evidence_max_new_tokens=_optional_pos_int(value.get("evidence_max_new_tokens"), minimum=64),
         evidence_max_articles=_optional_pos_int(value.get("evidence_max_articles"), minimum=1),
+        evidence_max_articles_per_batch=_optional_pos_int(value.get("evidence_max_articles_per_batch"), minimum=1),
+        evidence_max_articles_dropped_to_avoid_split=_optional_pos_int(
+            value.get("evidence_max_articles_dropped_to_avoid_split"),
+            minimum=0,
+        ),
         evidence_max_article_chars=_optional_pos_int(value.get("evidence_max_article_chars"), minimum=120),
         delta_max_input_tokens=_optional_pos_int(value.get("delta_max_input_tokens"), minimum=256),
         delta_max_new_tokens=_optional_pos_int(value.get("delta_max_new_tokens"), minimum=64),
+        delta_max_articles=_optional_pos_int(value.get("delta_max_articles"), minimum=1),
+        delta_max_articles_per_batch=_optional_pos_int(value.get("delta_max_articles_per_batch"), minimum=1),
+        delta_max_articles_dropped_to_avoid_split=_optional_pos_int(
+            value.get("delta_max_articles_dropped_to_avoid_split"),
+            minimum=0,
+        ),
+        delta_max_article_chars=_optional_pos_int(value.get("delta_max_article_chars"), minimum=120),
         delta_max_prior_reports=_optional_pos_int(value.get("delta_max_prior_reports"), minimum=1),
     )
 
@@ -389,7 +417,10 @@ def _load_filtering(raw: Dict[str, Any], defaults: Dict[str, Any]) -> FilteringC
         time_window_hours=int(raw.get("time_window_hours", defaults["time_window_hours"])),
         headline_score_cutoff=float(raw.get("headline_score_cutoff", defaults["headline_score_cutoff"])),
         max_headlines_per_source=int(raw.get("max_headlines_per_source", defaults["max_headlines_per_source"])),
-        max_candidates_for_ai=int(raw.get("max_candidates_for_ai", defaults["max_candidates_for_ai"])),
+        max_candidates_for_ai=_optional_limit(
+            raw.get("max_candidates_for_ai", defaults["max_candidates_for_ai"]),
+            field_name="filtering.max_candidates_for_ai",
+        ),
         max_headlines_per_ai_batch=int(raw.get("max_headlines_per_ai_batch", defaults["max_headlines_per_ai_batch"])),
         headline_max_input_tokens=_optional_pos_int(
             raw.get("headline_max_input_tokens", defaults.get("headline_max_input_tokens")),
@@ -406,7 +437,10 @@ def _load_filtering(raw: Dict[str, Any], defaults: Dict[str, Any]) -> FilteringC
             ),
             minimum=64,
         ),
-        max_selected_articles=int(raw.get("max_selected_articles", defaults["max_selected_articles"])),
+        max_selected_articles=_optional_limit(
+            raw.get("max_selected_articles", defaults["max_selected_articles"]),
+            field_name="filtering.max_selected_articles",
+        ),
         fill_selected_articles=bool(raw.get("fill_selected_articles", defaults["fill_selected_articles"])),
         article_text_max_chars=int(raw.get("article_text_max_chars", defaults["article_text_max_chars"])),
         max_selected_per_source=max(0, int(raw.get("max_selected_per_source", defaults["max_selected_per_source"]))),
@@ -476,6 +510,19 @@ def _load_analysis(raw: Dict[str, Any]) -> AnalysisConfig:
             max_input_tokens=max(256, int(evidence_raw.get("max_input_tokens", evidence_defaults.max_input_tokens))),
             max_new_tokens=max(64, int(evidence_raw.get("max_new_tokens", evidence_defaults.max_new_tokens))),
             max_articles=max(1, int(evidence_raw.get("max_articles", evidence_defaults.max_articles))),
+            max_articles_per_batch=max(
+                1,
+                int(evidence_raw.get("max_articles_per_batch", evidence_defaults.max_articles_per_batch)),
+            ),
+            max_articles_dropped_to_avoid_split=max(
+                0,
+                int(
+                    evidence_raw.get(
+                        "max_articles_dropped_to_avoid_split",
+                        evidence_defaults.max_articles_dropped_to_avoid_split,
+                    )
+                ),
+            ),
             max_article_chars=max(120, int(evidence_raw.get("max_article_chars", evidence_defaults.max_article_chars))),
             max_context_sources_per_article=max(
                 1,
@@ -499,6 +546,18 @@ def _load_analysis(raw: Dict[str, Any]) -> AnalysisConfig:
             require_prior_reports=bool(delta_raw.get("require_prior_reports", delta_defaults.require_prior_reports)),
             max_input_tokens=max(256, int(delta_raw.get("max_input_tokens", delta_defaults.max_input_tokens))),
             max_new_tokens=max(64, int(delta_raw.get("max_new_tokens", delta_defaults.max_new_tokens))),
+            max_articles=max(1, int(delta_raw.get("max_articles", delta_defaults.max_articles))),
+            max_articles_per_batch=max(1, int(delta_raw.get("max_articles_per_batch", delta_defaults.max_articles_per_batch))),
+            max_articles_dropped_to_avoid_split=max(
+                0,
+                int(
+                    delta_raw.get(
+                        "max_articles_dropped_to_avoid_split",
+                        delta_defaults.max_articles_dropped_to_avoid_split,
+                    )
+                ),
+            ),
+            max_article_chars=max(120, int(delta_raw.get("max_article_chars", delta_defaults.max_article_chars))),
             max_prior_reports=max(1, int(delta_raw.get("max_prior_reports", delta_defaults.max_prior_reports))),
             cache_ttl_seconds=max(0, int(delta_raw.get("cache_ttl_seconds", delta_defaults.cache_ttl_seconds))),
         ),

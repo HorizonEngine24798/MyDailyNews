@@ -26,6 +26,7 @@ import mydailynews.ai.factory as ai_factory_module
 from mydailynews.ai.prompts import BRIEF_SYSTEM, BRIEF_USER, HEADLINE_ANALYSIS_SYSTEM, HEADLINE_ANALYSIS_USER
 from mydailynews.ai.schemas import FINAL_BRIEF_JSON_SCHEMA, HEADLINE_ANALYSIS_JSON_SCHEMA
 from mydailynews.analysis_pipeline import DeltaExtractor, EvidenceDistiller
+from mydailynews.article_pipeline import populate_article_texts
 from mydailynews.brief import BriefGenerator
 import mydailynews.brief_execution as brief_execution_module
 from mydailynews.debug import DebugLogger
@@ -53,6 +54,8 @@ from mydailynews.models import (
 )
 from mydailynews.orchestrator import NewsOrchestrator
 from mydailynews.output import render_markdown
+import mydailynews.retrieval.article as article_module
+from mydailynews.retrieval.article import ArticleRetriever
 from mydailynews.retrieval.google_news import GoogleNewsQueryRetriever
 from mydailynews.scrapers.rss import RSSScraper
 from mydailynews.utils import safe_json_load, utc_now
@@ -70,6 +73,94 @@ def _candidate(source: str, topic: str = "", published_at=None) -> NewsCandidate
         tags=[],
         metadata={"topic_name": topic} if topic else {},
     )
+
+
+def _base_config_dict() -> dict[str, Any]:
+    return {
+        "output_dir": "output",
+        "user_agent": "MyDailyNews/test",
+        "ai_summary": {
+            "backend": "auto",
+            "preset": "qwen3-1.7b",
+            "max_input_tokens": 4096,
+            "max_new_tokens": 512,
+        },
+        "ai_final": {
+            "backend": "auto",
+            "preset": "qwen3-8b",
+            "max_input_tokens": 8192,
+            "max_new_tokens": 1024,
+        },
+        "user_memory": {
+            "avoided_topics": [],
+            "preferred_sources": [],
+            "avoided_sources": [],
+            "briefing_style": "Concise.",
+            "custom_instructions": "",
+        },
+        "general_topics": [
+            {
+                "name": "General",
+                "description": "General news",
+                "queries": ["general news"],
+                "enabled": True,
+            }
+        ],
+        "general_filtering": {
+            "time_window_hours": 36,
+            "headline_score_cutoff": 5.5,
+            "max_headlines_per_source": 16,
+            "max_candidates_for_ai": 60,
+            "max_headlines_per_ai_batch": 32,
+            "max_selected_articles": 12,
+            "fill_selected_articles": True,
+            "article_text_max_chars": 5000,
+        },
+        "topics_to_examine": [
+            {
+                "name": "Detailed",
+                "description": "Detailed news",
+                "queries": ["detailed news"],
+                "enabled": True,
+            }
+        ],
+        "filtering": {
+            "time_window_hours": 36,
+            "headline_score_cutoff": 6.8,
+            "max_headlines_per_source": 16,
+            "max_candidates_for_ai": 40,
+            "max_headlines_per_ai_batch": 32,
+            "max_selected_articles": 8,
+            "fill_selected_articles": False,
+            "article_text_max_chars": 6000,
+        },
+        "enrichment": {
+            "enabled": True,
+            "past_news_days": 30,
+            "max_past_news_results": 4,
+            "max_wikipedia_results": 3,
+            "max_entities": 4,
+            "max_context_chars_per_article": 1600,
+        },
+        "sources": {
+            "rss": [
+                {
+                    "name": "Example",
+                    "url": "https://example.com/feed.xml",
+                    "category": "test",
+                    "tags": [],
+                    "enabled": True,
+                }
+            ],
+            "google_news": {"enabled": False},
+            "prior_reports": {"enabled": False},
+        },
+        "analysis": {
+            "evidence_distillation": {},
+            "delta_extraction": {},
+            "rollout": {},
+        },
+    }
 
 
 class PipelineBasicsTests(unittest.TestCase):
@@ -331,6 +422,106 @@ class PipelineBasicsTests(unittest.TestCase):
         items = retriever.fetch(topics, since)
         self.assertEqual([item.metadata.get("topic_name") for item in items], ["topic-a", "topic-b", "topic-c"])
 
+    def test_article_retriever_resolves_google_news_rss_url_before_extraction(self) -> None:
+        google_url = "https://news.google.com/rss/articles/CBMiabc123?oc=5"
+        publisher_url = "https://publisher.example/news/full-story"
+        wrapper_html = '<div data-n-a-ts="12345" data-n-a-sg="sig123"></div>'
+        article_html = "<html><article>full story</article></html>"
+        calls: list[str] = []
+
+        class _HTTPResponse:
+            def __init__(self, text: str) -> None:
+                self.ok = True
+                self.status_code = 200
+                self.text = text
+                self.headers = {}
+                self.cache_state = "network"
+
+        class _FakeHttp:
+            def get_text(self, url: str, **_kwargs):
+                calls.append(url)
+                if url == google_url:
+                    return _HTTPResponse(wrapper_html)
+                if url == publisher_url:
+                    return _HTTPResponse(article_html)
+                raise AssertionError(f"unexpected URL: {url}")
+
+        class _PostResponse:
+            status_code = 200
+            text = (
+                ")]}'\n\n"
+                + json.dumps(
+                    [
+                        [
+                            "wrb.fr",
+                            "Fbv4je",
+                            json.dumps(["garturlres", publisher_url, 1]),
+                            None,
+                            None,
+                            None,
+                            "generic",
+                        ]
+                    ]
+                )
+            )
+
+        def fake_post(url: str, **kwargs):
+            self.assertEqual(url, "https://news.google.com/_/DotsSplashUi/data/batchexecute")
+            self.assertIn("f.req", kwargs.get("data", {}))
+            return _PostResponse()
+
+        original_post = article_module.requests.post
+        original_extract = article_module.trafilatura.extract
+        try:
+            article_module.requests.post = fake_post
+            article_module.trafilatura.extract = lambda *_args, **_kwargs: "full article text " * 40
+            retriever = ArticleRetriever("test-agent", max_chars=5000, debug=DebugLogger(False))
+            retriever.http = _FakeHttp()  # type: ignore[assignment]
+
+            text, status, effective_url = retriever.fetch_text_with_url(google_url)
+        finally:
+            article_module.requests.post = original_post
+            article_module.trafilatura.extract = original_extract
+
+        self.assertEqual(status, "ok")
+        self.assertEqual(effective_url, publisher_url)
+        self.assertEqual(calls, [google_url, publisher_url])
+        self.assertIn("full article text", text)
+
+    def test_populate_article_texts_updates_resolved_candidate_url(self) -> None:
+        candidate = NewsCandidate(
+            id="candidate-1",
+            source="Google News",
+            category="topic_search",
+            title="headline",
+            url="https://news.google.com/rss/articles/CBMiabc123?oc=5",
+            snippet="snippet",
+            published_at=utc_now(),
+            tags=[],
+            metadata={},
+        )
+        article = SelectedArticle(candidate=candidate, decision=HeadlineDecision(candidate_id=candidate.id, score=8.0))
+        resolved_url = "https://publisher.example/news/full-story"
+
+        class _FakeRetriever:
+            def fetch_text_with_url(self, _url: str):
+                return "resolved article text", "ok", resolved_url
+
+        populate_article_texts(
+            brief_name="unit",
+            selected=[article],
+            article_retriever=_FakeRetriever(),
+            warnings=[],
+            max_article_workers=1,
+            debug=DebugLogger(False),
+        )
+
+        self.assertEqual(article.article_text, "resolved article text")
+        self.assertEqual(article.extraction_status, "ok")
+        self.assertEqual(article.candidate.url, resolved_url)
+        self.assertEqual(article.candidate.metadata["original_url"], "https://news.google.com/rss/articles/CBMiabc123?oc=5")
+        self.assertEqual(article.candidate.metadata["resolved_url"], resolved_url)
+
     def test_runtime_worker_config_is_clamped(self) -> None:
         raw_runtime = {
             "max_http_workers": 0,
@@ -343,7 +534,7 @@ class PipelineBasicsTests(unittest.TestCase):
         self.assertEqual(_worker_count({}, "max_http_workers", 4), 4)
 
     def test_legacy_single_ai_section_is_rejected(self) -> None:
-        base = json.loads(Path("D:/Project/MyDailyNews/config.example.json").read_text(encoding="utf-8"))
+        base = _base_config_dict()
         base["ai"] = dict(base["ai_summary"])
         base.pop("ai_summary", None)
         base.pop("ai_final", None)
@@ -359,7 +550,7 @@ class PipelineBasicsTests(unittest.TestCase):
             load_config(config_path)
 
     def test_analysis_defaults_are_applied_when_section_is_missing(self) -> None:
-        base = json.loads(Path("D:/Project/MyDailyNews/config.example.json").read_text(encoding="utf-8"))
+        base = _base_config_dict()
         base.pop("analysis", None)
 
         tmp_dir = Path("D:/Project/MyDailyNews/.codex_tmp_test/config_analysis_defaults")
@@ -376,7 +567,7 @@ class PipelineBasicsTests(unittest.TestCase):
         self.assertEqual(loaded.analysis.delta_extraction.model_role, "summary")
 
     def test_analysis_section_is_loaded_when_present(self) -> None:
-        base = json.loads(Path("D:/Project/MyDailyNews/config.example.json").read_text(encoding="utf-8"))
+        base = _base_config_dict()
         base["analysis"] = {
             "evidence_distillation": {
                 "enabled": True,
@@ -385,6 +576,8 @@ class PipelineBasicsTests(unittest.TestCase):
                 "max_input_tokens": 1800,
                 "max_new_tokens": 420,
                 "max_articles": 5,
+                "max_articles_per_batch": 3,
+                "max_articles_dropped_to_avoid_split": 2,
                 "max_article_chars": 500,
                 "max_context_sources_per_article": 1,
                 "max_story_clusters": 3,
@@ -399,6 +592,10 @@ class PipelineBasicsTests(unittest.TestCase):
                 "require_prior_reports": True,
                 "max_input_tokens": 1200,
                 "max_new_tokens": 220,
+                "max_articles": 6,
+                "max_articles_per_batch": 3,
+                "max_articles_dropped_to_avoid_split": 2,
+                "max_article_chars": 360,
                 "max_prior_reports": 2,
                 "cache_ttl_seconds": 900,
             },
@@ -416,16 +613,22 @@ class PipelineBasicsTests(unittest.TestCase):
         self.assertEqual(loaded.analysis.evidence_distillation.model_role, "final")
         self.assertFalse(loaded.analysis.evidence_distillation.include_reader_qa)
         self.assertEqual(loaded.analysis.evidence_distillation.max_articles, 5)
+        self.assertEqual(loaded.analysis.evidence_distillation.max_articles_per_batch, 3)
+        self.assertEqual(loaded.analysis.evidence_distillation.max_articles_dropped_to_avoid_split, 2)
         self.assertEqual(loaded.analysis.evidence_distillation.max_questions, 4)
 
         self.assertTrue(loaded.analysis.delta_extraction.enabled)
         self.assertEqual(loaded.analysis.delta_extraction.model_role, "summary")
         self.assertEqual(loaded.analysis.delta_extraction.input_source, "evidence_only")
         self.assertTrue(loaded.analysis.delta_extraction.require_prior_reports)
+        self.assertEqual(loaded.analysis.delta_extraction.max_articles, 6)
+        self.assertEqual(loaded.analysis.delta_extraction.max_articles_per_batch, 3)
+        self.assertEqual(loaded.analysis.delta_extraction.max_articles_dropped_to_avoid_split, 2)
+        self.assertEqual(loaded.analysis.delta_extraction.max_article_chars, 360)
         self.assertEqual(loaded.analysis.delta_extraction.max_prior_reports, 2)
 
     def test_analysis_rollout_section_is_loaded_when_present(self) -> None:
-        base = json.loads(Path("D:/Project/MyDailyNews/config.example.json").read_text(encoding="utf-8"))
+        base = _base_config_dict()
         base["analysis"]["rollout"] = {
             "enabled": True,
             "profile": "balanced_local",
@@ -439,9 +642,15 @@ class PipelineBasicsTests(unittest.TestCase):
                 "evidence_max_input_tokens": 1800,
                 "evidence_max_new_tokens": 420,
                 "evidence_max_articles": 5,
+                "evidence_max_articles_per_batch": 3,
+                "evidence_max_articles_dropped_to_avoid_split": 2,
                 "evidence_max_article_chars": 460,
                 "delta_max_input_tokens": 1400,
                 "delta_max_new_tokens": 260,
+                "delta_max_articles": 6,
+                "delta_max_articles_per_batch": 3,
+                "delta_max_articles_dropped_to_avoid_split": 2,
+                "delta_max_article_chars": 320,
                 "delta_max_prior_reports": 2,
             },
         }
@@ -459,6 +668,12 @@ class PipelineBasicsTests(unittest.TestCase):
         self.assertTrue(bool(loaded.analysis.rollout.detailed.evidence_enabled))
         self.assertTrue(bool(loaded.analysis.rollout.detailed.delta_enabled))
         self.assertEqual(int(loaded.analysis.rollout.detailed.evidence_max_articles or 0), 5)
+        self.assertEqual(int(loaded.analysis.rollout.detailed.evidence_max_articles_per_batch or 0), 3)
+        self.assertEqual(int(loaded.analysis.rollout.detailed.evidence_max_articles_dropped_to_avoid_split or 0), 2)
+        self.assertEqual(int(loaded.analysis.rollout.detailed.delta_max_articles or 0), 6)
+        self.assertEqual(int(loaded.analysis.rollout.detailed.delta_max_articles_per_batch or 0), 3)
+        self.assertEqual(int(loaded.analysis.rollout.detailed.delta_max_articles_dropped_to_avoid_split or 0), 2)
+        self.assertEqual(int(loaded.analysis.rollout.detailed.delta_max_article_chars or 0), 320)
         self.assertEqual(int(loaded.analysis.rollout.detailed.delta_max_prior_reports or 0), 2)
 
     def test_analysis_rollout_profile_drives_mode_specific_stage_enablement(self) -> None:
@@ -468,12 +683,18 @@ class PipelineBasicsTests(unittest.TestCase):
                 max_input_tokens=2300,
                 max_new_tokens=700,
                 max_articles=8,
+                max_articles_per_batch=4,
+                max_articles_dropped_to_avoid_split=2,
                 max_article_chars=700,
             ),
             delta_extraction=DeltaExtractionConfig(
                 enabled=False,
                 max_input_tokens=1700,
                 max_new_tokens=380,
+                max_articles=6,
+                max_articles_per_batch=3,
+                max_articles_dropped_to_avoid_split=2,
+                max_article_chars=360,
                 max_prior_reports=3,
             ),
             rollout=types.SimpleNamespace(
@@ -496,11 +717,13 @@ class PipelineBasicsTests(unittest.TestCase):
         self.assertEqual(evidence_detailed.max_input_tokens, 2300)
         self.assertEqual(evidence_detailed.max_new_tokens, 700)
         self.assertEqual(evidence_detailed.max_articles, 8)
+        self.assertEqual(evidence_detailed.max_articles_per_batch, 4)
+        self.assertEqual(evidence_detailed.max_articles_dropped_to_avoid_split, 2)
         self.assertEqual(evidence_detailed.max_article_chars, 700)
         self.assertEqual(meta_detailed["rollout_profile"], "safe_local")
 
     def test_filtering_diversity_settings_are_loaded(self) -> None:
-        base = json.loads(Path("D:/Project/MyDailyNews/config.example.json").read_text(encoding="utf-8"))
+        base = _base_config_dict()
         base["filtering"]["max_selected_per_source"] = 1
         base["filtering"]["max_selected_per_event_cluster"] = 1
         base["filtering"]["prefer_multi_source_clusters"] = False
@@ -541,8 +764,28 @@ class PipelineBasicsTests(unittest.TestCase):
         self.assertEqual(loaded.general_filtering.max_selected_per_event_cluster, 3)
         self.assertEqual(loaded.general_filtering.headline_max_input_tokens, 23456)
 
+    def test_filtering_all_limits_are_loaded_as_unbounded(self) -> None:
+        base = _base_config_dict()
+        base["general_filtering"]["max_candidates_for_ai"] = "all"
+        base["general_filtering"]["max_selected_articles"] = "all"
+        base["filtering"]["max_candidates_for_ai"] = None
+        base["filtering"]["max_selected_articles"] = "unlimited"
+
+        tmp_dir = Path("D:/Project/MyDailyNews/.codex_tmp_test/config_filtering_all")
+        if tmp_dir.exists():
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        config_path = tmp_dir / "with_filtering_all.json"
+        config_path.write_text(json.dumps(base, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        loaded = load_config(config_path)
+        self.assertIsNone(loaded.general_filtering.max_candidates_for_ai)
+        self.assertIsNone(loaded.general_filtering.max_selected_articles)
+        self.assertIsNone(loaded.filtering.max_candidates_for_ai)
+        self.assertIsNone(loaded.filtering.max_selected_articles)
+
     def test_user_memory_v2_fields_are_loaded_and_prompted(self) -> None:
-        base = json.loads(Path("D:/Project/MyDailyNews/config.example.json").read_text(encoding="utf-8"))
+        base = _base_config_dict()
         base["user_memory"].update(
             {
                 "role": "Policy analyst",
@@ -647,6 +890,77 @@ class PipelineBasicsTests(unittest.TestCase):
             by_id["c"].metadata.get("event_cluster_id"),
         )
         self.assertTrue(bool(by_id["a"].metadata.get("event_cluster_multi_source")))
+
+    def test_unbounded_candidate_limit_keeps_all_nonnegative_candidates(self) -> None:
+        now = utc_now()
+        since = now - timedelta(hours=36)
+        titles = [
+            "Federal agencies publish new AI procurement rules",
+            "Chip suppliers expand advanced packaging capacity",
+            "Central banks coordinate liquidity guidance",
+            "Cybersecurity officials warn about router exploits",
+            "Energy regulators approve transmission upgrade plan",
+            "Space agency delays lunar cargo mission",
+            "Health researchers report vaccine manufacturing shift",
+        ]
+        candidates = [
+            NewsCandidate(
+                id=f"item-{index}",
+                source=f"Source {index}",
+                category="test",
+                title=titles[index],
+                url=f"https://example.com/{index}",
+                snippet="A substantial snippet with enough detail to avoid heuristic penalties.",
+                published_at=now - timedelta(minutes=index),
+            )
+            for index in range(len(titles))
+        ]
+        filtering = FilteringConfig(max_candidates_for_ai=None)
+
+        limited = limit_candidates_for_ai(
+            candidates,
+            [TopicConfig(name="AI infrastructure", description="AI infrastructure policy")],
+            filtering,
+            since,
+            user_memory=UserMemory(),
+            debug=DebugLogger(False),
+        )
+
+        self.assertEqual(len(limited), len(candidates))
+
+    def test_unbounded_selection_uses_cutoff_without_capacity_cap(self) -> None:
+        now = utc_now()
+        candidates = [
+            NewsCandidate(
+                id=f"item-{index}",
+                source=f"Source {index}",
+                category="test",
+                title=f"Headline {index}",
+                url=f"https://example.com/{index}",
+                snippet="Snippet",
+                published_at=now - timedelta(minutes=index),
+            )
+            for index in range(5)
+        ]
+        decisions = {
+            "item-0": HeadlineDecision(candidate_id="item-0", score=8.0, topic="World"),
+            "item-1": HeadlineDecision(candidate_id="item-1", score=7.2, topic="World"),
+            "item-2": HeadlineDecision(candidate_id="item-2", score=6.9, topic="World"),
+            "item-3": HeadlineDecision(candidate_id="item-3", score=4.0, topic="World"),
+            "item-4": HeadlineDecision(candidate_id="item-4", score=3.5, topic="World"),
+        }
+        filtering = FilteringConfig(
+            headline_score_cutoff=6.8,
+            max_selected_articles=None,
+            max_selected_per_source=0,
+            max_selected_per_event_cluster=0,
+        )
+
+        selected = select_articles(candidates, decisions, [TopicConfig(name="World")], filtering)
+
+        self.assertEqual([item.candidate.id for item in selected], ["item-0", "item-1", "item-2"])
+        self.assertEqual(decisions["item-3"].selection_reason_code, "skipped_below_cutoff")
+        self.assertNotIn("skipped_capacity", {decision.selection_reason_code for decision in decisions.values()})
 
     def test_select_articles_enforces_source_and_cluster_caps(self) -> None:
         now = utc_now()
@@ -1092,6 +1406,7 @@ class PipelineBasicsTests(unittest.TestCase):
                 max_input_tokens=900,
                 max_new_tokens=320,
                 max_articles=6,
+                max_articles_dropped_to_avoid_split=0,
                 max_article_chars=1400,
             ),
             debug=DebugLogger(False),
@@ -1111,7 +1426,237 @@ class PipelineBasicsTests(unittest.TestCase):
         self.assertIn("global_watch_signals", result)
         self.assertIn("reader_qa", result)
         self.assertEqual(result["reader_qa"], [])
-        self.assertTrue(any("dropped lower-ranked article(s)" in item for item in distiller.warnings))
+        self.assertTrue(any("split selected articles" in item for item in distiller.warnings))
+
+    def test_evidence_distiller_batches_articles_and_merges_results(self) -> None:
+        class _DummyClient:
+            def __init__(self) -> None:
+                self.calls = 0
+                self.config = types.SimpleNamespace(
+                    backend="transformers",
+                    effective_model_label="dummy-summary",
+                    response_format="json_object",
+                )
+                self.max_input_tokens = 8000
+                self.max_new_tokens = 512
+
+            @staticmethod
+            def estimate_tokens(text: str) -> int:
+                return max(1, len(text) // 4)
+
+            def complete_json(self, *_args, **_kwargs):
+                self.calls += 1
+                return {
+                    "overview": f"Overview batch {self.calls}.",
+                    "story_clusters": [
+                        {
+                            "cluster_id": f"cluster-{self.calls}",
+                            "topic": "World",
+                            "label": f"Label {self.calls}",
+                            "summary": "Summary.",
+                            "article_ids": [f"item-{self.calls - 1}"],
+                            "key_claims": [],
+                            "consensus_points": [],
+                            "contested_points": [],
+                            "known_unknowns": [],
+                            "watch_signals": [],
+                        }
+                    ],
+                    "global_watch_signals": [f"Watch {self.calls}"],
+                    "reader_qa": [
+                        {
+                            "question": f"Question {self.calls}?",
+                            "answer": "Answer.",
+                            "article_ids": [f"item-{self.calls - 1}"],
+                        }
+                    ],
+                }
+
+        selected = []
+        for index in range(5):
+            candidate = NewsCandidate(
+                id=f"item-{index}",
+                source="Example",
+                category="test",
+                title=f"Headline {index}",
+                url=f"https://example.com/{index}",
+                snippet="snippet",
+                published_at=utc_now(),
+            )
+            selected.append(
+                SelectedArticle(
+                    candidate=candidate,
+                    decision=HeadlineDecision(candidate_id=candidate.id, score=10 - index, topic="World"),
+                    article_text="Article text.",
+                    extraction_status="ok",
+                )
+            )
+
+        client = _DummyClient()
+        distiller = EvidenceDistiller(
+            client,
+            EvidenceDistillationConfig(
+                enabled=True,
+                max_articles=5,
+                max_articles_per_batch=2,
+                max_articles_dropped_to_avoid_split=0,
+                max_article_chars=500,
+            ),
+            debug=DebugLogger(False),
+        )
+        result = distiller.distill(
+            selected,
+            UserMemory(),
+            [TopicConfig(name="World")],
+            [],
+            "General brief.",
+            "2026-05-30",
+        )
+
+        self.assertEqual(client.calls, 3)
+        self.assertIn("Overview batch 1", result["overview"])
+        self.assertEqual(len(result["story_clusters"]), 3)
+        self.assertEqual(len(result["global_watch_signals"]), 3)
+        self.assertEqual(len(result["reader_qa"]), 3)
+
+    def test_evidence_distiller_drops_small_tail_to_avoid_split(self) -> None:
+        class _DummyClient:
+            def __init__(self) -> None:
+                self.calls = 0
+                self.config = types.SimpleNamespace(
+                    backend="transformers",
+                    effective_model_label="dummy-summary",
+                    response_format="json_object",
+                )
+                self.max_input_tokens = 8000
+                self.max_new_tokens = 512
+
+            @staticmethod
+            def estimate_tokens(text: str) -> int:
+                return max(1, len(text) // 4)
+
+            def complete_json(self, *_args, **_kwargs):
+                self.calls += 1
+                return {
+                    "overview": "Overview.",
+                    "story_clusters": [],
+                    "global_watch_signals": [],
+                    "reader_qa": [],
+                }
+
+        selected = []
+        for index in range(5):
+            candidate = NewsCandidate(
+                id=f"item-{index}",
+                source="Example",
+                category="test",
+                title=f"Headline {index}",
+                url=f"https://example.com/{index}",
+                snippet="snippet",
+                published_at=utc_now(),
+            )
+            selected.append(
+                SelectedArticle(
+                    candidate=candidate,
+                    decision=HeadlineDecision(candidate_id=candidate.id, score=10 - index, topic="World"),
+                    article_text="Article text.",
+                    extraction_status="ok",
+                )
+            )
+
+        client = _DummyClient()
+        distiller = EvidenceDistiller(
+            client,
+            EvidenceDistillationConfig(
+                enabled=True,
+                max_articles=5,
+                max_articles_per_batch=4,
+                max_articles_dropped_to_avoid_split=1,
+                max_article_chars=500,
+            ),
+            debug=DebugLogger(False),
+        )
+        distiller.distill(selected, UserMemory(), [TopicConfig(name="World")], [], "General brief.", "2026-05-30")
+
+        self.assertEqual(client.calls, 1)
+        self.assertTrue(any("instead of splitting" in item for item in distiller.warnings))
+        self.assertFalse(any("split selected articles" in item for item in distiller.warnings))
+
+    def test_evidence_distiller_batches_by_event_cluster_with_headline_awareness(self) -> None:
+        captured_prompts: list[str] = []
+
+        class _DummyClient:
+            def __init__(self) -> None:
+                self.calls = 0
+                self.config = types.SimpleNamespace(
+                    backend="transformers",
+                    effective_model_label="dummy-summary",
+                    response_format="json_object",
+                )
+                self.max_input_tokens = 8000
+                self.max_new_tokens = 512
+
+            @staticmethod
+            def estimate_tokens(text: str) -> int:
+                return max(1, len(text) // 4)
+
+            def complete_json(self, _system, user, **_kwargs):
+                self.calls += 1
+                captured_prompts.append(user)
+                return {
+                    "overview": f"Overview {self.calls}.",
+                    "story_clusters": [],
+                    "global_watch_signals": [],
+                    "reader_qa": [],
+                }
+
+        selected = []
+        for index, cluster_id in enumerate(["evt-a", "evt-a", "evt-b", "evt-b"]):
+            candidate = NewsCandidate(
+                id=f"item-{index}",
+                source="Example",
+                category="test",
+                title=f"Headline {index}",
+                url=f"https://example.com/{index}",
+                snippet="snippet",
+                published_at=utc_now(),
+                metadata={
+                    "event_cluster_id": cluster_id,
+                    "event_cluster_label": f"Cluster {cluster_id}",
+                    "event_cluster_size": 2,
+                    "event_cluster_source_count": 2,
+                },
+            )
+            selected.append(
+                SelectedArticle(
+                    candidate=candidate,
+                    decision=HeadlineDecision(candidate_id=candidate.id, score=10 - index, topic="World"),
+                    article_text="Article text.",
+                    extraction_status="ok",
+                )
+            )
+
+        distiller = EvidenceDistiller(
+            _DummyClient(),
+            EvidenceDistillationConfig(
+                enabled=True,
+                max_articles=4,
+                max_articles_per_batch=2,
+                max_articles_dropped_to_avoid_split=0,
+                max_article_chars=500,
+            ),
+            debug=DebugLogger(False),
+        )
+        distiller.distill(selected, UserMemory(), [TopicConfig(name="World")], [], "General brief.", "2026-05-30")
+
+        self.assertEqual(len(captured_prompts), 2)
+        self.assertIn('"id":"item-0"', captured_prompts[0])
+        self.assertIn('"id":"item-1"', captured_prompts[0])
+        self.assertIn("Headline-only awareness", captured_prompts[0])
+        self.assertIn('"id":"item-2"', captured_prompts[0])
+        self.assertIn('"id":"item-3"', captured_prompts[0])
+        self.assertIn('"id":"item-2"', captured_prompts[1])
+        self.assertIn('"id":"item-3"', captured_prompts[1])
 
     def test_evidence_distiller_records_prompt_pressure_compaction_counters(self) -> None:
         class _DummyClient:
@@ -1170,6 +1715,7 @@ class PipelineBasicsTests(unittest.TestCase):
                 max_input_tokens=1000,
                 max_new_tokens=320,
                 max_articles=6,
+                max_articles_dropped_to_avoid_split=0,
                 max_article_chars=1200,
             ),
             debug=debug,
@@ -1185,12 +1731,13 @@ class PipelineBasicsTests(unittest.TestCase):
         )
 
         self.assertIn("overview", result)
-        self.assertTrue(any("dropped lower-ranked article(s)" in item for item in distiller.warnings))
+        self.assertTrue(any("split selected articles" in item for item in distiller.warnings))
         analytics = debug.analytics_payload()
         counts = analytics.get("counts", {})
+        metrics = analytics.get("metrics", {})
+        self.assertGreater(int(metrics.get("analysis.evidence.batches", 0)), 1)
         self.assertGreater(int(counts.get("analysis.evidence.prompt_pressure_checks", 0)), 0)
         self.assertGreater(int(counts.get("analysis.evidence.prompt_compaction.drop_prior_report", 0)), 0)
-        self.assertGreater(int(counts.get("analysis.evidence.prompt_compaction.drop_article", 0)), 0)
 
     def test_evidence_distiller_cache_hit_avoids_repeat_ai_call(self) -> None:
         class _DummyClient:
@@ -1537,6 +2084,92 @@ class PipelineBasicsTests(unittest.TestCase):
         self.assertIn("new", first)
         self.assertIn("evidence_gaps", first)
 
+    def test_delta_extractor_batches_articles_and_merges_results(self) -> None:
+        class _DummyClient:
+            def __init__(self) -> None:
+                self.calls = 0
+                self.config = types.SimpleNamespace(
+                    backend="transformers",
+                    effective_model_label="dummy-summary",
+                    response_format="json_object",
+                )
+                self.max_input_tokens = 8000
+                self.max_new_tokens = 512
+
+            @staticmethod
+            def estimate_tokens(text: str) -> int:
+                return max(1, len(text) // 4)
+
+            def complete_json(self, *_args, **_kwargs):
+                self.calls += 1
+                return {
+                    "baseline_coverage_note": f"coverage note {self.calls}",
+                    "new": [
+                        {
+                            "item": f"new item {self.calls}",
+                            "summary": "summary",
+                            "article_ids": [f"item-{self.calls - 1}"],
+                        }
+                    ],
+                    "escalated": [],
+                    "weakened": [],
+                    "reframed": [],
+                    "unchanged_but_important": [],
+                    "evidence_gaps": [
+                        {
+                            "gap": f"gap {self.calls}",
+                            "why_it_matters": "matters",
+                        }
+                    ],
+                }
+
+        selected = []
+        for index in range(5):
+            candidate = NewsCandidate(
+                id=f"item-{index}",
+                source="Example",
+                category="test",
+                title=f"Headline {index}",
+                url=f"https://example.com/{index}",
+                snippet="snippet",
+                published_at=utc_now(),
+            )
+            selected.append(
+                SelectedArticle(
+                    candidate=candidate,
+                    decision=HeadlineDecision(candidate_id=candidate.id, score=10 - index, topic="World"),
+                    article_text="Article text.",
+                    extraction_status="ok",
+                )
+            )
+
+        client = _DummyClient()
+        extractor = DeltaExtractor(
+            client,
+            DeltaExtractionConfig(
+                enabled=True,
+                input_source="articles_only",
+                max_articles=5,
+                max_articles_per_batch=2,
+                max_articles_dropped_to_avoid_split=0,
+                max_article_chars=300,
+            ),
+            debug=DebugLogger(False),
+        )
+        result = extractor.extract(
+            selected,
+            UserMemory(),
+            [TopicConfig(name="World")],
+            [],
+            "General brief.",
+            "2026-05-30",
+        )
+
+        self.assertEqual(client.calls, 3)
+        self.assertIn("coverage note 1", result["baseline_coverage_note"])
+        self.assertEqual(len(result["new"]), 3)
+        self.assertEqual(len(result["evidence_gaps"]), 3)
+
     def test_delta_extractor_records_prompt_pressure_compaction_counters(self) -> None:
         class _DummyClient:
             def __init__(self) -> None:
@@ -1612,6 +2245,7 @@ class PipelineBasicsTests(unittest.TestCase):
                 input_source="evidence_or_articles",
                 max_input_tokens=1000,
                 max_new_tokens=320,
+                max_articles_dropped_to_avoid_split=0,
                 max_prior_reports=3,
             ),
             debug=debug,
@@ -1628,13 +2262,13 @@ class PipelineBasicsTests(unittest.TestCase):
         )
 
         self.assertIn("baseline_coverage_note", result)
-        self.assertTrue(any("dropped lower-ranked article(s)" in item for item in extractor.warnings))
+        self.assertTrue(any("split selected articles" in item for item in extractor.warnings))
         analytics = debug.analytics_payload()
         counts = analytics.get("counts", {})
+        metrics = analytics.get("metrics", {})
+        self.assertGreater(int(metrics.get("analysis.delta.batches", 0)), 1)
         self.assertGreater(int(counts.get("analysis.delta.prompt_pressure_checks", 0)), 0)
         self.assertGreater(int(counts.get("analysis.delta.prompt_compaction.drop_prior_report", 0)), 0)
-        self.assertGreater(int(counts.get("analysis.delta.prompt_compaction.drop_evidence_packet", 0)), 0)
-        self.assertGreater(int(counts.get("analysis.delta.prompt_compaction.drop_article", 0)), 0)
 
     def test_deterministic_delta_scaffold_derives_overlap_and_new_items(self) -> None:
         prior_reports = [
@@ -3153,7 +3787,7 @@ class PipelineBasicsTests(unittest.TestCase):
         generator = BriefGenerator(
             _DummyClient(),
             max_context_chars=900,
-            input_token_limit=900,
+            input_token_limit=1600,
             max_new_tokens=256,
         )
         selected = []
@@ -3192,6 +3826,126 @@ class PipelineBasicsTests(unittest.TestCase):
         self.assertIn("watch_signals", brief)
         self.assertLessEqual(len(brief["major_headlines"]), len(selected))
         self.assertIn("snippet", brief["selected_articles"][0])
+
+    def test_brief_generator_drops_lowest_scored_articles_until_prompt_fits(self) -> None:
+        class _BudgetClient:
+            def __init__(self) -> None:
+                self.config = types.SimpleNamespace(
+                    backend="llama_cpp_server",
+                    effective_model_label="dummy-final",
+                    response_format="json_object",
+                )
+                self.max_input_tokens = 1200
+                self.max_new_tokens = 256
+                self.final_prompt_tokens = 0
+
+            @staticmethod
+            def estimate_tokens(text: str) -> int:
+                return max(1, len(text) // 4)
+
+            def complete_json(self, _system, user, **_kwargs):
+                self.final_prompt_tokens = self.estimate_tokens(user)
+                return {
+                    "title": "Daily Brief - 2026-05-30",
+                    "lead": "Lead summary.",
+                    "topic_reports": [],
+                    "sections": [],
+                }
+
+        client = _BudgetClient()
+        generator = BriefGenerator(
+            client,
+            max_context_chars=1200,
+            input_token_limit=1200,
+            max_new_tokens=256,
+        )
+        selected = []
+        for index in range(10):
+            candidate = NewsCandidate(
+                id=f"item-{index}",
+                source="Example",
+                category="test",
+                title=f"Headline {index}",
+                url=f"https://example.com/{index}",
+                snippet="snippet",
+                published_at=utc_now(),
+            )
+            selected.append(
+                SelectedArticle(
+                    candidate=candidate,
+                    decision=HeadlineDecision(candidate_id=candidate.id, score=10.0 - index, topic="World"),
+                    article_text=("Long article text. " * 180),
+                    extraction_status="ok",
+                )
+            )
+
+        brief = generator.generate(
+            selected,
+            UserMemory(),
+            [TopicConfig(name="World")],
+            [],
+            "General daily news brief.",
+            "2026-05-30",
+        )
+
+        used_scores = [item["score"] for item in brief["selected_articles"]]
+        self.assertLess(len(used_scores), len(selected))
+        self.assertEqual(used_scores, sorted(used_scores, reverse=True))
+        self.assertGreaterEqual(min(used_scores), 10.0 - len(used_scores) + 1)
+        self.assertTrue(any("effective final score floor" in warning for warning in generator.warnings))
+
+    def test_selection_budget_prune_marks_lowest_scored_articles(self) -> None:
+        class _BudgetClient:
+            @staticmethod
+            def estimate_tokens(text: str) -> int:
+                return max(1, len(text) // 4)
+
+        config = types.SimpleNamespace(
+            ai_final=types.SimpleNamespace(max_input_tokens=1800, max_new_tokens=256),
+            enrichment=types.SimpleNamespace(max_context_chars_per_article=900),
+            user_memory=UserMemory(),
+        )
+        orchestrator = types.SimpleNamespace(
+            config=config,
+            final_ai_client=_BudgetClient(),
+            debug=DebugLogger(False),
+        )
+        selected = []
+        for index in range(8):
+            candidate = NewsCandidate(
+                id=f"item-{index}",
+                source="Example",
+                category="test",
+                title=f"Headline {index}",
+                url=f"https://example.com/{index}",
+                snippet="snippet",
+                published_at=utc_now(),
+            )
+            decision = HeadlineDecision(candidate_id=candidate.id, score=10.0 - index, topic="World")
+            selected.append(SelectedArticle(candidate=candidate, decision=decision))
+
+        warnings: list[str] = []
+        pruned = brief_execution_module._prune_selected_for_final_token_budget(
+            orchestrator,
+            brief_name="general",
+            selected=selected,
+            filtering=FilteringConfig(article_text_max_chars=900, headline_score_cutoff=7.0),
+            topics=[TopicConfig(name="World")],
+            prior_reports=[],
+            brief_goal="General daily news brief.",
+            date="2026-05-30",
+            include_enrichment_context=False,
+            run_warnings=warnings,
+        )
+
+        kept_scores = [item.decision.score for item in pruned]
+        dropped_scores = [item.decision.score for item in selected if item not in pruned]
+        self.assertLess(len(pruned), len(selected))
+        self.assertEqual(kept_scores, sorted(kept_scores, reverse=True))
+        self.assertTrue(dropped_scores)
+        self.assertGreater(min(kept_scores), max(dropped_scores))
+        self.assertTrue(all(item.decision.selection_reason_code == "skipped_final_budget" for item in selected if item not in pruned))
+        self.assertTrue(any("dynamic final-context budget raised effective headline score floor" in item for item in warnings))
 
     def test_brief_generator_includes_event_cluster_metadata_in_outputs(self) -> None:
         class _DummyClient:
