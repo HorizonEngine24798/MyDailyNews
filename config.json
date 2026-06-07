@@ -142,6 +142,31 @@
     }
   ],
   "user_memory": {
+    "role": "US-based technology policy operator",
+    "geography_focus": [
+      "United States",
+      "European Union",
+      "China"
+    ],
+    "time_horizon": "tactical",
+    "beats": {
+      "AI and technology policy": 1.0,
+      "Semiconductors and compute infrastructure": 0.9,
+      "Global macro and markets": 0.75
+    },
+    "wants": [
+      "policy change",
+      "regulatory enforcement",
+      "supply chain disruption",
+      "market-moving guidance"
+    ],
+    "avoid": [
+      "celebrity news",
+      "sports scores",
+      "earnings without guidance change"
+    ],
+    "portfolio_or_stake_notes": "Tracks AI infrastructure, enterprise software, and macro-policy shifts affecting operating costs and expansion planning.",
+    "preferred_depth": "analytical",
     "avoided_topics": [
       "celebrity gossip",
       "minor sports updates"
@@ -190,6 +215,25 @@
     "use_shared_snapshot": true
   },
   "analysis": {
+    "rollout": {
+      "enabled": true,
+      "profile": "safe_local",
+      "general": {
+        "evidence_enabled": false,
+        "delta_enabled": false
+      },
+      "detailed": {
+        "evidence_enabled": true,
+        "delta_enabled": false,
+        "evidence_max_input_tokens": 1500,
+        "evidence_max_new_tokens": 360,
+        "evidence_max_articles": 4,
+        "evidence_max_article_chars": 420,
+        "delta_max_input_tokens": 1200,
+        "delta_max_new_tokens": 220,
+        "delta_max_prior_reports": 2
+      }
+    },
     "evidence_distillation": {
       "enabled": false,
       "model_role": "summary",

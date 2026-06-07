@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, List
+from typing import Any, Dict, List
 import re
 from urllib.parse import urlparse
 
@@ -14,6 +14,15 @@ from .models import (
     UserMemory,
 )
 from .utils import datetime_to_iso, utc_now
+
+PROFILE_GEO_MATCH_BONUS = 0.7
+PROFILE_WANTS_MATCH_BONUS = 0.35
+PROFILE_BEAT_WEIGHT_SCALE = 0.25
+PROFILE_AVOID_MATCH_PENALTY = 1.1
+PROFILE_RANK_GEO_MATCH_BONUS = 0.25
+PROFILE_RANK_WANTS_MATCH_BONUS = 0.15
+PROFILE_RANK_BEAT_WEIGHT_SCALE = 0.1
+PROFILE_RANK_AVOID_PENALTY = 0.75
 
 
 def union_candidates_by_id(*groups: List[NewsCandidate]) -> List[NewsCandidate]:
@@ -42,6 +51,18 @@ def decisions_for_brief(
             candidate_id=candidate.id,
             score=shared.score,
             topic=HeadlineAnalyzer.best_topic_for_candidate(candidate, topics),
+            personal_relevance=shared.personal_relevance,
+            impact=shared.impact,
+            novelty=shared.novelty,
+            urgency=shared.urgency,
+            actionability=shared.actionability,
+            confidence=shared.confidence,
+            reason=shared.reason,
+            skip_reason=shared.skip_reason,
+            angle_type=shared.angle_type,
+            selection_reason_code=shared.selection_reason_code,
+            selection_rank_score=shared.selection_rank_score,
+            selection_rank_mode=shared.selection_rank_mode,
         )
     return decisions
 
@@ -58,6 +79,24 @@ def limit_candidates_for_ai(
     max_total = filtering.max_candidates_for_ai
     if max_total <= 0:
         return []
+
+    preferred_sources = {source.lower().strip() for source in user_memory.preferred_sources if str(source).strip()}
+    avoided_sources = {source.lower().strip() for source in user_memory.avoided_sources if str(source).strip()}
+    for item in candidates:
+        source_key = (item.source or "").strip().lower()
+        item.metadata["user_source_preferred"] = bool(source_key and source_key in preferred_sources)
+        item.metadata["user_source_avoided"] = bool(source_key and source_key in avoided_sources)
+        profile_signals = _profile_signal_matches(item, user_memory)
+        item.metadata["user_geo_match"] = bool(profile_signals["geo_matches"])
+        item.metadata["user_wants_match_count"] = len(profile_signals["wants_matches"])
+        item.metadata["user_avoid_match_count"] = len(profile_signals["avoid_matches"])
+        item.metadata["user_beats_match_weight"] = round(float(profile_signals["beat_weight_sum"]), 3)
+        if profile_signals["geo_matches"]:
+            item.metadata["user_geo_matches"] = profile_signals["geo_matches"][:3]
+        if profile_signals["wants_matches"]:
+            item.metadata["user_wants_matches"] = profile_signals["wants_matches"][:4]
+        if profile_signals["avoid_matches"]:
+            item.metadata["user_avoid_matches"] = profile_signals["avoid_matches"][:4]
 
     candidates = dedupe_similar_titles(candidates, debug)
     candidates = annotate_event_clusters(candidates, filtering, since, debug)
@@ -208,6 +247,18 @@ def candidate_heuristic_score(
     if source_name in avoided_sources:
         score -= 2.5
 
+    profile_signals = _profile_signal_matches(item, user_memory)
+    if profile_signals["geo_matches"]:
+        score += PROFILE_GEO_MATCH_BONUS
+    wants_bonus = min(
+        1.2,
+        PROFILE_WANTS_MATCH_BONUS * len(profile_signals["wants_matches"])
+        + PROFILE_BEAT_WEIGHT_SCALE * float(profile_signals["beat_weight_sum"]),
+    )
+    score += wants_bonus
+    if profile_signals["avoid_matches"]:
+        score -= min(2.8, PROFILE_AVOID_MATCH_PENALTY * len(profile_signals["avoid_matches"]))
+
     return round(score, 4)
 
 
@@ -260,6 +311,104 @@ def tokenize_for_match(text: str) -> List[str]:
     }
     tokens = [token for token in re.findall(r"[a-z0-9]{3,}", text.lower()) if token not in stop]
     return tokens
+
+
+def _normalized_match_text(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", (text or "").lower()).strip()
+
+
+def _normalized_profile_terms(values: List[str], *, max_items: int = 10, max_chars: int = 48) -> List[str]:
+    terms: List[str] = []
+    seen: set[str] = set()
+    for raw in values:
+        cleaned = " ".join(str(raw or "").split()).strip().lower()
+        if not cleaned:
+            continue
+        cleaned = cleaned[:max_chars]
+        normalized = _normalized_match_text(cleaned)
+        if not normalized:
+            continue
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        terms.append(normalized)
+        if len(terms) >= max_items:
+            break
+    return terms
+
+
+def _normalized_weighted_beats(beats: Dict[str, float]) -> List[tuple[str, float]]:
+    rows: List[tuple[str, float]] = []
+    for raw_name, raw_weight in (beats or {}).items():
+        name = _normalized_match_text(" ".join(str(raw_name or "").split())[:48])
+        if not name:
+            continue
+        try:
+            weight = float(raw_weight)
+        except Exception:
+            weight = 0.0
+        rows.append((name, max(0.0, min(3.0, weight))))
+    rows.sort(key=lambda item: (-item[1], item[0]))
+    return rows[:8]
+
+
+def _profile_term_matches(text: str, terms: List[str]) -> List[str]:
+    if not text or not terms:
+        return []
+    matches: List[str] = []
+    padded = f" {text} "
+    for term in terms:
+        if not term:
+            continue
+        phrase = f" {term} "
+        if phrase in padded:
+            matches.append(term)
+            continue
+        if term in text and len(term) >= 5:
+            matches.append(term)
+    return matches
+
+
+def _profile_signal_text(candidate: NewsCandidate) -> str:
+    fields: List[str] = [
+        str(candidate.title or ""),
+        str(candidate.snippet or ""),
+        str(candidate.source or ""),
+        str(candidate.url or ""),
+        str(candidate.metadata.get("topic_name", "") or ""),
+        str(candidate.metadata.get("event_cluster_label", "") or ""),
+    ]
+    tags = candidate.tags if isinstance(candidate.tags, list) else []
+    fields.extend(str(tag) for tag in tags[:6])
+    return _normalized_match_text(" ".join(fields))
+
+
+def _profile_signal_matches(candidate: NewsCandidate, user_memory: UserMemory) -> Dict[str, Any]:
+    text = _profile_signal_text(candidate)
+    geo_terms = _normalized_profile_terms(user_memory.geography_focus, max_items=8)
+    wants_terms = _normalized_profile_terms(user_memory.wants, max_items=10)
+    avoid_terms = _normalized_profile_terms((user_memory.avoid or []) + (user_memory.avoided_topics or []), max_items=10)
+    beats = _normalized_weighted_beats(user_memory.beats)
+
+    geo_matches = _profile_term_matches(text, geo_terms)
+    wants_matches = _profile_term_matches(text, wants_terms)
+    avoid_matches = _profile_term_matches(text, avoid_terms)
+
+    beat_matches: List[str] = []
+    beat_weight_sum = 0.0
+    for beat_name, weight in beats:
+        if not beat_name:
+            continue
+        if _profile_term_matches(text, [beat_name]):
+            beat_matches.append(beat_name)
+            beat_weight_sum += float(weight)
+    return {
+        "geo_matches": geo_matches,
+        "wants_matches": wants_matches,
+        "avoid_matches": avoid_matches,
+        "beat_matches": beat_matches,
+        "beat_weight_sum": beat_weight_sum,
+    }
 
 
 def _normalized_source_key(value: str) -> str:
@@ -531,14 +680,145 @@ def title_dedupe_key(title: str) -> str:
     return " ".join(core[:10])
 
 
+COMPOSITE_DIM_WEIGHTS: Dict[str, float] = {
+    "personal_relevance": 0.30,
+    "impact": 0.20,
+    "novelty": 0.18,
+    "actionability": 0.15,
+    "urgency": 0.10,
+    "confidence": 0.07,
+}
+
+
+def _decision_has_multifactor_signal(decision: HeadlineDecision) -> bool:
+    if str(decision.reason or "").strip():
+        return True
+    if str(decision.angle_type or "").strip():
+        return True
+    if str(decision.skip_reason or "").strip():
+        return True
+    values = [
+        float(decision.personal_relevance),
+        float(decision.impact),
+        float(decision.novelty),
+        float(decision.actionability),
+        float(decision.urgency),
+        float(decision.confidence),
+    ]
+    return any(abs(value - 5.0) > 1e-6 for value in values)
+
+
+def ranking_score_for_candidate(
+    decision: HeadlineDecision,
+    candidate: NewsCandidate,
+    filtering: FilteringConfig,
+    user_memory: UserMemory | None = None,
+) -> tuple[float, str]:
+    use_composite = bool(getattr(filtering, "use_multifactor_composite_ranking", False))
+    if use_composite and _decision_has_multifactor_signal(decision):
+        base_score = 0.0
+        for key, weight in COMPOSITE_DIM_WEIGHTS.items():
+            base_score += float(getattr(decision, key, 5.0)) * float(weight)
+        rank_mode = "composite"
+    else:
+        base_score = float(decision.score)
+        rank_mode = "score"
+
+    adjusted = float(base_score)
+    prefer_multi_source = bool(getattr(filtering, "prefer_multi_source_clusters", False))
+    multi_source_bonus = max(0.0, float(getattr(filtering, "multi_source_cluster_bonus", 0.0)))
+    if prefer_multi_source and bool(candidate.metadata.get("event_cluster_multi_source")):
+        adjusted += multi_source_bonus
+
+    if bool(candidate.metadata.get("user_source_preferred")):
+        adjusted += max(0.0, float(getattr(filtering, "source_preference_bonus", 0.0)))
+    if bool(candidate.metadata.get("user_source_avoided")):
+        adjusted -= max(0.0, float(getattr(filtering, "source_avoid_penalty", 0.0)))
+
+    if user_memory is not None:
+        profile_signals = _profile_signal_matches(candidate, user_memory)
+        if profile_signals["geo_matches"]:
+            adjusted += PROFILE_RANK_GEO_MATCH_BONUS
+        wants_bonus = min(
+            0.65,
+            PROFILE_RANK_WANTS_MATCH_BONUS * len(profile_signals["wants_matches"])
+            + PROFILE_RANK_BEAT_WEIGHT_SCALE * float(profile_signals["beat_weight_sum"]),
+        )
+        adjusted += wants_bonus
+        if profile_signals["avoid_matches"]:
+            adjusted -= min(1.6, PROFILE_RANK_AVOID_PENALTY * len(profile_signals["avoid_matches"]))
+
+    return round(adjusted, 4), rank_mode
+
+
+def selection_reason_counters(decisions: Dict[str, HeadlineDecision]) -> Dict[str, Dict[str, int]]:
+    selected_counts: Dict[str, int] = {}
+    skipped_counts: Dict[str, int] = {}
+    for decision in decisions.values():
+        code = str(decision.selection_reason_code or "").strip()
+        if not code:
+            continue
+        if code.startswith("selected_"):
+            selected_counts[code] = selected_counts.get(code, 0) + 1
+            continue
+        if code.startswith("skipped_"):
+            skipped_counts[code] = skipped_counts.get(code, 0) + 1
+            continue
+    return {
+        "selected": dict(sorted(selected_counts.items())),
+        "skipped": dict(sorted(skipped_counts.items())),
+    }
+
+
+def selection_rationale_rows(
+    candidates: List[NewsCandidate],
+    decisions: Dict[str, HeadlineDecision],
+) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for candidate in candidates:
+        decision = decisions.get(candidate.id)
+        if decision is None:
+            continue
+        code = str(decision.selection_reason_code or "").strip()
+        rows.append(
+            {
+                "candidate_id": candidate.id,
+                "rank_score": round(float(decision.selection_rank_score), 4),
+                "rank_mode": str(decision.selection_rank_mode or "score"),
+                "reason_code": code,
+                "selected": code.startswith("selected_"),
+                "score": round(float(decision.score), 4),
+                "topic": str(decision.topic or candidate.metadata.get("topic_name", "")),
+                "composite_dimensions": {
+                    "personal_relevance": round(float(decision.personal_relevance), 4),
+                    "impact": round(float(decision.impact), 4),
+                    "novelty": round(float(decision.novelty), 4),
+                    "actionability": round(float(decision.actionability), 4),
+                    "urgency": round(float(decision.urgency), 4),
+                    "confidence": round(float(decision.confidence), 4),
+                },
+            }
+        )
+    rows.sort(
+        key=lambda row: (
+            float(row.get("rank_score", 0.0)),
+            float(row.get("score", 0.0)),
+        ),
+        reverse=True,
+    )
+    return rows
+
+
 def select_articles(
     candidates: List[NewsCandidate],
     decisions: Dict[str, HeadlineDecision],
     topics: List[TopicConfig],
     filtering: FilteringConfig,
+    user_memory: UserMemory | None = None,
 ) -> List[SelectedArticle]:
     selected: List[SelectedArticle] = []
     seen_duplicate_targets: set[str] = set()
+    selected_ids: set[str] = set()
     topic_limits = {
         topic.name: topic.max_selected_articles
         for topic in topics
@@ -550,22 +830,48 @@ def select_articles(
     source_cap = max(0, int(getattr(filtering, "max_selected_per_source", 0)))
     cluster_cap = max(0, int(getattr(filtering, "max_selected_per_event_cluster", 0)))
     prefer_multi_source = bool(getattr(filtering, "prefer_multi_source_clusters", False))
-    multi_source_bonus = max(0.0, float(getattr(filtering, "multi_source_cluster_bonus", 0.0)))
+    novelty_floor = max(0.0, min(10.0, float(getattr(filtering, "min_novelty_for_selection", 0.0))))
+
+    for candidate in candidates:
+        decision = decisions.get(candidate.id)
+        if decision is None:
+            continue
+        rank_score, rank_mode = ranking_score_for_candidate(
+            decision,
+            candidate,
+            filtering,
+            user_memory=user_memory,
+        )
+        decision.selection_rank_score = rank_score
+        decision.selection_rank_mode = rank_mode
+        decision.selection_reason_code = ""
+        candidate.metadata["selection_rank_score"] = rank_score
+        candidate.metadata["selection_rank_mode"] = rank_mode
+        candidate.metadata.pop("selection_reason_code", None)
+        candidate.metadata.pop("selection_skip_reason", None)
 
     sorted_candidates = sorted(
         candidates,
         key=lambda item: (
-            decisions.get(item.id, HeadlineDecision(item.id, 0)).score
-            + (
-                multi_source_bonus
-                if prefer_multi_source and bool(item.metadata.get("event_cluster_multi_source"))
-                else 0.0
-            ),
+            decisions.get(item.id, HeadlineDecision(item.id, 0)).selection_rank_score,
             decisions.get(item.id, HeadlineDecision(item.id, 0)).score,
             item.published_at or utc_now(),
         ),
         reverse=True,
     )
+
+    def mark_skip(candidate: NewsCandidate, decision: HeadlineDecision | None, code: str) -> None:
+        if decision is None:
+            return
+        if decision.selection_reason_code.startswith("selected_"):
+            return
+        decision.selection_reason_code = code
+        candidate.metadata["selection_skip_reason"] = code
+
+    def mark_selected(candidate: NewsCandidate, decision: HeadlineDecision, code: str) -> None:
+        decision.selection_reason_code = code
+        candidate.metadata["selection_reason_code"] = code
+        candidate.metadata.pop("selection_skip_reason", None)
 
     def try_select(
         candidate: NewsCandidate,
@@ -574,21 +880,35 @@ def select_articles(
         enforce_source_cap: bool,
         enforce_cluster_cap: bool,
     ) -> bool:
-        if len(selected) >= filtering.max_selected_articles:
-            return False
         decision = decisions.get(candidate.id)
         if not decision:
             return False
+        if len(selected) >= filtering.max_selected_articles:
+            mark_skip(candidate, decision, "skipped_capacity")
+            return False
         if require_cutoff and decision.score < filtering.headline_score_cutoff:
+            mark_skip(candidate, decision, "skipped_below_cutoff")
+            return False
+        if (
+            novelty_floor > 0.0
+            and decision.novelty < novelty_floor
+            and decision.impact < 6.5
+            and decision.score < max(float(filtering.headline_score_cutoff), 7.0)
+        ):
+            mark_skip(candidate, decision, "skipped_low_novelty")
             return False
         if candidate.id in seen_duplicate_targets:
+            if candidate.id not in selected_ids:
+                mark_skip(candidate, decision, "skipped_duplicate")
             return False
         topic = decision.topic or candidate.metadata.get("topic_name", "")
         topic_limit = topic_limits.get(topic)
         if topic_limit is not None and topic_counts.get(topic, 0) >= int(topic_limit):
+            mark_skip(candidate, decision, "skipped_topic_cap")
             return False
         source_key = _primary_source_key(candidate)
         if enforce_source_cap and source_cap > 0 and source_key and source_counts.get(source_key, 0) >= source_cap:
+            mark_skip(candidate, decision, "skipped_source_cap")
             return False
         cluster_id = str(candidate.metadata.get("event_cluster_id", "")).strip()
         if (
@@ -597,9 +917,26 @@ def select_articles(
             and cluster_id
             and cluster_counts.get(cluster_id, 0) >= cluster_cap
         ):
+            mark_skip(candidate, decision, "skipped_cluster_cap")
             return False
+
+        if prefer_multi_source and bool(candidate.metadata.get("event_cluster_multi_source")):
+            reason_code = "selected_cluster_diversity"
+        else:
+            reason_code = "selected_high_composite" if decision.selection_rank_mode == "composite" else "selected_high_score"
+        mark_selected(candidate, decision, reason_code)
+
         seen_duplicate_targets.add(candidate.id)
-        selected.append(SelectedArticle(candidate=candidate, decision=decision))
+        selected_ids.add(candidate.id)
+        selected.append(
+            SelectedArticle(
+                candidate=candidate,
+                decision=decision,
+                selection_reason_code=reason_code,
+                selection_rank_score=decision.selection_rank_score,
+                selection_rank_mode=decision.selection_rank_mode,
+            )
+        )
         if topic:
             topic_counts[topic] = topic_counts.get(topic, 0) + 1
         if source_key:
@@ -647,4 +984,24 @@ def select_articles(
             enforce_source_cap=False,
             enforce_cluster_cap=False,
         )
+
+    for candidate in sorted_candidates:
+        decision = decisions.get(candidate.id)
+        if decision is None:
+            continue
+        if decision.selection_reason_code:
+            continue
+        if decision.score < filtering.headline_score_cutoff:
+            mark_skip(candidate, decision, "skipped_below_cutoff")
+            continue
+        if (
+            novelty_floor > 0.0
+            and decision.novelty < novelty_floor
+            and decision.impact < 6.5
+            and decision.score < max(float(filtering.headline_score_cutoff), 7.0)
+        ):
+            mark_skip(candidate, decision, "skipped_low_novelty")
+            continue
+        mark_skip(candidate, decision, "skipped_capacity")
+
     return selected

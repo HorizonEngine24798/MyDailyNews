@@ -1,0 +1,35 @@
+{
+  "schema_version": "baseline_guardrails.v1",
+  "guardrails_version": "2026-05-31",
+  "metric_definitions_version": "baseline_metrics.v1",
+  "performance_limits": {
+    "latency_p95_sec": {
+      "max": 240.0
+    },
+    "oom_or_truncation_incidents": {
+      "max": 3
+    }
+  },
+  "prompt_token_limits_by_stage": {
+    "headline_scoring": 2400,
+    "final_brief_generation": 3800
+  },
+  "quality_regression_tolerance": {
+    "top5_story_value_precision": {
+      "baseline": 0.7333,
+      "max_drop": 0.05
+    },
+    "novelty_ratio": {
+      "baseline": 0.5625,
+      "max_drop": 0.08
+    },
+    "decision_context_alignment": {
+      "baseline": 0.6875,
+      "max_drop": 0.08
+    },
+    "brief_utility_score": {
+      "baseline": 4.3333,
+      "max_drop": 0.5
+    }
+  }
+}

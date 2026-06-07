@@ -12,6 +12,8 @@ from ..debug import DebugLogger
 from ..models import HeadlineDecision, NewsCandidate, TopicConfig, UserMemory
 from ..utils import datetime_to_iso
 
+HEADLINE_DECISION_CACHE_FINGERPRINT_VERSION = 7
+
 
 def _compact_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
@@ -32,6 +34,9 @@ class HeadlineAnalyzer:
         self.cache = cache
         self.cache_ttl_seconds = max(0, int(cache_ttl_seconds))
         self.warnings: List[str] = []
+        self._multifactor_totals: Dict[str, float] = {}
+        self._multifactor_presence: Dict[str, int] = {}
+        self._multifactor_count: int = 0
 
     def analyze(
         self,
@@ -42,6 +47,7 @@ class HeadlineAnalyzer:
         brief_name: str = "",
     ) -> Dict[str, HeadlineDecision]:
         self.warnings = []
+        self._reset_multifactor_stats()
         if not candidates:
             return {}
 
@@ -66,6 +72,7 @@ class HeadlineAnalyzer:
                     len(batches),
                 )
             )
+        self._emit_multifactor_metrics()
         return decisions
 
     def _analyze_batch(
@@ -161,14 +168,41 @@ class HeadlineAnalyzer:
             candidate = candidate_by_id.get(candidate_id)
             if candidate is None:
                 continue
-            try:
-                score = float(raw.get("score", 0))
-            except (TypeError, ValueError):
-                score = 0.0
+            score = self._clamp_0_to_10(raw.get("score"), default=0.0)
+            personal_relevance = self._clamp_0_to_10(raw.get("personal_relevance"), default=5.0)
+            impact = self._clamp_0_to_10(raw.get("impact"), default=5.0)
+            novelty = self._clamp_0_to_10(raw.get("novelty"), default=5.0)
+            urgency = self._clamp_0_to_10(raw.get("urgency"), default=5.0)
+            actionability = self._clamp_0_to_10(raw.get("actionability"), default=5.0)
+            confidence = self._clamp_0_to_10(raw.get("confidence"), default=5.0)
+            reason = self._short_text(raw.get("reason"), max_chars=180)
+            skip_reason = self._nullable_short_text(raw.get("skip_reason"), max_chars=180)
+            angle_type = self._short_text(raw.get("angle_type"), max_chars=60)
             decisions[candidate_id] = HeadlineDecision(
                 candidate_id=candidate_id,
-                score=max(0.0, min(10.0, score)),
+                score=score,
                 topic=self.best_topic_for_candidate(candidate, topics),
+                personal_relevance=personal_relevance,
+                impact=impact,
+                novelty=novelty,
+                urgency=urgency,
+                actionability=actionability,
+                confidence=confidence,
+                reason=reason,
+                skip_reason=skip_reason,
+                angle_type=angle_type,
+            )
+            self._record_multifactor_row(
+                raw=raw,
+                personal_relevance=personal_relevance,
+                impact=impact,
+                novelty=novelty,
+                urgency=urgency,
+                actionability=actionability,
+                confidence=confidence,
+                reason=reason,
+                skip_reason=skip_reason,
+                angle_type=angle_type,
             )
 
         missing = [item for item in candidates if item.id not in decisions]
@@ -197,7 +231,7 @@ class HeadlineAnalyzer:
         brief_goal: str,
     ) -> str:
         fingerprint = {
-            "v": 4,
+            "v": HEADLINE_DECISION_CACHE_FINGERPRINT_VERSION,
             "backend": self.client.config.backend,
             "model": self.client.config.effective_model_label,
             "response_format": self.client.config.response_format,
@@ -373,3 +407,87 @@ class HeadlineAnalyzer:
         if not topic_tokens:
             return 0.0
         return len(text_tokens.intersection(topic_tokens)) / max(3, len(topic_tokens))
+
+    def _reset_multifactor_stats(self) -> None:
+        numeric_dims = [
+            "personal_relevance",
+            "impact",
+            "novelty",
+            "urgency",
+            "actionability",
+            "confidence",
+        ]
+        self._multifactor_totals = {name: 0.0 for name in numeric_dims}
+        self._multifactor_presence = {name: 0 for name in numeric_dims}
+        self._multifactor_presence["reason"] = 0
+        self._multifactor_presence["skip_reason"] = 0
+        self._multifactor_presence["angle_type"] = 0
+        self._multifactor_count = 0
+
+    def _record_multifactor_row(
+        self,
+        *,
+        raw: Dict[str, Any],
+        personal_relevance: float,
+        impact: float,
+        novelty: float,
+        urgency: float,
+        actionability: float,
+        confidence: float,
+        reason: str,
+        skip_reason: str | None,
+        angle_type: str,
+    ) -> None:
+        self._multifactor_count += 1
+        numeric_values = {
+            "personal_relevance": personal_relevance,
+            "impact": impact,
+            "novelty": novelty,
+            "urgency": urgency,
+            "actionability": actionability,
+            "confidence": confidence,
+        }
+        for key, value in numeric_values.items():
+            self._multifactor_totals[key] += float(value)
+            if key in raw and raw.get(key) is not None:
+                self._multifactor_presence[key] += 1
+        if reason:
+            self._multifactor_presence["reason"] += 1
+        if skip_reason:
+            self._multifactor_presence["skip_reason"] += 1
+        if angle_type:
+            self._multifactor_presence["angle_type"] += 1
+
+    def _emit_multifactor_metrics(self) -> None:
+        if self._multifactor_count <= 0:
+            return
+        self.debug.set_metric("headline.multifactor.decisions", self._multifactor_count)
+        for key, total in self._multifactor_totals.items():
+            self.debug.set_metric(f"headline.multifactor.avg.{key}", round(total / self._multifactor_count, 4))
+        for key, present in self._multifactor_presence.items():
+            self.debug.set_metric(
+                f"headline.multifactor.present_ratio.{key}",
+                round(float(present) / float(self._multifactor_count), 4),
+            )
+
+    @staticmethod
+    def _clamp_0_to_10(value: Any, *, default: float) -> float:
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            numeric = float(default)
+        return max(0.0, min(10.0, numeric))
+
+    @staticmethod
+    def _short_text(value: Any, *, max_chars: int) -> str:
+        text = str(value or "").strip()
+        if not text:
+            return ""
+        return text[:max(1, int(max_chars))]
+
+    @classmethod
+    def _nullable_short_text(cls, value: Any, *, max_chars: int) -> str | None:
+        if value is None:
+            return None
+        text = cls._short_text(value, max_chars=max_chars)
+        return text or None

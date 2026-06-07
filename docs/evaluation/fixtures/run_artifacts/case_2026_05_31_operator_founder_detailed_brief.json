@@ -1,0 +1,54 @@
+{
+  "title": "Operator Founder Brief",
+  "selected_articles": [
+    {
+      "id": "of1",
+      "headline": "Cloud margin compression accelerates for SaaS leaders",
+      "source": "Operator Times",
+      "url": "https://example.com/news/of1",
+      "event_cluster": {
+        "id": "c10"
+      }
+    },
+    {
+      "id": "of2",
+      "headline": "AI procurement rulebook expands enterprise audit scope",
+      "source": "Infra Daily",
+      "url": "https://example.com/news/of2",
+      "event_cluster": {
+        "id": "c11"
+      }
+    },
+    {
+      "id": "of3",
+      "headline": "Series B funding cools as conversion targets tighten",
+      "source": "Capital Radar",
+      "url": "https://example.com/news/of3",
+      "event_cluster": {
+        "id": "c12"
+      }
+    },
+    {
+      "id": "of4",
+      "headline": "Open-source model licensing dispute enters court review",
+      "source": "Legal Compute",
+      "url": "https://example.com/news/of4",
+      "event_cluster": {
+        "id": "c13"
+      }
+    },
+    {
+      "id": "of5",
+      "headline": "Regional hiring rebounds in platform engineering teams",
+      "source": "People Ops Weekly",
+      "url": "https://example.com/news/of5",
+      "event_cluster": {
+        "id": "c14"
+      }
+    }
+  ],
+  "metadata": {
+    "brief_name": "detailed",
+    "warnings": []
+  }
+}

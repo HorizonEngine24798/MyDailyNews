@@ -7,6 +7,8 @@ from typing import Any, Dict, List
 
 from .models import (
     AnalysisConfig,
+    AnalysisRolloutConfig,
+    AnalysisRolloutModeConfig,
     AIConfig,
     AppConfig,
     CacheConfig,
@@ -154,6 +156,44 @@ def _string_list(value: Any) -> List[str]:
     return []
 
 
+def _normalize_profile_choice(value: Any, *, allowed: set[str], default: str) -> str:
+    raw = str(value or "").strip().lower()
+    if raw in allowed:
+        return raw
+    return default
+
+
+def _load_weighted_beats(value: Any) -> Dict[str, float]:
+    beats: Dict[str, float] = {}
+    if isinstance(value, dict):
+        items = list(value.items())
+    elif isinstance(value, list):
+        items = []
+        for raw_item in value:
+            if isinstance(raw_item, str):
+                items.append((raw_item, 1.0))
+                continue
+            if isinstance(raw_item, dict):
+                items.append((raw_item.get("name", ""), raw_item.get("weight", 1.0)))
+    else:
+        items = []
+
+    for raw_name, raw_weight in items:
+        name = " ".join(str(raw_name or "").split()).strip()
+        if not name:
+            continue
+        try:
+            weight = float(raw_weight)
+        except Exception:
+            weight = 0.0
+        weight = max(0.0, min(3.0, weight))
+        if name in beats:
+            beats[name] = max(beats[name], weight)
+            continue
+        beats[name] = weight
+    return beats
+
+
 def _load_sources(raw: Dict[str, Any]) -> List[RSSSourceConfig]:
     source_items = raw["sources"].get("rss", [])
 
@@ -199,6 +239,18 @@ def _optional_int(value: Any) -> int | None:
     return int(value)
 
 
+def _optional_bool(value: Any) -> bool | None:
+    if value is None:
+        return None
+    return bool(value)
+
+
+def _optional_pos_int(value: Any, *, minimum: int = 1) -> int | None:
+    if value is None:
+        return None
+    return max(minimum, int(value))
+
+
 def _normalize_backend(value: Any) -> str:
     raw = str(value or "auto").strip().lower().replace("-", "_")
     aliases = {
@@ -226,6 +278,42 @@ def _normalize_delta_input_source(value: Any) -> str:
     if mode not in allowed:
         raise ValueError("analysis.delta_extraction.input_source must be one of: evidence_or_articles, evidence_only, articles_only")
     return mode
+
+
+def _load_analysis_rollout_mode(value: Any, field_name: str) -> AnalysisRolloutModeConfig:
+    if value is None:
+        value = {}
+    if not isinstance(value, dict):
+        raise ValueError(f"Config section {field_name} must be an object")
+    return AnalysisRolloutModeConfig(
+        evidence_enabled=_optional_bool(value.get("evidence_enabled")),
+        delta_enabled=_optional_bool(value.get("delta_enabled")),
+        evidence_max_input_tokens=_optional_pos_int(value.get("evidence_max_input_tokens"), minimum=256),
+        evidence_max_new_tokens=_optional_pos_int(value.get("evidence_max_new_tokens"), minimum=64),
+        evidence_max_articles=_optional_pos_int(value.get("evidence_max_articles"), minimum=1),
+        evidence_max_article_chars=_optional_pos_int(value.get("evidence_max_article_chars"), minimum=120),
+        delta_max_input_tokens=_optional_pos_int(value.get("delta_max_input_tokens"), minimum=256),
+        delta_max_new_tokens=_optional_pos_int(value.get("delta_max_new_tokens"), minimum=64),
+        delta_max_prior_reports=_optional_pos_int(value.get("delta_max_prior_reports"), minimum=1),
+    )
+
+
+def _load_analysis_rollout(value: Any) -> AnalysisRolloutConfig:
+    if value is None:
+        value = {}
+    if not isinstance(value, dict):
+        raise ValueError("Config section analysis.rollout must be an object")
+    profile = str(value.get("profile", "safe_local")).strip().lower() or "safe_local"
+    allowed_profiles = {"safe_local", "balanced_local", "quality_focused"}
+    if profile not in allowed_profiles:
+        allowed_text = ", ".join(sorted(allowed_profiles))
+        raise ValueError(f"analysis.rollout.profile must be one of: {allowed_text}")
+    return AnalysisRolloutConfig(
+        enabled=bool(value.get("enabled", False)),
+        profile=profile,
+        general=_load_analysis_rollout_mode(value.get("general", {}), "analysis.rollout.general"),
+        detailed=_load_analysis_rollout_mode(value.get("detailed", {}), "analysis.rollout.detailed"),
+    )
 
 
 def get_ai_model_presets() -> Dict[str, Dict[str, Any]]:
@@ -322,6 +410,21 @@ def _load_filtering(raw: Dict[str, Any], defaults: Dict[str, Any]) -> FilteringC
             2,
             min(72, int(raw.get("event_cluster_time_window_hours", defaults["event_cluster_time_window_hours"]))),
         ),
+        use_multifactor_composite_ranking=bool(
+            raw.get("use_multifactor_composite_ranking", defaults["use_multifactor_composite_ranking"])
+        ),
+        min_novelty_for_selection=max(
+            0.0,
+            min(10.0, float(raw.get("min_novelty_for_selection", defaults["min_novelty_for_selection"]))),
+        ),
+        source_preference_bonus=max(
+            0.0,
+            float(raw.get("source_preference_bonus", defaults["source_preference_bonus"])),
+        ),
+        source_avoid_penalty=max(
+            0.0,
+            float(raw.get("source_avoid_penalty", defaults["source_avoid_penalty"])),
+        ),
     )
 
 
@@ -343,6 +446,7 @@ def _load_analysis(raw: Dict[str, Any]) -> AnalysisConfig:
         delta_raw = {}
     if not isinstance(delta_raw, dict):
         raise ValueError("Config section analysis.delta_extraction must be an object")
+    rollout_raw = analysis_raw.get("rollout", {})
 
     evidence_defaults = EvidenceDistillationConfig()
     delta_defaults = DeltaExtractionConfig()
@@ -383,6 +487,7 @@ def _load_analysis(raw: Dict[str, Any]) -> AnalysisConfig:
             max_prior_reports=max(1, int(delta_raw.get("max_prior_reports", delta_defaults.max_prior_reports))),
             cache_ttl_seconds=max(0, int(delta_raw.get("cache_ttl_seconds", delta_defaults.cache_ttl_seconds))),
         ),
+        rollout=_load_analysis_rollout(rollout_raw),
     )
 
 
@@ -464,6 +569,10 @@ def load_config(path: Path) -> AppConfig:
             "prefer_multi_source_clusters": True,
             "multi_source_cluster_bonus": 0.35,
             "event_cluster_time_window_hours": 18,
+            "use_multifactor_composite_ranking": False,
+            "min_novelty_for_selection": 0.0,
+            "source_preference_bonus": 0.35,
+            "source_avoid_penalty": 1.25,
         },
     )
     general_filtering = _load_filtering(
@@ -482,6 +591,10 @@ def load_config(path: Path) -> AppConfig:
             "prefer_multi_source_clusters": True,
             "multi_source_cluster_bonus": 0.35,
             "event_cluster_time_window_hours": 18,
+            "use_multifactor_composite_ranking": False,
+            "min_novelty_for_selection": 0.0,
+            "source_preference_bonus": 0.35,
+            "source_avoid_penalty": 1.25,
         },
     )
 
@@ -504,8 +617,24 @@ def load_config(path: Path) -> AppConfig:
             avoided_topics=_list(memory_raw.get("avoided_topics")),
             preferred_sources=_list(memory_raw.get("preferred_sources")),
             avoided_sources=_list(memory_raw.get("avoided_sources")),
-            briefing_style=memory_raw.get("briefing_style", "Concise, explanatory, and skeptical of hype."),
-            custom_instructions=memory_raw.get("custom_instructions", ""),
+            role=str(memory_raw.get("role", "")),
+            geography_focus=_list(memory_raw.get("geography_focus")),
+            time_horizon=_normalize_profile_choice(
+                memory_raw.get("time_horizon", "tactical"),
+                allowed={"breaking", "tactical", "strategic"},
+                default="tactical",
+            ),
+            beats=_load_weighted_beats(memory_raw.get("beats")),
+            wants=_list(memory_raw.get("wants")),
+            avoid=_list(memory_raw.get("avoid")),
+            portfolio_or_stake_notes=str(memory_raw.get("portfolio_or_stake_notes", "")),
+            preferred_depth=_normalize_profile_choice(
+                memory_raw.get("preferred_depth", "analytical"),
+                allowed={"brief", "analytical", "deep"},
+                default="analytical",
+            ),
+            briefing_style=str(memory_raw.get("briefing_style", "Concise, explanatory, and skeptical of hype.")),
+            custom_instructions=str(memory_raw.get("custom_instructions", "")),
         ),
         general_topics=_load_topics(raw, "general_topics"),
         topics_to_examine=_load_topics(raw, "topics_to_examine"),

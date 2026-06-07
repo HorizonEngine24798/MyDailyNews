@@ -609,4 +609,10 @@ class NewsOrchestrator:
         topics: List[TopicConfig],
         filtering: FilteringConfig,
     ) -> List[SelectedArticle]:
-        return select_articles_helper(candidates, decisions, topics, filtering)
+        return select_articles_helper(
+            candidates,
+            decisions,
+            topics,
+            filtering,
+            user_memory=self.config.user_memory,
+        )

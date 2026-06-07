@@ -96,9 +96,19 @@ class PriorReportRetriever:
             if not isinstance(report, dict):
                 continue
             topic = report.get("topic", "Topic")
-            narrative_summary = report.get("narrative_summary") or report.get("summary") or ""
+            narrative_summary = (
+                report.get("narrative_summary")
+                or report.get("summary")
+                or report.get("why_it_matters")
+                or report.get("what_changed")
+                or ""
+            )
             if narrative_summary:
                 parts.append(f"{topic}: {narrative_summary}")
+            for key in ("why_it_matters", "what_changed"):
+                value = str(report.get(key, "")).strip()
+                if value:
+                    parts.append(f"{topic} {key.replace('_', ' ')}: {value}")
             for change in report.get("narrative_changes", []) or []:
                 if isinstance(change, dict):
                     parts.append(f"{topic} change: {change.get('summary', '')}")

@@ -14,7 +14,8 @@ MyDailyNews is a local-first dual-brief news pipeline focused on high-signal syn
 RSS + Google News topic queries
 -> URL dedupe + title dedupe
 -> deterministic event clustering + source-diversity-aware candidate limiting
--> headline scoring LLM (JSON score-only)
+-> headline scoring LLM (JSON decisions with required `id` + `score`, optional multifactor fields)
+-> deterministic headline selection (optional multifactor composite ranking + reason-code diagnostics)
 -> selected article full-text fetch
 -> optional enrichment (Wikipedia + related recent headlines)
 -> optional evidence distillation (LLM, single pass)
@@ -28,6 +29,8 @@ RSS + Google News topic queries
 
 - Deterministic event clusters are attached to candidates and carried into analysis/final prompts.
 - Source-diversity and per-cluster selection caps reduce single-source dominance.
+- User memory v2 supports decision-context profile fields (`role`, `geography_focus`, `time_horizon`, `beats`, `wants`, `avoid`, `portfolio_or_stake_notes`, `preferred_depth`) and feeds deterministic ranking hooks.
+- Final brief writer uses structured topic framing (`why_it_matters`, `what_changed`, `who_is_affected`, `what_to_watch`) to keep output actionable and non-generic.
 - Optional evidence distillation packet:
   - story clusters, claims, consensus/contested points, known unknowns, watch signals, reader Q&A.
 - Optional delta extraction packet:
@@ -192,6 +195,24 @@ Stage-by-stage helper script (bash):
 ./tools/run_pipeline_stages.sh full
 ./tools/run_pipeline_stages.sh step headline_select
 ./tools/run_pipeline_stages.sh all-steps
+```
+
+Offline baseline quality evaluation (PR01):
+
+```powershell
+python tools/baseline_eval.py
+```
+
+Prompt regression + release gate (PR08):
+
+```powershell
+python tools/release_gate.py
+```
+
+Prompt fixture verification only:
+
+```powershell
+python tools/prompt_regression_pack.py --verify
 ```
 
 ## Enabling Optional Analysis Stages

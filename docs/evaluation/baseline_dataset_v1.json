@@ -1,0 +1,194 @@
+{
+  "schema_version": "baseline_eval_dataset.v1",
+  "dataset_version": "2026-05-31",
+  "metric_definitions_version": "baseline_metrics.v1",
+  "profiles": [
+    {
+      "id": "general_reader",
+      "label": "General reader",
+      "description": "Broad signal briefing for a non-specialist."
+    },
+    {
+      "id": "operator_founder",
+      "label": "Operator/founder",
+      "description": "Decision context for business and technology operators."
+    },
+    {
+      "id": "policy_focused",
+      "label": "Policy focused",
+      "description": "Government and regulatory narrative tracking."
+    }
+  ],
+  "rubric": {
+    "scale": "1-5",
+    "dimensions": {
+      "would_regret_missing": "Boolean: true when missing the story would be a clear regret in the next 24h.",
+      "novelty": "1=repeat/no new signal, 5=materially new development.",
+      "personal_relevance": "1=not aligned with profile goals, 5=highly aligned.",
+      "utility": "1=low decision value, 5=high actionable/strategic value."
+    },
+    "thresholds": {
+      "novelty_high_min": 4,
+      "personal_relevance_alignment_min": 4
+    }
+  },
+  "cases": [
+    {
+      "case_id": "case_2026_05_31_general_reader_general",
+      "profile_id": "general_reader",
+      "brief_name": "general",
+      "artifact_paths": {
+        "brief_json": "case_2026_05_31_general_reader_general_brief.json",
+        "analytics_json": "case_2026_05_31_general_reader_debug_analytics.json",
+        "llm_probe_json": "case_2026_05_31_general_reader_llm_probe.json"
+      },
+      "brief_ratings": {
+        "utility": 4
+      },
+      "story_judgments": [
+        {
+          "story_id": "gr1",
+          "would_regret_missing": true,
+          "novelty": 5,
+          "personal_relevance": 4,
+          "utility": 4
+        },
+        {
+          "story_id": "gr2",
+          "would_regret_missing": true,
+          "novelty": 4,
+          "personal_relevance": 3,
+          "utility": 4
+        },
+        {
+          "story_id": "gr3",
+          "would_regret_missing": false,
+          "novelty": 2,
+          "personal_relevance": 2,
+          "utility": 2
+        },
+        {
+          "story_id": "gr4",
+          "would_regret_missing": true,
+          "novelty": 5,
+          "personal_relevance": 4,
+          "utility": 5
+        },
+        {
+          "story_id": "gr5",
+          "would_regret_missing": true,
+          "novelty": 4,
+          "personal_relevance": 4,
+          "utility": 4
+        },
+        {
+          "story_id": "gr6",
+          "would_regret_missing": false,
+          "novelty": 3,
+          "personal_relevance": 2,
+          "utility": 3
+        }
+      ]
+    },
+    {
+      "case_id": "case_2026_05_31_operator_founder_detailed",
+      "profile_id": "operator_founder",
+      "brief_name": "detailed",
+      "artifact_paths": {
+        "brief_json": "case_2026_05_31_operator_founder_detailed_brief.json",
+        "analytics_json": "case_2026_05_31_operator_founder_debug_analytics.json",
+        "llm_probe_json": "case_2026_05_31_operator_founder_llm_probe.json"
+      },
+      "brief_ratings": {
+        "utility": 5
+      },
+      "story_judgments": [
+        {
+          "story_id": "of1",
+          "would_regret_missing": true,
+          "novelty": 5,
+          "personal_relevance": 5,
+          "utility": 5
+        },
+        {
+          "story_id": "of2",
+          "would_regret_missing": true,
+          "novelty": 3,
+          "personal_relevance": 4,
+          "utility": 4
+        },
+        {
+          "story_id": "of3",
+          "would_regret_missing": false,
+          "novelty": 4,
+          "personal_relevance": 3,
+          "utility": 3
+        },
+        {
+          "story_id": "of4",
+          "would_regret_missing": true,
+          "novelty": 4,
+          "personal_relevance": 4,
+          "utility": 5
+        },
+        {
+          "story_id": "of5",
+          "would_regret_missing": false,
+          "novelty": 2,
+          "personal_relevance": 4,
+          "utility": 3
+        }
+      ]
+    },
+    {
+      "case_id": "case_2026_05_31_policy_focused_general",
+      "profile_id": "policy_focused",
+      "brief_name": "general",
+      "artifact_paths": {
+        "brief_json": "case_2026_05_31_policy_focused_general_brief.json",
+        "analytics_json": "case_2026_05_31_policy_focused_debug_analytics.json",
+        "llm_probe_json": "case_2026_05_31_policy_focused_llm_probe.json"
+      },
+      "brief_ratings": {
+        "utility": 4
+      },
+      "story_judgments": [
+        {
+          "story_id": "pf1",
+          "would_regret_missing": true,
+          "novelty": 4,
+          "personal_relevance": 4,
+          "utility": 4
+        },
+        {
+          "story_id": "pf2",
+          "would_regret_missing": true,
+          "novelty": 3,
+          "personal_relevance": 5,
+          "utility": 4
+        },
+        {
+          "story_id": "pf3",
+          "would_regret_missing": false,
+          "novelty": 2,
+          "personal_relevance": 2,
+          "utility": 2
+        },
+        {
+          "story_id": "pf4",
+          "would_regret_missing": true,
+          "novelty": 5,
+          "personal_relevance": 4,
+          "utility": 5
+        },
+        {
+          "story_id": "pf5",
+          "would_regret_missing": true,
+          "novelty": 3,
+          "personal_relevance": 4,
+          "utility": 4
+        }
+      ]
+    }
+  ]
+}
