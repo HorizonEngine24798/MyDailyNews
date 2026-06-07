@@ -34,13 +34,6 @@ ANALYSIS_ROLLOUT_PRESETS: Dict[str, Dict[str, Dict[str, Any]]] = {
         "detailed": {
             "evidence_enabled": True,
             "delta_enabled": False,
-            "evidence_max_input_tokens": 1500,
-            "evidence_max_new_tokens": 360,
-            "evidence_max_articles": 4,
-            "evidence_max_article_chars": 420,
-            "delta_max_input_tokens": 1200,
-            "delta_max_new_tokens": 220,
-            "delta_max_prior_reports": 2,
         },
     },
     "balanced_local": {
@@ -51,34 +44,16 @@ ANALYSIS_ROLLOUT_PRESETS: Dict[str, Dict[str, Dict[str, Any]]] = {
         "detailed": {
             "evidence_enabled": True,
             "delta_enabled": True,
-            "evidence_max_input_tokens": 1900,
-            "evidence_max_new_tokens": 520,
-            "evidence_max_articles": 6,
-            "evidence_max_article_chars": 560,
-            "delta_max_input_tokens": 1450,
-            "delta_max_new_tokens": 300,
-            "delta_max_prior_reports": 3,
         },
     },
     "quality_focused": {
         "general": {
             "evidence_enabled": True,
             "delta_enabled": False,
-            "evidence_max_input_tokens": 1700,
-            "evidence_max_new_tokens": 420,
-            "evidence_max_articles": 4,
-            "evidence_max_article_chars": 460,
         },
         "detailed": {
             "evidence_enabled": True,
             "delta_enabled": True,
-            "evidence_max_input_tokens": 2300,
-            "evidence_max_new_tokens": 700,
-            "evidence_max_articles": 8,
-            "evidence_max_article_chars": 700,
-            "delta_max_input_tokens": 1700,
-            "delta_max_new_tokens": 380,
-            "delta_max_prior_reports": 3,
         },
     },
 }
@@ -670,6 +645,13 @@ def run_brief(
                         orchestrator.debug,
                         cache=orchestrator.synth_cache,
                         cache_ttl_seconds=orchestrator.config.cache.synth_fresh_seconds,
+                        input_token_limit=getattr(filtering, "headline_max_input_tokens", None),
+                        max_new_tokens=getattr(filtering, "headline_max_new_tokens", None),
+                        single_replay_max_new_tokens=getattr(
+                            filtering,
+                            "headline_single_replay_max_new_tokens",
+                            None,
+                        ),
                     )
                     decisions = headline_analyzer.analyze(
                         limited_candidates,

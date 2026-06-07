@@ -151,7 +151,7 @@ class EvidenceDistiller:
         date: str,
     ) -> tuple[str, List[SelectedArticle], List[PriorReport]]:
         target_input_tokens = max(1024, min(int(self.config.max_input_tokens), int(self.client.max_input_tokens)))
-        prompt_budget_tokens = max(900, int(target_input_tokens * 0.9))
+        prompt_budget_tokens = target_input_tokens
         ordered_articles = sorted(articles, key=lambda item: item.decision.score, reverse=True)[: self.config.max_articles]
         active_reports = prior_reports[:3]
         excerpt_options = [
@@ -476,7 +476,7 @@ class DeltaExtractor:
         evidence_packet: Dict[str, Any],
     ) -> tuple[str, List[SelectedArticle], List[PriorReport], Dict[str, Any]]:
         target_input_tokens = max(1024, min(int(self.config.max_input_tokens), int(self.client.max_input_tokens)))
-        prompt_budget_tokens = max(900, int(target_input_tokens * 0.9))
+        prompt_budget_tokens = target_input_tokens
         ordered_articles = sorted(articles, key=lambda item: item.decision.score, reverse=True)
         max_articles = 8
         used_articles = ordered_articles[:max_articles]

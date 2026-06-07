@@ -15,8 +15,8 @@ class AIConfig:
     device: str = "auto"
     torch_dtype: str = "auto"
     context_window_tokens: int = 0
-    max_input_tokens: int = 8192
-    max_new_tokens: int = 1024
+    max_input_tokens: int = 40960
+    max_new_tokens: int = 8192
     json_retries: int = 1
     temperature: float = 0.2
     top_p: float = 0.9
@@ -48,11 +48,14 @@ class FilteringConfig:
     time_window_hours: int = 36
     headline_score_cutoff: float = 6.8
     max_headlines_per_source: int = 8
-    max_candidates_for_ai: int = 12
-    max_headlines_per_ai_batch: int = 4
-    max_selected_articles: int = 6
+    max_candidates_for_ai: int = 40
+    max_headlines_per_ai_batch: int = 32
+    headline_max_input_tokens: Optional[int] = None
+    headline_max_new_tokens: Optional[int] = None
+    headline_single_replay_max_new_tokens: Optional[int] = None
+    max_selected_articles: int = 8
     fill_selected_articles: bool = False
-    article_text_max_chars: int = 4000
+    article_text_max_chars: int = 6000
     max_selected_per_source: int = 2
     max_selected_per_event_cluster: int = 2
     prefer_multi_source_clusters: bool = True
@@ -71,7 +74,7 @@ class EnrichmentConfig:
     max_past_news_results: int = 4
     max_wikipedia_results: int = 3
     max_entities: int = 4
-    max_context_chars_per_article: int = 800
+    max_context_chars_per_article: int = 1600
 
 
 @dataclass
@@ -96,14 +99,14 @@ class EvidenceDistillationConfig:
     enabled: bool = False
     model_role: str = "summary"
     include_reader_qa: bool = True
-    max_input_tokens: int = 2300
-    max_new_tokens: int = 700
-    max_articles: int = 8
-    max_article_chars: int = 700
-    max_context_sources_per_article: int = 2
-    max_story_clusters: int = 6
-    max_claims_per_cluster: int = 4
-    max_questions: int = 6
+    max_input_tokens: int = 20000
+    max_new_tokens: int = 2400
+    max_articles: int = 12
+    max_article_chars: int = 1200
+    max_context_sources_per_article: int = 3
+    max_story_clusters: int = 10
+    max_claims_per_cluster: int = 6
+    max_questions: int = 10
     cache_ttl_seconds: int = 604800
 
 
@@ -113,9 +116,9 @@ class DeltaExtractionConfig:
     model_role: str = "summary"
     input_source: str = "evidence_or_articles"
     require_prior_reports: bool = False
-    max_input_tokens: int = 1700
-    max_new_tokens: int = 380
-    max_prior_reports: int = 3
+    max_input_tokens: int = 16000
+    max_new_tokens: int = 1600
+    max_prior_reports: int = 4
     cache_ttl_seconds: int = 604800
 
 
@@ -286,16 +289,16 @@ class AppConfig:
         default_factory=lambda: AIConfig(
             preset="qwen3-1.7b",
             model_id="Qwen/Qwen3-1.7B",
-            max_input_tokens=3072,
-            max_new_tokens=512,
+            max_input_tokens=40960,
+            max_new_tokens=8192,
         )
     )
     ai_final: AIConfig = field(
         default_factory=lambda: AIConfig(
             preset="qwen3-8b",
             model_id="Qwen/Qwen3-8B",
-            max_input_tokens=8192,
-            max_new_tokens=2048,
+            max_input_tokens=40960,
+            max_new_tokens=8192,
         )
     )
     filtering: FilteringConfig = field(default_factory=FilteringConfig)

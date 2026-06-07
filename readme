@@ -128,7 +128,7 @@ python main.py --list-model-presets
 
 ## AI Backend
 
-The preferred backend is llama.cpp. Use `auto` for normal runs:
+The preferred backend is llama.cpp. Use `llama_cpp_server` when you want no Transformers fallback:
 
 - `auto`: use llama.cpp first; lazily fall back to Transformers only if the llama.cpp backend fails to start or the HTTP transport fails.
 - `llama_cpp_server`: use llama.cpp only, with no Transformers fallback.
@@ -144,35 +144,35 @@ The `auto` / `llama_cpp_server` path can manage `llama-server` lifecycle automat
 - route requests
 - stop server at run end (or on failure)
 
-Set both AI roles to `auto` and point them at the same GGUF:
+Set both AI roles to `llama_cpp_server` and point them at the same GGUF:
 
 ```json
 {
   "ai_summary": {
-    "backend": "auto",
+    "backend": "llama_cpp_server",
     "base_url": "http://127.0.0.1:8080/v1",
     "server_model": "qwen3-gguf-local",
-    "max_input_tokens": 3072,
-    "max_new_tokens": 1536,
+    "max_input_tokens": 40960,
+    "max_new_tokens": 8192,
     "manage_server": true,
     "server_executable": "llama-server",
     "server_model_path": "D:/models/your-model.gguf",
-    "server_arguments": ["--no-webui", "--reasoning", "off", "-ngl", "all", "-c", "32768", "-np", "1"],
+    "server_arguments": ["--no-webui", "--reasoning", "off", "-ngl", "all", "-c", "49152", "-np", "1"],
     "server_log_dir": "output/diagnostics/llama_server",
     "server_startup_timeout_seconds": 180,
     "server_shutdown_timeout_seconds": 15,
     "server_auto_stop": true
   },
   "ai_final": {
-    "backend": "auto",
+    "backend": "llama_cpp_server",
     "base_url": "http://127.0.0.1:8080/v1",
     "server_model": "qwen3-gguf-local",
-    "max_input_tokens": 4096,
-    "max_new_tokens": 2048,
+    "max_input_tokens": 40960,
+    "max_new_tokens": 8192,
     "manage_server": true,
     "server_executable": "llama-server",
     "server_model_path": "D:/models/your-model.gguf",
-    "server_arguments": ["--no-webui", "--reasoning", "off", "-ngl", "all", "-c", "32768", "-np", "1"],
+    "server_arguments": ["--no-webui", "--reasoning", "off", "-ngl", "all", "-c", "49152", "-np", "1"],
     "server_log_dir": "output/diagnostics/llama_server",
     "server_startup_timeout_seconds": 180,
     "server_shutdown_timeout_seconds": 15,
@@ -186,6 +186,8 @@ Notes:
 - `server_executable` must point to a working `llama-server` binary (or be resolvable in `PATH`).
 - `server_log_dir` captures `llama-server` stdout/stderr per managed launch. Check this first for CUDA/offload issues.
 - `-ngl all` asks llama.cpp to offload all possible layers; `-np 1` avoids allocating multiple large context slots for a mostly serial local pipeline.
+- `max_input_tokens + max_new_tokens` should stay within the `-c` context; the default llama.cpp profile uses `40960 + 8192 = 49152`.
+- Headline scoring uses `max_headlines_per_ai_batch`, `headline_max_input_tokens`, `headline_max_new_tokens`, and `headline_single_replay_max_new_tokens` from `general_filtering` / `filtering`; if a batch response still truncates, it retries individual headlines and recovers successful decisions.
 - If `manage_server` is `false`, the app uses an already-running external server (existing behavior).
 - For best stability, keep `ai_summary` and `ai_final` on the same endpoint when using one local server.
 

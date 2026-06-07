@@ -2,16 +2,16 @@
   "output_dir": "output",
   "user_agent": "MyDailyNews/0.4 (+local personal dual news brief)",
   "ai_summary": {
-    "backend": "auto",
+    "backend": "llama_cpp_server",
     "preset": "qwen3-1.7b",
     "base_url": "http://127.0.0.1:8080/v1",
     "server_model": "Qwen3.5-35B-A3B-Q3_K_M",
-    "max_input_tokens": 8192,
-    "max_new_tokens": 4096,
+    "max_input_tokens": 40960,
+    "max_new_tokens": 8192,
     "json_retries": 1,
     "enable_thinking": false,
     "manage_server": true,
-    "server_executable": "D:/Project/llama-b9544-bin-win-cuda-12.4-x64/llama-cli.exe",
+    "server_executable": "D:/Project/llama-b9544-bin-win-cuda-12.4-x64/llama-server.exe",
     "server_model_path": "C:/Users/User/.lmstudio/models/HauhauCS/Qwen3.5-35B-A3B-Uncensored-HauhauCS-Aggressive/Qwen3.5-35B-A3B-Uncensored-HauhauCS-Aggressive-Q3_K_M.gguf",
     "server_arguments": [
       "--no-webui",
@@ -20,7 +20,7 @@
       "-ngl",
       "all",
       "-c",
-      "32768",
+      "49152",
       "-np",
       "1"
     ],
@@ -30,16 +30,16 @@
     "server_auto_stop": true
   },
   "ai_final": {
-    "backend": "auto",
+    "backend": "llama_cpp_server",
     "preset": "qwen3-8b",
     "base_url": "http://127.0.0.1:8080/v1",
     "server_model": "Qwen3.5-35B-A3B-Q3_K_M",
-    "max_input_tokens": 16384,
-    "max_new_tokens": 4096,
+    "max_input_tokens": 40960,
+    "max_new_tokens": 8192,
     "json_retries": 1,
     "enable_thinking": false,
     "manage_server": true,
-    "server_executable": "D:/Project/llama-b9544-bin-win-cuda-12.4-x64/llama-cli.exe",
+    "server_executable": "D:/Project/llama-b9544-bin-win-cuda-12.4-x64/llama-server.exe",
     "server_model_path": "C:/Users/User/.lmstudio/models/HauhauCS/Qwen3.5-35B-A3B-Uncensored-HauhauCS-Aggressive/Qwen3.5-35B-A3B-Uncensored-HauhauCS-Aggressive-Q3_K_M.gguf",
     "server_arguments": [
       "--no-webui",
@@ -48,7 +48,7 @@
       "-ngl",
       "all",
       "-c",
-      "32768",
+      "49152",
       "-np",
       "1"
     ],
@@ -184,21 +184,27 @@
     "time_window_hours": 36,
     "headline_score_cutoff": 5.5,
     "max_headlines_per_source": 16,
-    "max_candidates_for_ai": 30,
-    "max_headlines_per_ai_batch": 16,
-    "max_selected_articles": 10,
+    "max_candidates_for_ai": 60,
+    "max_headlines_per_ai_batch": 32,
+    "headline_max_input_tokens": 40960,
+    "headline_max_new_tokens": 8192,
+    "headline_single_replay_max_new_tokens": 2048,
+    "max_selected_articles": 12,
     "fill_selected_articles": true,
-    "article_text_max_chars": 2200
+    "article_text_max_chars": 5000
   },
   "filtering": {
     "time_window_hours": 36,
     "headline_score_cutoff": 6.8,
     "max_headlines_per_source": 16,
-    "max_candidates_for_ai": 12,
-    "max_headlines_per_ai_batch": 16,
-    "max_selected_articles": 6,
+    "max_candidates_for_ai": 40,
+    "max_headlines_per_ai_batch": 32,
+    "headline_max_input_tokens": 40960,
+    "headline_max_new_tokens": 8192,
+    "headline_single_replay_max_new_tokens": 2048,
+    "max_selected_articles": 8,
     "fill_selected_articles": false,
-    "article_text_max_chars": 2500
+    "article_text_max_chars": 6000
   },
   "enrichment": {
     "enabled": true,
@@ -206,7 +212,7 @@
     "max_past_news_results": 4,
     "max_wikipedia_results": 3,
     "max_entities": 4,
-    "max_context_chars_per_article": 800
+    "max_context_chars_per_article": 1600
   },
   "runtime": {
     "max_http_workers": 1,
@@ -219,33 +225,33 @@
       "enabled": true,
       "profile": "safe_local",
       "general": {
-        "evidence_enabled": false,
+        "evidence_enabled": true,
         "delta_enabled": false
       },
       "detailed": {
         "evidence_enabled": true,
-        "delta_enabled": false,
-        "evidence_max_input_tokens": 1500,
-        "evidence_max_new_tokens": 360,
-        "evidence_max_articles": 4,
-        "evidence_max_article_chars": 420,
-        "delta_max_input_tokens": 1200,
-        "delta_max_new_tokens": 220,
-        "delta_max_prior_reports": 2
+        "delta_enabled": true,
+        "evidence_max_input_tokens": 20000,
+        "evidence_max_new_tokens": 2400,
+        "evidence_max_articles": 12,
+        "evidence_max_article_chars": 1200,
+        "delta_max_input_tokens": 16000,
+        "delta_max_new_tokens": 1600,
+        "delta_max_prior_reports": 4
       }
     },
     "evidence_distillation": {
       "enabled": false,
       "model_role": "summary",
       "include_reader_qa": true,
-      "max_input_tokens": 2300,
-      "max_new_tokens": 700,
-      "max_articles": 8,
-      "max_article_chars": 700,
-      "max_context_sources_per_article": 2,
-      "max_story_clusters": 6,
-      "max_claims_per_cluster": 4,
-      "max_questions": 6,
+      "max_input_tokens": 20000,
+      "max_new_tokens": 2400,
+      "max_articles": 12,
+      "max_article_chars": 1200,
+      "max_context_sources_per_article": 3,
+      "max_story_clusters": 10,
+      "max_claims_per_cluster": 6,
+      "max_questions": 10,
       "cache_ttl_seconds": 604800
     },
     "delta_extraction": {
@@ -253,9 +259,9 @@
       "model_role": "summary",
       "input_source": "evidence_or_articles",
       "require_prior_reports": false,
-      "max_input_tokens": 1700,
-      "max_new_tokens": 380,
-      "max_prior_reports": 3,
+      "max_input_tokens": 16000,
+      "max_new_tokens": 1600,
+      "max_prior_reports": 4,
       "cache_ttl_seconds": 604800
     }
   },

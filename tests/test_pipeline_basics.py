@@ -21,7 +21,7 @@ if "trafilatura" not in sys.modules:
 
 from mydailynews.ai.headline_analyzer import HeadlineAnalyzer
 from mydailynews.ai.llama_cpp_server_client import LlamaCppServerClient
-from mydailynews.ai.base import AITransportError, set_ai_artifact_root, write_ai_json_artifact, write_ai_text_artifact
+from mydailynews.ai.base import AIJsonError, AITransportError, set_ai_artifact_root, write_ai_json_artifact, write_ai_text_artifact
 import mydailynews.ai.factory as ai_factory_module
 from mydailynews.ai.prompts import BRIEF_SYSTEM, BRIEF_USER, HEADLINE_ANALYSIS_SYSTEM, HEADLINE_ANALYSIS_USER
 from mydailynews.ai.schemas import FINAL_BRIEF_JSON_SCHEMA, HEADLINE_ANALYSIS_JSON_SCHEMA
@@ -55,7 +55,7 @@ from mydailynews.orchestrator import NewsOrchestrator
 from mydailynews.output import render_markdown
 from mydailynews.retrieval.google_news import GoogleNewsQueryRetriever
 from mydailynews.scrapers.rss import RSSScraper
-from mydailynews.utils import utc_now
+from mydailynews.utils import safe_json_load, utc_now
 
 
 def _candidate(source: str, topic: str = "", published_at=None) -> NewsCandidate:
@@ -73,6 +73,14 @@ def _candidate(source: str, topic: str = "", published_at=None) -> NewsCandidate
 
 
 class PipelineBasicsTests(unittest.TestCase):
+    def test_safe_json_load_accepts_model_newlines_inside_strings(self) -> None:
+        payload = '{\n  "lead": "first line\nsecond line",\n  "sections": []\n}'
+
+        parsed = safe_json_load(payload)
+
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed["lead"], "first line\nsecond line")
+
     def test_auto_backend_prefers_llama_cpp_and_lazily_falls_back(self) -> None:
         calls: list[str] = []
 
@@ -485,10 +493,10 @@ class PipelineBasicsTests(unittest.TestCase):
 
         self.assertTrue(evidence_detailed.enabled)
         self.assertFalse(delta_detailed.enabled)
-        self.assertLessEqual(evidence_detailed.max_input_tokens, 1500)
-        self.assertLessEqual(evidence_detailed.max_new_tokens, 360)
-        self.assertLessEqual(evidence_detailed.max_articles, 4)
-        self.assertLessEqual(evidence_detailed.max_article_chars, 420)
+        self.assertEqual(evidence_detailed.max_input_tokens, 2300)
+        self.assertEqual(evidence_detailed.max_new_tokens, 700)
+        self.assertEqual(evidence_detailed.max_articles, 8)
+        self.assertEqual(evidence_detailed.max_article_chars, 700)
         self.assertEqual(meta_detailed["rollout_profile"], "safe_local")
 
     def test_filtering_diversity_settings_are_loaded(self) -> None:
@@ -502,8 +510,12 @@ class PipelineBasicsTests(unittest.TestCase):
         base["filtering"]["min_novelty_for_selection"] = 3.0
         base["filtering"]["source_preference_bonus"] = 0.5
         base["filtering"]["source_avoid_penalty"] = 1.6
+        base["filtering"]["headline_max_input_tokens"] = 12345
+        base["filtering"]["headline_max_new_tokens"] = 2345
+        base["filtering"]["headline_single_replay_max_new_tokens"] = 678
         base["general_filtering"]["max_selected_per_source"] = 4
         base["general_filtering"]["max_selected_per_event_cluster"] = 3
+        base["general_filtering"]["headline_max_input_tokens"] = 23456
 
         tmp_dir = Path("D:/Project/MyDailyNews/.codex_tmp_test/config_filtering_diversity")
         if tmp_dir.exists():
@@ -522,8 +534,12 @@ class PipelineBasicsTests(unittest.TestCase):
         self.assertAlmostEqual(loaded.filtering.min_novelty_for_selection, 3.0)
         self.assertAlmostEqual(loaded.filtering.source_preference_bonus, 0.5)
         self.assertAlmostEqual(loaded.filtering.source_avoid_penalty, 1.6)
+        self.assertEqual(loaded.filtering.headline_max_input_tokens, 12345)
+        self.assertEqual(loaded.filtering.headline_max_new_tokens, 2345)
+        self.assertEqual(loaded.filtering.headline_single_replay_max_new_tokens, 678)
         self.assertEqual(loaded.general_filtering.max_selected_per_source, 4)
         self.assertEqual(loaded.general_filtering.max_selected_per_event_cluster, 3)
+        self.assertEqual(loaded.general_filtering.headline_max_input_tokens, 23456)
 
     def test_user_memory_v2_fields_are_loaded_and_prompted(self) -> None:
         base = json.loads(Path("D:/Project/MyDailyNews/config.example.json").read_text(encoding="utf-8"))
@@ -2902,6 +2918,88 @@ class PipelineBasicsTests(unittest.TestCase):
         self.assertIsNone(decision.skip_reason)
         self.assertEqual(decision.angle_type, "")
 
+    def test_headline_analyzer_uses_llama_sized_dynamic_budgets(self) -> None:
+        class _DummyClient:
+            def __init__(self) -> None:
+                self.config = types.SimpleNamespace(
+                    backend="llama_cpp_server",
+                    effective_model_label="unit-gguf",
+                    response_format="json_object",
+                )
+                self.max_input_tokens = 40960
+                self.max_new_tokens = 8192
+
+            @staticmethod
+            def estimate_tokens(text: str) -> int:
+                return max(1, len(text) // 4)
+
+        analyzer = HeadlineAnalyzer(
+            _DummyClient(),
+            batch_size=32,
+            input_token_limit=32000,
+            max_new_tokens=6000,
+            single_replay_max_new_tokens=1500,
+        )
+
+        self.assertEqual(analyzer._headline_input_token_limit(), 32000)
+        self.assertEqual(analyzer._headline_batch_max_new_tokens(1), 6000)
+        self.assertEqual(analyzer._headline_batch_max_new_tokens(16), 6000)
+        self.assertEqual(analyzer._headline_batch_max_new_tokens(32), 6000)
+        self.assertEqual(analyzer._headline_single_max_new_tokens(), 1500)
+
+    def test_headline_analyzer_recovers_invalid_batch_with_single_item_replay(self) -> None:
+        candidates = [
+            NewsCandidate(
+                id="example:a",
+                source="Example",
+                category="test",
+                title="AI policy change",
+                url="https://example.com/a",
+                snippet="snippet",
+                published_at=utc_now(),
+            ),
+            NewsCandidate(
+                id="example:b",
+                source="Example",
+                category="test",
+                title="Semiconductor export controls",
+                url="https://example.com/b",
+                snippet="snippet",
+                published_at=utc_now(),
+            ),
+        ]
+
+        class _RecoveringClient:
+            def __init__(self) -> None:
+                self.config = types.SimpleNamespace(
+                    backend="llama_cpp_server",
+                    effective_model_label="unit-gguf",
+                    response_format="json_object",
+                )
+                self.max_input_tokens = 40960
+                self.max_new_tokens = 8192
+                self.labels: list[str] = []
+
+            @staticmethod
+            def estimate_tokens(text: str) -> int:
+                return max(1, len(text) // 4)
+
+            def complete_json(self, _system, _user, label="ai.complete_json", **_kwargs):
+                self.labels.append(label)
+                if label.startswith("headline scoring batch"):
+                    raise AIJsonError("simulated truncated batch JSON")
+                candidate_id = label.rsplit("[", 1)[-1].rstrip("]")
+                return {"decisions": [{"id": candidate_id, "score": 8.5, "reason": "Recovered replay."}]}
+
+        client = _RecoveringClient()
+        analyzer = HeadlineAnalyzer(client, batch_size=2, debug=DebugLogger(False))
+        decisions = analyzer.analyze(candidates, UserMemory(), [TopicConfig(name="Policy")], "General brief.")
+
+        self.assertEqual(set(decisions.keys()), {"example:a", "example:b"})
+        self.assertEqual(decisions["example:a"].score, 8.5)
+        self.assertEqual(len([label for label in client.labels if "single replay" in label]), 2)
+        self.assertTrue(any("recovered 2/2" in warning for warning in analyzer.warnings))
+
     def test_decisions_for_brief_preserves_multifactor_fields(self) -> None:
         candidate = NewsCandidate(
             id="example:shared",
@@ -2966,7 +3064,7 @@ class PipelineBasicsTests(unittest.TestCase):
         with patch("mydailynews.ai.headline_analyzer.JSONCache.make_key", side_effect=lambda raw: raw):
             raw_key = analyzer._batch_cache_key(payload, UserMemory(), [TopicConfig(name="World")], "General brief.")
         fingerprint = json.loads(raw_key)
-        self.assertEqual(fingerprint["v"], 7)
+        self.assertEqual(fingerprint["v"], 8)
 
     def test_shared_snapshot_scoring_unions_candidates_once(self) -> None:
         import mydailynews.orchestrator as orchestrator_module

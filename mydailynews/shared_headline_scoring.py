@@ -9,6 +9,11 @@ from .models import HeadlineDecision, NewsCandidate, RunSourceSnapshot, TopicCon
 from .snapshot_helpers import merge_topics_for_snapshot
 
 
+def _max_optional_int(*values: int | None) -> int | None:
+    present = [int(value) for value in values if value is not None]
+    return max(present) if present else None
+
+
 def score_snapshot_headlines_once(
     *,
     snapshot: RunSourceSnapshot,
@@ -72,6 +77,18 @@ def score_snapshot_headlines_once(
             debug,
             cache=synth_cache,
             cache_ttl_seconds=config.cache.synth_fresh_seconds,
+            input_token_limit=_max_optional_int(
+                getattr(config.general_filtering, "headline_max_input_tokens", None),
+                getattr(config.filtering, "headline_max_input_tokens", None),
+            ),
+            max_new_tokens=_max_optional_int(
+                getattr(config.general_filtering, "headline_max_new_tokens", None),
+                getattr(config.filtering, "headline_max_new_tokens", None),
+            ),
+            single_replay_max_new_tokens=_max_optional_int(
+                getattr(config.general_filtering, "headline_single_replay_max_new_tokens", None),
+                getattr(config.filtering, "headline_single_replay_max_new_tokens", None),
+            ),
         )
         shared_topics = merge_topics_for_snapshot(general_topics, detailed_topics)
         shared_goal = (

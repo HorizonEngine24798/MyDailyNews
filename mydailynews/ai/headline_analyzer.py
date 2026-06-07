@@ -12,7 +12,7 @@ from ..debug import DebugLogger
 from ..models import HeadlineDecision, NewsCandidate, TopicConfig, UserMemory
 from ..utils import datetime_to_iso
 
-HEADLINE_DECISION_CACHE_FINGERPRINT_VERSION = 7
+HEADLINE_DECISION_CACHE_FINGERPRINT_VERSION = 8
 
 
 def _compact_json(value: Any) -> str:
@@ -27,12 +27,18 @@ class HeadlineAnalyzer:
         debug: DebugLogger | None = None,
         cache: JSONCache | None = None,
         cache_ttl_seconds: int = 0,
+        input_token_limit: int | None = None,
+        max_new_tokens: int | None = None,
+        single_replay_max_new_tokens: int | None = None,
     ) -> None:
         self.client = client
         self.batch_size = max(1, batch_size)
         self.debug = debug or DebugLogger(False)
         self.cache = cache
         self.cache_ttl_seconds = max(0, int(cache_ttl_seconds))
+        self.input_token_limit = input_token_limit
+        self.max_new_tokens = max_new_tokens
+        self.single_replay_max_new_tokens = single_replay_max_new_tokens
         self.warnings: List[str] = []
         self._multifactor_totals: Dict[str, float] = {}
         self._multifactor_presence: Dict[str, int] = {}
@@ -87,11 +93,8 @@ class HeadlineAnalyzer:
         total_batches: int,
     ) -> Dict[str, HeadlineDecision]:
         user_prompt = self._build_user_prompt(memory, topics, brief_goal, payload)
-        target_input_tokens = max(1024, int(self.client.max_input_tokens * 0.84))
-        # Give multi-headline batches much more room to finish structured output.
-        # The scorer is cheap relative to the writer, so a larger generation ceiling
-        # is worth it to avoid mid-JSON truncation and omitted decisions.
-        dynamic_max_new_tokens = min(self.client.max_new_tokens, max(320, 128 * len(candidates)))
+        target_input_tokens = self._headline_input_token_limit()
+        dynamic_max_new_tokens = self._headline_batch_max_new_tokens(len(candidates))
         self.debug.log(
             "headline.ai.batch",
             "scoring",
@@ -129,8 +132,9 @@ class HeadlineAnalyzer:
             warning = f"{label}: skipped {len(candidates)} headline(s) after invalid JSON: {exc}"
             self.debug.increment("headline.ai.invalid_json_batches", 1)
             self.debug.increment("headline.ai.invalid_json_items", len(candidates))
-            if self.debug.enabled and len(candidates) > 1:
-                replay_path = self._debug_single_item_replay(
+            recovered_decisions: Dict[str, HeadlineDecision] = {}
+            if len(candidates) > 1:
+                replay_path, recovered_decisions = self._single_item_replay(
                     candidates,
                     payload,
                     memory,
@@ -142,13 +146,49 @@ class HeadlineAnalyzer:
                 )
                 if replay_path:
                     warning += f"; single-item replay saved to {replay_path}"
+                if recovered_decisions:
+                    warning += f"; recovered {len(recovered_decisions)}/{len(candidates)} decision(s) via single-item replay"
             self.warnings.append(warning)
-            self.debug.log("headline.ai.batch", "skipped_invalid_json", batch=f"{batch_index}/{total_batches}", items=len(candidates))
+            self.debug.log(
+                "headline.ai.batch",
+                "recovered_invalid_json" if recovered_decisions else "skipped_invalid_json",
+                batch=f"{batch_index}/{total_batches}",
+                items=len(candidates),
+                recovered=len(recovered_decisions),
+            )
+            if recovered_decisions:
+                self.debug.increment("headline.ai.recovered_decisions", len(recovered_decisions))
+                return recovered_decisions
             return {}
 
         if self.cache:
             self.cache.put(cache_key, result)
-        return self._parse_batch_result(result, candidates, topics, label, batch_index, total_batches)
+        decisions = self._parse_batch_result(result, candidates, topics, label, batch_index, total_batches)
+        if len(decisions) < len(candidates) and len(candidates) > 1:
+            missing_candidates = [candidate for candidate in candidates if candidate.id not in decisions]
+            missing_payload = [item_payload for candidate, item_payload in zip(candidates, payload) if candidate.id not in decisions]
+            replay_path, recovered_decisions = self._single_item_replay(
+                missing_candidates,
+                missing_payload,
+                memory,
+                topics,
+                brief_goal,
+                brief_name,
+                batch_index,
+                total_batches,
+            )
+            if recovered_decisions:
+                decisions.update(recovered_decisions)
+                self.debug.increment("headline.ai.recovered_missing_decisions", len(recovered_decisions))
+                self.debug.log(
+                    "headline.ai.batch",
+                    "recovered_missing_decisions",
+                    batch=f"{batch_index}/{total_batches}",
+                    missing=len(missing_candidates),
+                    recovered=len(recovered_decisions),
+                    replay_path=replay_path,
+                )
+        return decisions
 
     def _parse_batch_result(
         self,
@@ -242,7 +282,7 @@ class HeadlineAnalyzer:
         }
         return JSONCache.make_key(_compact_json(fingerprint))
 
-    def _debug_single_item_replay(
+    def _single_item_replay(
         self,
         candidates: List[NewsCandidate],
         payload: List[Dict[str, Any]],
@@ -252,13 +292,14 @@ class HeadlineAnalyzer:
         brief_name: str,
         batch_index: int,
         total_batches: int,
-    ) -> str:
+    ) -> tuple[str, Dict[str, HeadlineDecision]]:
         results: List[Dict[str, Any]] = []
-        target_input_tokens = max(1024, int(self.client.max_input_tokens * 0.84))
+        recovered_decisions: Dict[str, HeadlineDecision] = {}
+        target_input_tokens = self._headline_input_token_limit()
         for item, item_payload in zip(candidates, payload):
             label = f"headline scoring single replay {batch_index}/{total_batches} ({brief_name or 'shared'}) [{item.id}]"
             user_prompt = self._build_user_prompt(memory, topics, brief_goal, [item_payload])
-            dynamic_max_new_tokens = min(self.client.max_new_tokens, 192)
+            dynamic_max_new_tokens = self._headline_single_max_new_tokens()
             try:
                 result = self.client.complete_json(
                     HEADLINE_ANALYSIS_SYSTEM,
@@ -268,6 +309,15 @@ class HeadlineAnalyzer:
                     input_token_limit=target_input_tokens,
                     json_schema=HEADLINE_ANALYSIS_JSON_SCHEMA,
                 )
+                parsed = self._parse_batch_result(
+                    result,
+                    [item],
+                    topics,
+                    label,
+                    batch_index,
+                    total_batches,
+                )
+                recovered_decisions.update(parsed)
                 results.append(
                     {
                         "candidate_id": item.id,
@@ -294,18 +344,32 @@ class HeadlineAnalyzer:
                     }
                 )
         try:
-            return write_ai_json_artifact(
-                "headline_single_replay",
-                f"batch_{batch_index}_{brief_name or 'shared'}",
-                {
-                    "brief_name": brief_name or "shared",
-                    "batch": f"{batch_index}/{total_batches}",
-                    "candidate_ids": [item.id for item in candidates],
-                    "results": results,
-                },
-            )
+            replay_path = ""
+            if self.debug.enabled:
+                replay_path = write_ai_json_artifact(
+                    "headline_single_replay",
+                    f"batch_{batch_index}_{brief_name or 'shared'}",
+                    {
+                        "brief_name": brief_name or "shared",
+                        "batch": f"{batch_index}/{total_batches}",
+                        "candidate_ids": [item.id for item in candidates],
+                        "recovered_decisions": len(recovered_decisions),
+                        "results": results,
+                    },
+                )
+            return replay_path, recovered_decisions
         except Exception:
-            return ""
+            return "", recovered_decisions
+
+    def _headline_input_token_limit(self) -> int:
+        return max(256, int(self.input_token_limit or self.client.max_input_tokens))
+
+    def _headline_batch_max_new_tokens(self, candidate_count: int) -> int:
+        _ = candidate_count
+        return max(64, int(self.max_new_tokens or self.client.max_new_tokens))
+
+    def _headline_single_max_new_tokens(self) -> int:
+        return max(64, int(self.single_replay_max_new_tokens or self.max_new_tokens or self.client.max_new_tokens))
 
     def _build_user_prompt(
         self,
@@ -333,7 +397,7 @@ class HeadlineAnalyzer:
 
         base_prompt = self._build_user_prompt(memory, topics, brief_goal, [])
         base_tokens = self.client.estimate_tokens(base_prompt)
-        target_input_tokens = max(1024, int(self.client.max_input_tokens * 0.84))
+        target_input_tokens = self._headline_input_token_limit()
 
         batches: List[List[tuple[NewsCandidate, Dict[str, Any]]]] = []
         current: List[tuple[NewsCandidate, Dict[str, Any]]] = []

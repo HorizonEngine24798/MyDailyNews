@@ -39,15 +39,21 @@ def datetime_to_iso(value: Optional[datetime]) -> Optional[str]:
 
 
 def safe_json_load(text: str) -> Optional[Dict[str, Any]]:
-    try:
-        value = json.loads(text)
-        return value if isinstance(value, dict) else None
-    except Exception:
-        match = re.search(r"\{.*\}", text or "", flags=re.DOTALL)
-        if not match:
-            return None
+    value = _load_json_object(text or "")
+    if value is not None:
+        return value
+
+    match = re.search(r"\{.*\}", text or "", flags=re.DOTALL)
+    if not match:
+        return None
+    return _load_json_object(match.group(0))
+
+
+def _load_json_object(text: str) -> Optional[Dict[str, Any]]:
+    for strict in (True, False):
         try:
-            value = json.loads(match.group(0))
+            value = json.loads(text, strict=strict)
             return value if isinstance(value, dict) else None
         except Exception:
-            return None
+            continue
+    return None

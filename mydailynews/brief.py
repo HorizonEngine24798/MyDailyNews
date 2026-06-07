@@ -101,7 +101,7 @@ class BriefGenerator:
         delta_packet: Dict[str, Any],
     ) -> tuple[str, List[SelectedArticle]]:
         target_input_tokens = max(1024, int(self.input_token_limit or self.client.max_input_tokens))
-        prompt_budget_tokens = max(900, int(target_input_tokens * 0.9))
+        prompt_budget_tokens = target_input_tokens
         ordered_articles = sorted(articles, key=lambda item: item.decision.score, reverse=True)
         active_reports = prior_reports[:3]
         analysis_options = self._analysis_payload_options(evidence_packet, delta_packet)
