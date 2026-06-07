@@ -2,7 +2,7 @@
   "output_dir": "output",
   "user_agent": "MyDailyNews/0.4 (+local personal dual news brief)",
   "ai_summary": {
-    "backend": "transformers",
+    "backend": "auto",
     "preset": "qwen3-1.7b",
     "device": "cuda",
     "torch_dtype": "auto",
@@ -10,10 +10,18 @@
     "max_new_tokens": 1536,
     "json_retries": 1,
     "local_files_only": false,
-    "enable_thinking": false
+    "enable_thinking": false,
+    "manage_server": false,
+    "server_executable": "llama-server",
+    "server_model_path": "",
+    "server_arguments": [],
+    "server_log_dir": "output/diagnostics/llama_server",
+    "server_startup_timeout_seconds": 180,
+    "server_shutdown_timeout_seconds": 15,
+    "server_auto_stop": true
   },
   "ai_final": {
-    "backend": "transformers",
+    "backend": "auto",
     "preset": "qwen3-8b",
     "device": "cuda",
     "torch_dtype": "auto",
@@ -21,7 +29,15 @@
     "max_new_tokens": 2048,
     "json_retries": 1,
     "local_files_only": false,
-    "enable_thinking": false
+    "enable_thinking": false,
+    "manage_server": false,
+    "server_executable": "llama-server",
+    "server_model_path": "",
+    "server_arguments": [],
+    "server_log_dir": "output/diagnostics/llama_server",
+    "server_startup_timeout_seconds": 180,
+    "server_shutdown_timeout_seconds": 15,
+    "server_auto_stop": true
   },
   "general_topics": [
     {

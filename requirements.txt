@@ -1,7 +1,7 @@
 ﻿feedparser==6.0.12
 requests==2.32.3
 trafilatura==2.0.0
-# Transformers backend runtime
+# Optional last-resort Transformers fallback runtime
 torch>=2.4.0
 transformers>=4.45.0
 accelerate>=0.33.0

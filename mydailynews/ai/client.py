@@ -5,22 +5,23 @@ from __future__ import annotations
 Prefer importing from:
 - mydailynews.ai.base
 - mydailynews.ai.factory
-- mydailynews.ai.transformers_client
 - mydailynews.ai.llama_cpp_server_client
+- mydailynews.ai.transformers_client (last-resort fallback only)
 """
 
 from .base import AIBackendError, AIJsonError, AITransportError, JSONSchemaSpec, set_ai_artifact_root
+from .factory import AutoFallbackAIClient, create_ai_client
 
-try:
-    from .transformers_client import LocalAIClient, TransformersAIClient
-except Exception:  # pragma: no cover - optional dependency path
-    LocalAIClient = None  # type: ignore[assignment]
-    TransformersAIClient = None  # type: ignore[assignment]
+def __getattr__(name: str):
+    if name in {"TransformersAIClient", "LocalAIClient"}:
+        from .transformers_client import LocalAIClient, TransformersAIClient
 
-try:
-    from .llama_cpp_server_client import LlamaCppServerClient
-except Exception:  # pragma: no cover - optional dependency path
-    LlamaCppServerClient = None  # type: ignore[assignment]
+        return LocalAIClient if name == "LocalAIClient" else TransformersAIClient
+    if name == "LlamaCppServerClient":
+        from .llama_cpp_server_client import LlamaCppServerClient
+
+        return LlamaCppServerClient
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 __all__ = [
     "AIBackendError",
@@ -28,6 +29,8 @@ __all__ = [
     "AITransportError",
     "JSONSchemaSpec",
     "set_ai_artifact_root",
+    "create_ai_client",
+    "AutoFallbackAIClient",
     "TransformersAIClient",
     "LocalAIClient",
     "LlamaCppServerClient",

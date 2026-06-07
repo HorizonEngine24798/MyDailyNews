@@ -123,6 +123,69 @@ List built-in model presets:
 python main.py --list-model-presets
 ```
 
+## AI Backend
+
+The preferred backend is llama.cpp. Use `auto` for normal runs:
+
+- `auto`: use llama.cpp first; lazily fall back to Transformers only if the llama.cpp backend fails to start or the HTTP transport fails.
+- `llama_cpp_server`: use llama.cpp only, with no Transformers fallback.
+- `transformers`: legacy in-process Hugging Face backend, kept as a last-resort escape hatch.
+
+Transformers is not imported during normal `auto` or `llama_cpp_server` startup.
+
+## Managed llama.cpp Server (Auto Start/Stop)
+
+The `auto` / `llama_cpp_server` path can manage `llama-server` lifecycle automatically:
+- spawn server
+- wait for readiness
+- route requests
+- stop server at run end (or on failure)
+
+Set both AI roles to `auto` and point them at the same GGUF:
+
+```json
+{
+  "ai_summary": {
+    "backend": "auto",
+    "base_url": "http://127.0.0.1:8080/v1",
+    "server_model": "qwen3-gguf-local",
+    "max_input_tokens": 3072,
+    "max_new_tokens": 1536,
+    "manage_server": true,
+    "server_executable": "llama-server",
+    "server_model_path": "D:/models/your-model.gguf",
+    "server_arguments": ["--no-webui", "--reasoning", "off", "-ngl", "all", "-c", "32768", "-np", "1"],
+    "server_log_dir": "output/diagnostics/llama_server",
+    "server_startup_timeout_seconds": 180,
+    "server_shutdown_timeout_seconds": 15,
+    "server_auto_stop": true
+  },
+  "ai_final": {
+    "backend": "auto",
+    "base_url": "http://127.0.0.1:8080/v1",
+    "server_model": "qwen3-gguf-local",
+    "max_input_tokens": 4096,
+    "max_new_tokens": 2048,
+    "manage_server": true,
+    "server_executable": "llama-server",
+    "server_model_path": "D:/models/your-model.gguf",
+    "server_arguments": ["--no-webui", "--reasoning", "off", "-ngl", "all", "-c", "32768", "-np", "1"],
+    "server_log_dir": "output/diagnostics/llama_server",
+    "server_startup_timeout_seconds": 180,
+    "server_shutdown_timeout_seconds": 15,
+    "server_auto_stop": true
+  }
+}
+```
+
+Notes:
+- `server_model_path` must be a GGUF file path.
+- `server_executable` must point to a working `llama-server` binary (or be resolvable in `PATH`).
+- `server_log_dir` captures `llama-server` stdout/stderr per managed launch. Check this first for CUDA/offload issues.
+- `-ngl all` asks llama.cpp to offload all possible layers; `-np 1` avoids allocating multiple large context slots for a mostly serial local pipeline.
+- If `manage_server` is `false`, the app uses an already-running external server (existing behavior).
+- For best stability, keep `ai_summary` and `ai_final` on the same endpoint when using one local server.
+
 Stage-by-stage helper script (bash):
 
 ```bash
@@ -154,6 +217,7 @@ output/YYYY-MM-DD_general_brief.json
 output/YYYY-MM-DD_detailed_brief.md
 output/YYYY-MM-DD_detailed_brief.json
 output/diagnostics/analytics/YYYYMMDD_HHMMSS_debug_analytics.json   (when --debug)
+output/diagnostics/llama_server/YYYYMMDD_HHMMSS_llama_server_*.log   (managed llama.cpp)
 ```
 
 ## Key Files

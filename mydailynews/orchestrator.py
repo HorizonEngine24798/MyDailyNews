@@ -105,6 +105,11 @@ class NewsOrchestrator:
         self._stage_run_label: str = ""
         self._stage_artifact_root = Path(config.output_dir) / "diagnostics" / "stages"
 
+    def close(self) -> None:
+        self._close_ai_client(self.summary_ai_client, role="summary")
+        if self.final_ai_client is not self.summary_ai_client:
+            self._close_ai_client(self.final_ai_client, role="final")
+
     def run(self, run_options: PipelineRunOptions | None = None) -> PipelineResult:
         self._prepare_run_options(run_options or PipelineRunOptions())
         with self.debug.span("pipeline.total"):
@@ -369,6 +374,17 @@ class NewsOrchestrator:
             limited_candidates_override=limited_candidates_override,
             shared_decisions=shared_decisions,
         )
+
+    def _close_ai_client(self, client, *, role: str) -> None:
+        close_fn = getattr(client, "close", None)
+        if not callable(close_fn):
+            return
+        try:
+            close_fn()
+        except Exception as exc:
+            warning = f"AI client close failed ({role}): {type(exc).__name__}: {exc}"
+            self.warnings.append(warning)
+            self.debug.log("ai.server", "close_failed", role=role, error=type(exc).__name__)
 
     def _record_article_fetch_metrics(self, brief_name: str, selected: List[SelectedArticle]) -> None:
         record_article_fetch_metrics_helper(

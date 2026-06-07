@@ -20,7 +20,8 @@ if "trafilatura" not in sys.modules:
 
 from mydailynews.ai.headline_analyzer import HeadlineAnalyzer
 from mydailynews.ai.llama_cpp_server_client import LlamaCppServerClient
-from mydailynews.ai.base import set_ai_artifact_root, write_ai_json_artifact, write_ai_text_artifact
+from mydailynews.ai.base import AITransportError, set_ai_artifact_root, write_ai_json_artifact, write_ai_text_artifact
+import mydailynews.ai.factory as ai_factory_module
 from mydailynews.analysis_pipeline import DeltaExtractor, EvidenceDistiller
 from mydailynews.brief import BriefGenerator
 import mydailynews.brief_execution as brief_execution_module
@@ -62,6 +63,75 @@ def _candidate(source: str, topic: str = "", published_at=None) -> NewsCandidate
 
 
 class PipelineBasicsTests(unittest.TestCase):
+    def test_auto_backend_prefers_llama_cpp_and_lazily_falls_back(self) -> None:
+        calls: list[str] = []
+
+        class _FailingLlamaClient:
+            def __init__(self) -> None:
+                self.config = types.SimpleNamespace(backend="llama_cpp_server")
+                self.unloaded = False
+
+            @property
+            def max_input_tokens(self) -> int:
+                return 512
+
+            @property
+            def max_new_tokens(self) -> int:
+                return 64
+
+            @staticmethod
+            def estimate_tokens(text: str) -> int:
+                return max(1, len(text) // 4)
+
+            def complete_json(self, *_args, **_kwargs):
+                raise AITransportError("primary unavailable")
+
+            def unload(self) -> None:
+                self.unloaded = True
+
+        class _FallbackClient:
+            def __init__(self) -> None:
+                self.config = types.SimpleNamespace(backend="transformers")
+
+            @property
+            def max_input_tokens(self) -> int:
+                return 512
+
+            @property
+            def max_new_tokens(self) -> int:
+                return 64
+
+            @staticmethod
+            def estimate_tokens(text: str) -> int:
+                return max(1, len(text) // 4)
+
+            def complete_json(self, *_args, **_kwargs):
+                return {"ok": True, "backend": "transformers"}
+
+            def unload(self) -> None:
+                return None
+
+        original_factory = ai_factory_module._create_specific_ai_client
+
+        def fake_factory(config, backend, debug=None):
+            _ = config, debug
+            calls.append(backend)
+            if backend == "llama_cpp_server":
+                return _FailingLlamaClient()
+            if backend == "transformers":
+                return _FallbackClient()
+            raise AssertionError(f"unexpected backend: {backend}")
+
+        try:
+            ai_factory_module._create_specific_ai_client = fake_factory
+            client = ai_factory_module.create_ai_client(AIConfig(backend="auto"), DebugLogger(False))
+            result = client.complete_json("system", "user", label="unit.auto_fallback")
+        finally:
+            ai_factory_module._create_specific_ai_client = original_factory
+
+        self.assertEqual(result, {"ok": True, "backend": "transformers"})
+        self.assertEqual(calls, ["llama_cpp_server", "transformers"])
+
     def test_llama_cpp_server_honors_input_token_limit(self) -> None:
         captured: dict[str, Any] = {}
 

@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 
 @dataclass
 class AIConfig:
-    backend: str = "transformers"
+    backend: str = "auto"
     preset: str = "qwen3-4b"
     model_id: str = "Qwen/Qwen3-4B"
     server_model: str = "local-gguf"
@@ -27,10 +27,18 @@ class AIConfig:
     trust_remote_code: bool = False
     local_files_only: bool = False
     enable_thinking: bool = False
+    manage_server: bool = False
+    server_executable: str = "llama-server"
+    server_model_path: str = ""
+    server_arguments: List[str] = field(default_factory=list)
+    server_log_dir: str = "output/diagnostics/llama_server"
+    server_startup_timeout_seconds: int = 180
+    server_shutdown_timeout_seconds: int = 15
+    server_auto_stop: bool = True
 
     @property
     def effective_model_label(self) -> str:
-        if self.backend == "llama_cpp_server":
+        if self.backend in {"auto", "llama_cpp_server"}:
             return self.server_model or self.model_id
         return self.model_id
 

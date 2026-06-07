@@ -145,6 +145,15 @@ def _list(value: Any) -> List[str]:
     return value if isinstance(value, list) else []
 
 
+def _string_list(value: Any) -> List[str]:
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if isinstance(value, str):
+        stripped = value.strip()
+        return [stripped] if stripped else []
+    return []
+
+
 def _load_sources(raw: Dict[str, Any]) -> List[RSSSourceConfig]:
     source_items = raw["sources"].get("rss", [])
 
@@ -191,10 +200,12 @@ def _optional_int(value: Any) -> int | None:
 
 
 def _normalize_backend(value: Any) -> str:
-    raw = str(value or "transformers").strip().lower().replace("-", "_")
+    raw = str(value or "auto").strip().lower().replace("-", "_")
     aliases = {
+        "default": "auto",
         "hf": "transformers",
         "huggingface": "transformers",
+        "local": "auto",
         "llama_cpp": "llama_cpp_server",
         "llama_server": "llama_cpp_server",
         "llamacpp_server": "llama_cpp_server",
@@ -222,9 +233,12 @@ def get_ai_model_presets() -> Dict[str, Dict[str, Any]]:
 
 
 def _load_ai(ai_raw: Dict[str, Any], section_name: str = "ai") -> AIConfig:
-    backend = _normalize_backend(ai_raw.get("backend", "transformers"))
-    if backend not in {"transformers", "llama_cpp_server"}:
-        raise ValueError(f"Unsupported {section_name}.backend '{backend}'. Supported backends: transformers, llama_cpp_server")
+    backend = _normalize_backend(ai_raw.get("backend", "auto"))
+    if backend not in {"auto", "llama_cpp_server", "transformers"}:
+        raise ValueError(
+            f"Unsupported {section_name}.backend '{backend}'. "
+            "Supported backends: auto, llama_cpp_server, transformers"
+        )
     requested_preset = str(ai_raw.get("preset", DEFAULT_AI_PRESET) or DEFAULT_AI_PRESET).strip().lower()
     preset_name = requested_preset or DEFAULT_AI_PRESET
     preset = AI_MODEL_PRESETS.get(preset_name)
@@ -237,7 +251,7 @@ def _load_ai(ai_raw: Dict[str, Any], section_name: str = "ai") -> AIConfig:
         preset_name = DEFAULT_AI_PRESET
 
     default_model_id = str(ai_raw.get("model_id", preset["model_id"]))
-    if backend == "llama_cpp_server":
+    if backend in {"auto", "llama_cpp_server"}:
         default_server_model = str(ai_raw.get("server_model", ai_raw.get("model", "local-gguf")))
     else:
         default_server_model = str(ai_raw.get("server_model", ai_raw.get("model", default_model_id)))
@@ -263,6 +277,14 @@ def _load_ai(ai_raw: Dict[str, Any], section_name: str = "ai") -> AIConfig:
         trust_remote_code=bool(ai_raw.get("trust_remote_code", preset["trust_remote_code"])),
         local_files_only=bool(ai_raw.get("local_files_only", preset["local_files_only"])),
         enable_thinking=bool(ai_raw.get("enable_thinking", preset.get("enable_thinking", False))),
+        manage_server=bool(ai_raw.get("manage_server", False)),
+        server_executable=str(ai_raw.get("server_executable", "llama-server")),
+        server_model_path=str(ai_raw.get("server_model_path", ai_raw.get("gguf_model_path", ""))),
+        server_arguments=_string_list(ai_raw.get("server_arguments", [])),
+        server_log_dir=str(ai_raw.get("server_log_dir", "output/diagnostics/llama_server")),
+        server_startup_timeout_seconds=max(10, int(ai_raw.get("server_startup_timeout_seconds", 180))),
+        server_shutdown_timeout_seconds=max(1, int(ai_raw.get("server_shutdown_timeout_seconds", 15))),
+        server_auto_stop=bool(ai_raw.get("server_auto_stop", True)),
     )
 
 

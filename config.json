@@ -2,24 +2,60 @@
   "output_dir": "output",
   "user_agent": "MyDailyNews/0.4 (+local personal dual news brief)",
   "ai_summary": {
-    "backend": "transformers",
+    "backend": "auto",
     "preset": "qwen3-1.7b",
-    "device": "cuda",
-    "torch_dtype": "auto",
-    "max_input_tokens": 3072,
+    "base_url": "http://127.0.0.1:8080/v1",
+    "server_model": "Qwen3.5-35B-A3B-Q3_K_M",
+    "max_input_tokens": 8192,
+    "max_new_tokens": 4096,
     "json_retries": 1,
-    "local_files_only": false,
-    "enable_thinking": false
+    "enable_thinking": false,
+    "manage_server": true,
+    "server_executable": "D:/Project/llama-b9544-bin-win-cuda-12.4-x64/llama-cli.exe",
+    "server_model_path": "C:/Users/User/.lmstudio/models/HauhauCS/Qwen3.5-35B-A3B-Uncensored-HauhauCS-Aggressive/Qwen3.5-35B-A3B-Uncensored-HauhauCS-Aggressive-Q3_K_M.gguf",
+    "server_arguments": [
+      "--no-webui",
+      "--reasoning",
+      "off",
+      "-ngl",
+      "all",
+      "-c",
+      "32768",
+      "-np",
+      "1"
+    ],
+    "server_log_dir": "output/diagnostics/llama_server",
+    "server_startup_timeout_seconds": 180,
+    "server_shutdown_timeout_seconds": 15,
+    "server_auto_stop": true
   },
   "ai_final": {
-    "backend": "transformers",
+    "backend": "auto",
     "preset": "qwen3-8b",
-    "device": "cuda",
-    "torch_dtype": "auto",
-    "max_input_tokens": 4096,
+    "base_url": "http://127.0.0.1:8080/v1",
+    "server_model": "Qwen3.5-35B-A3B-Q3_K_M",
+    "max_input_tokens": 16384,
+    "max_new_tokens": 4096,
     "json_retries": 1,
-    "local_files_only": false,
-    "enable_thinking": false
+    "enable_thinking": false,
+    "manage_server": true,
+    "server_executable": "D:/Project/llama-b9544-bin-win-cuda-12.4-x64/llama-cli.exe",
+    "server_model_path": "C:/Users/User/.lmstudio/models/HauhauCS/Qwen3.5-35B-A3B-Uncensored-HauhauCS-Aggressive/Qwen3.5-35B-A3B-Uncensored-HauhauCS-Aggressive-Q3_K_M.gguf",
+    "server_arguments": [
+      "--no-webui",
+      "--reasoning",
+      "off",
+      "-ngl",
+      "all",
+      "-c",
+      "32768",
+      "-np",
+      "1"
+    ],
+    "server_log_dir": "output/diagnostics/llama_server",
+    "server_startup_timeout_seconds": 180,
+    "server_shutdown_timeout_seconds": 15,
+    "server_auto_stop": true
   },
   "general_topics": [
     {
@@ -122,9 +158,9 @@
   "general_filtering": {
     "time_window_hours": 36,
     "headline_score_cutoff": 5.5,
-    "max_headlines_per_source": 12,
+    "max_headlines_per_source": 16,
     "max_candidates_for_ai": 30,
-    "max_headlines_per_ai_batch": 6,
+    "max_headlines_per_ai_batch": 16,
     "max_selected_articles": 10,
     "fill_selected_articles": true,
     "article_text_max_chars": 2200
@@ -132,9 +168,9 @@
   "filtering": {
     "time_window_hours": 36,
     "headline_score_cutoff": 6.8,
-    "max_headlines_per_source": 8,
+    "max_headlines_per_source": 16,
     "max_candidates_for_ai": 12,
-    "max_headlines_per_ai_batch": 4,
+    "max_headlines_per_ai_batch": 16,
     "max_selected_articles": 6,
     "fill_selected_articles": false,
     "article_text_max_chars": 2500

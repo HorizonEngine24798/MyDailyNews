@@ -131,6 +131,7 @@ def main() -> int:
     except Exception as exc:
         run_error = exc
     finally:
+        orchestrator.close()
         if args.debug:
             _print_debug_analytics(orchestrator, config.output_dir)
 

@@ -9,6 +9,7 @@ from ..debug import DebugLogger
 from ..models import AIConfig
 from ..utils import safe_json_load
 from .base import AIClient, AIJsonError, AITransportError, JSONSchemaSpec, write_ai_json_artifact, write_ai_text_artifact
+from .managed_llama_server import ManagedLlamaServerLease
 
 
 class LlamaCppServerClient(AIClient):
@@ -19,6 +20,13 @@ class LlamaCppServerClient(AIClient):
         self.debug = debug or DebugLogger(False)
         self.base_url = self._normalize_base_url(config.base_url)
         self.timeout_seconds = max(10, int(config.request_timeout_seconds))
+        self.server_lease = ManagedLlamaServerLease(config=config, base_url=self.base_url, debug=self.debug)
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
 
     @property
     def max_input_tokens(self) -> int:
@@ -33,6 +41,16 @@ class LlamaCppServerClient(AIClient):
         return max(1, int(round(len(text or "") / ratio)))
 
     def unload(self) -> None:
+        # Keep server warm within a run. Server shutdown is handled by close().
+        if self.server_lease.enabled:
+            self.debug.log(
+                "ai.unload",
+                "noop_managed_server",
+                model=self.config.effective_model_label,
+                backend=self.config.backend,
+                endpoint=self.base_url,
+            )
+            return
         # External server lifecycle is managed outside this process.
         self.debug.log(
             "ai.unload",
@@ -41,6 +59,9 @@ class LlamaCppServerClient(AIClient):
             backend=self.config.backend,
             endpoint=self.base_url,
         )
+
+    def close(self) -> None:
+        self.server_lease.release()
 
     def complete_json(
         self,
@@ -52,6 +73,7 @@ class LlamaCppServerClient(AIClient):
         input_token_limit: int | None = None,
         json_schema: Optional[JSONSchemaSpec] = None,
     ) -> Dict[str, Any]:
+        self.server_lease.ensure_running()
         attempts = max(1, self.config.json_retries + 1)
         target_max_new = max(64, int(max_new_tokens or self.max_new_tokens))
         target_input_limit = max(64, int(input_token_limit or self.max_input_tokens))
@@ -239,7 +261,11 @@ class LlamaCppServerClient(AIClient):
         message = choices[0].get("message", {})
         content = message.get("content", "")
         if isinstance(content, str):
-            return content
+            if content.strip():
+                return content
+            reasoning_content = message.get("reasoning_content", "")
+            if isinstance(reasoning_content, str) and reasoning_content.strip():
+                return reasoning_content
 
         if isinstance(content, list):
             chunks: list[str] = []
