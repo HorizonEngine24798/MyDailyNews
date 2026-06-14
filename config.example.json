@@ -1,26 +1,27 @@
 {
   "output_dir": "output",
-  "user_agent": "MyDailyNews/0.4 (+local personal dual news brief)",
+  "user_agent": "MyDailyNews/1.0 (+local llama.cpp news brief)",
   "ai_summary": {
     "backend": "llama_cpp_server",
     "base_url": "http://127.0.0.1:8080/v1",
-    "server_model": "Qwen3.5-35B-A3B-Q3_K_M",
-    "max_input_tokens": 40960,
-    "max_new_tokens": 8192,
-    "token_estimation_chars_per_token": 3.0,
+    "server_model": "Qwen3-8B-Q4_K_M",
+    "context_window_tokens": 16384,
+    "max_input_tokens": 12000,
+    "max_new_tokens": 2048,
+    "token_estimation_chars_per_token": 4.0,
     "json_retries": 1,
     "enable_thinking": false,
     "manage_server": true,
-    "server_executable": "D:/Project/llama-b9544-bin-win-cuda-12.4-x64/llama-server.exe",
-    "server_model_path": "C:/Users/User/.lmstudio/models/HauhauCS/Qwen3.5-35B-A3B-Uncensored-HauhauCS-Aggressive/Qwen3.5-35B-A3B-Uncensored-HauhauCS-Aggressive-Q3_K_M.gguf",
+    "server_executable": "PATH/TO/llama-server",
+    "server_model_path": "PATH/TO/model.gguf",
     "server_arguments": [
       "--no-webui",
       "--reasoning",
       "off",
       "-ngl",
-      "all",
+      "999",
       "-c",
-      "65536",
+      "16384",
       "-np",
       "1"
     ],
@@ -32,23 +33,24 @@
   "ai_final": {
     "backend": "llama_cpp_server",
     "base_url": "http://127.0.0.1:8080/v1",
-    "server_model": "Qwen3.5-35B-A3B-Q3_K_M",
-    "max_input_tokens": 40960,
-    "max_new_tokens": 8192,
-    "token_estimation_chars_per_token": 3.0,
+    "server_model": "Qwen3-8B-Q4_K_M",
+    "context_window_tokens": 16384,
+    "max_input_tokens": 12000,
+    "max_new_tokens": 2048,
+    "token_estimation_chars_per_token": 4.0,
     "json_retries": 1,
     "enable_thinking": false,
     "manage_server": true,
-    "server_executable": "D:/Project/llama-b9544-bin-win-cuda-12.4-x64/llama-server.exe",
-    "server_model_path": "C:/Users/User/.lmstudio/models/HauhauCS/Qwen3.5-35B-A3B-Uncensored-HauhauCS-Aggressive/Qwen3.5-35B-A3B-Uncensored-HauhauCS-Aggressive-Q3_K_M.gguf",
+    "server_executable": "PATH/TO/llama-server",
+    "server_model_path": "PATH/TO/model.gguf",
     "server_arguments": [
       "--no-webui",
       "--reasoning",
       "off",
       "-ngl",
-      "all",
+      "999",
       "-c",
-      "65536",
+      "16384",
       "-np",
       "1"
     ],
@@ -142,7 +144,7 @@
     }
   ],
   "user_memory": {
-    "role": "US-based technology policy operator",
+    "role": "Reader who wants practical daily context",
     "geography_focus": [
       "United States",
       "European Union",
@@ -151,21 +153,21 @@
     "time_horizon": "tactical",
     "beats": {
       "AI and technology policy": 1.0,
-      "Semiconductors and compute infrastructure": 0.9,
-      "Global macro and markets": 0.75
+      "Global macro and markets": 0.75,
+      "Science and public health": 0.5
     },
     "wants": [
       "policy change",
       "regulatory enforcement",
-      "supply chain disruption",
-      "market-moving guidance"
+      "market-moving guidance",
+      "major scientific development"
     ],
     "avoid": [
       "celebrity news",
       "sports scores",
-      "earnings without guidance change"
+      "routine announcements"
     ],
-    "portfolio_or_stake_notes": "Tracks AI infrastructure, enterprise software, and macro-policy shifts affecting operating costs and expansion planning.",
+    "portfolio_or_stake_notes": "Adjust this to the reader's work, investments, responsibilities, or recurring decisions.",
     "preferred_depth": "analytical",
     "avoided_topics": [
       "celebrity gossip",
@@ -178,33 +180,33 @@
     ],
     "avoided_sources": [],
     "briefing_style": "Concise, explanatory, practical, and skeptical of hype.",
-    "custom_instructions": "Prefer narrative shifts, evidence that challenges yesterday's framing, and important developments over routine announcements. Include uncertainty when the available sources are thin."
+    "custom_instructions": "Prefer narrative shifts and important developments over routine announcements. Include uncertainty when the available sources are thin."
   },
   "general_filtering": {
     "time_window_hours": 36,
     "headline_score_cutoff": 7.0,
     "max_headlines_per_source": 16,
-    "max_candidates_for_ai": "all",
-    "max_headlines_per_ai_batch": 32,
-    "headline_max_input_tokens": 40960,
-    "headline_max_new_tokens": 8192,
-    "headline_single_replay_max_new_tokens": 2048,
-    "max_selected_articles": "all",
+    "max_candidates_for_ai": 60,
+    "max_headlines_per_ai_batch": 12,
+    "headline_max_input_tokens": 10000,
+    "headline_max_new_tokens": 1600,
+    "headline_single_replay_max_new_tokens": 768,
+    "max_selected_articles": 12,
     "fill_selected_articles": true,
-    "article_text_max_chars": 5000
+    "article_text_max_chars": 4500
   },
   "filtering": {
     "time_window_hours": 36,
     "headline_score_cutoff": 7.0,
     "max_headlines_per_source": 16,
-    "max_candidates_for_ai": "all",
-    "max_headlines_per_ai_batch": 32,
-    "headline_max_input_tokens": 40960,
-    "headline_max_new_tokens": 8192,
-    "headline_single_replay_max_new_tokens": 2048,
-    "max_selected_articles": "all",
+    "max_candidates_for_ai": 48,
+    "max_headlines_per_ai_batch": 10,
+    "headline_max_input_tokens": 10000,
+    "headline_max_new_tokens": 1600,
+    "headline_single_replay_max_new_tokens": 768,
+    "max_selected_articles": 8,
     "fill_selected_articles": false,
-    "article_text_max_chars": 6000
+    "article_text_max_chars": 5000
   },
   "enrichment": {
     "enabled": true,
@@ -223,43 +225,48 @@
   "analysis": {
     "rollout": {
       "enabled": true,
-      "profile": "safe_local",
+      "profile": "balanced_local",
       "general": {
         "evidence_enabled": true,
-        "delta_enabled": false
+        "delta_enabled": false,
+        "evidence_max_input_tokens": 8000,
+        "evidence_max_new_tokens": 1000,
+        "evidence_max_articles": 8,
+        "evidence_max_articles_per_batch": 4,
+        "evidence_max_article_chars": 1200
       },
       "detailed": {
         "evidence_enabled": true,
         "delta_enabled": true,
-        "evidence_max_input_tokens": 30000,
-        "evidence_max_new_tokens": 3400,
-        "evidence_max_articles": 32,
-        "evidence_max_articles_per_batch": 16,
-        "evidence_max_articles_dropped_to_avoid_split": 4,
-        "evidence_max_article_chars": 3200,
-        "delta_max_input_tokens": 26000,
-        "delta_max_new_tokens": 2600,
-        "delta_max_articles": 24,
-        "delta_max_articles_per_batch": 12,
-        "delta_max_articles_dropped_to_avoid_split": 4,
-        "delta_max_article_chars": 1420,
-        "delta_max_prior_reports": 8
+        "evidence_max_input_tokens": 10000,
+        "evidence_max_new_tokens": 1200,
+        "evidence_max_articles": 10,
+        "evidence_max_articles_per_batch": 5,
+        "evidence_max_articles_dropped_to_avoid_split": 2,
+        "evidence_max_article_chars": 1400,
+        "delta_max_input_tokens": 8000,
+        "delta_max_new_tokens": 1000,
+        "delta_max_articles": 8,
+        "delta_max_articles_per_batch": 4,
+        "delta_max_articles_dropped_to_avoid_split": 2,
+        "delta_max_article_chars": 600,
+        "delta_max_prior_reports": 4
       }
     },
     "evidence_distillation": {
       "enabled": false,
       "model_role": "summary",
       "include_reader_qa": true,
-      "max_input_tokens": 30000,
-      "max_new_tokens": 3400,
-      "max_articles": 32,
-      "max_articles_per_batch": 16,
-      "max_articles_dropped_to_avoid_split": 4,
-      "max_article_chars": 3200,
+      "max_input_tokens": 10000,
+      "max_new_tokens": 1200,
+      "max_articles": 10,
+      "max_articles_per_batch": 5,
+      "max_articles_dropped_to_avoid_split": 2,
+      "max_article_chars": 1400,
       "max_context_sources_per_article": 3,
-      "max_story_clusters": 10,
-      "max_claims_per_cluster": 6,
-      "max_questions": 10,
+      "max_story_clusters": 8,
+      "max_claims_per_cluster": 5,
+      "max_questions": 8,
       "cache_ttl_seconds": 604800
     },
     "delta_extraction": {
@@ -267,13 +274,13 @@
       "model_role": "summary",
       "input_source": "evidence_or_articles",
       "require_prior_reports": false,
-      "max_input_tokens": 26000,
-      "max_new_tokens": 2600,
-      "max_articles": 24,
-      "max_articles_per_batch": 12,
-      "max_articles_dropped_to_avoid_split": 4,
-      "max_article_chars": 1420,
-      "max_prior_reports": 8,
+      "max_input_tokens": 8000,
+      "max_new_tokens": 1000,
+      "max_articles": 8,
+      "max_articles_per_batch": 4,
+      "max_articles_dropped_to_avoid_split": 2,
+      "max_article_chars": 600,
+      "max_prior_reports": 4,
       "cache_ttl_seconds": 604800
     }
   },
@@ -309,49 +316,64 @@
         "name": "BBC World",
         "url": "https://feeds.bbci.co.uk/news/world/rss.xml",
         "category": "world",
-        "tags": ["world"],
+        "tags": [
+          "world"
+        ],
         "enabled": true
       },
       {
         "name": "BBC Technology",
         "url": "https://feeds.bbci.co.uk/news/technology/rss.xml",
         "category": "technology",
-        "tags": ["technology"],
+        "tags": [
+          "technology"
+        ],
         "enabled": true
       },
       {
         "name": "NPR",
         "url": "https://feeds.npr.org/1001/rss.xml",
         "category": "general",
-        "tags": ["general", "us"],
+        "tags": [
+          "general",
+          "us"
+        ],
         "enabled": true
       },
       {
         "name": "NYTimes World",
         "url": "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
         "category": "world",
-        "tags": ["world"],
+        "tags": [
+          "world"
+        ],
         "enabled": true
       },
       {
         "name": "NYTimes Technology",
         "url": "https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml",
         "category": "technology",
-        "tags": ["technology"],
+        "tags": [
+          "technology"
+        ],
         "enabled": true
       },
       {
         "name": "The Guardian World",
         "url": "https://www.theguardian.com/world/rss",
         "category": "world",
-        "tags": ["world"],
+        "tags": [
+          "world"
+        ],
         "enabled": true
       },
       {
         "name": "Ars Technica",
         "url": "https://feeds.arstechnica.com/arstechnica/index",
         "category": "technology",
-        "tags": ["technology"],
+        "tags": [
+          "technology"
+        ],
         "enabled": true
       }
     ]

@@ -1,0 +1,81 @@
+{
+  "output_dir": "output",
+  "user_agent": "MyDailyNews/1.0 (+local llama.cpp news brief)",
+  "ai_summary": {
+    "backend": "llama_cpp_server",
+    "base_url": "http://127.0.0.1:8080/v1",
+    "server_model": "Qwen3-14B-Q4_K_M",
+    "context_window_tokens": 16384,
+    "max_input_tokens": 12000,
+    "max_new_tokens": 2048,
+    "json_retries": 1,
+    "enable_thinking": false,
+    "manage_server": true,
+    "server_executable": "PATH/TO/llama-server",
+    "server_model_path": "PATH/TO/Qwen3-14B-Q4_K_M.gguf",
+    "server_arguments": ["--no-webui", "--reasoning", "off", "-ngl", "999", "-c", "16384", "-np", "1"],
+    "server_log_dir": "output/diagnostics/llama_server",
+    "server_startup_timeout_seconds": 180,
+    "server_shutdown_timeout_seconds": 15,
+    "server_auto_stop": true
+  },
+  "ai_final": {
+    "backend": "llama_cpp_server",
+    "base_url": "http://127.0.0.1:8080/v1",
+    "server_model": "Qwen3-14B-Q4_K_M",
+    "context_window_tokens": 16384,
+    "max_input_tokens": 12000,
+    "max_new_tokens": 2048,
+    "json_retries": 1,
+    "enable_thinking": false,
+    "manage_server": true,
+    "server_executable": "PATH/TO/llama-server",
+    "server_model_path": "PATH/TO/Qwen3-14B-Q4_K_M.gguf",
+    "server_arguments": ["--no-webui", "--reasoning", "off", "-ngl", "999", "-c", "16384", "-np", "1"],
+    "server_log_dir": "output/diagnostics/llama_server",
+    "server_startup_timeout_seconds": 180,
+    "server_shutdown_timeout_seconds": 15,
+    "server_auto_stop": true
+  },
+  "general_topics": [{"name": "World and technology", "description": "Major world, economy, science, technology, and public policy developments.", "queries": ["top world news today", "technology policy news", "global economy news"], "enabled": true, "max_results": 14}],
+  "topics_to_examine": [{"name": "AI and technology policy", "description": "AI regulation, safety, platforms, compute infrastructure, and public policy.", "queries": ["AI regulation policy", "AI chips export controls"], "enabled": true, "max_results": 14, "max_selected_articles": 3}],
+  "user_memory": {
+    "role": "Reader who wants practical daily context",
+    "geography_focus": ["United States", "European Union", "China"],
+    "time_horizon": "tactical",
+    "beats": {"AI and technology policy": 1.0, "Global economy": 0.8, "Science and public health": 0.5},
+    "wants": ["policy change", "regulatory enforcement", "market-moving guidance"],
+    "avoid": ["celebrity news", "sports scores"],
+    "portfolio_or_stake_notes": "",
+    "preferred_depth": "analytical",
+    "avoided_topics": ["celebrity gossip"],
+    "preferred_sources": ["BBC World", "NPR", "Ars Technica"],
+    "avoided_sources": [],
+    "briefing_style": "Concise, explanatory, practical, and skeptical of hype.",
+    "custom_instructions": ""
+  },
+  "general_filtering": {"time_window_hours": 36, "headline_score_cutoff": 7.0, "max_headlines_per_source": 16, "max_candidates_for_ai": 48, "max_headlines_per_ai_batch": 10, "headline_max_input_tokens": 10000, "headline_max_new_tokens": 1600, "headline_single_replay_max_new_tokens": 768, "max_selected_articles": 10, "fill_selected_articles": true, "article_text_max_chars": 4500},
+  "filtering": {"time_window_hours": 36, "headline_score_cutoff": 7.0, "max_headlines_per_source": 16, "max_candidates_for_ai": 48, "max_headlines_per_ai_batch": 10, "headline_max_input_tokens": 10000, "headline_max_new_tokens": 1600, "headline_single_replay_max_new_tokens": 768, "max_selected_articles": 7, "fill_selected_articles": false, "article_text_max_chars": 4500},
+  "enrichment": {"enabled": true, "past_news_days": 30, "max_past_news_results": 4, "max_wikipedia_results": 3, "max_entities": 4, "max_context_chars_per_article": 1500},
+  "runtime": {"max_http_workers": 1, "max_article_workers": 1, "max_enrichment_workers": 1, "use_shared_snapshot": true},
+  "analysis": {
+    "rollout": {
+      "enabled": true,
+      "profile": "balanced_local",
+      "general": {"evidence_enabled": true, "delta_enabled": false, "evidence_max_input_tokens": 8000, "evidence_max_new_tokens": 1000, "evidence_max_articles": 6, "evidence_max_articles_per_batch": 3},
+      "detailed": {"evidence_enabled": true, "delta_enabled": true, "evidence_max_input_tokens": 10000, "evidence_max_new_tokens": 1200, "evidence_max_articles": 8, "evidence_max_articles_per_batch": 4, "delta_max_input_tokens": 8000, "delta_max_new_tokens": 1000, "delta_max_articles": 6, "delta_max_articles_per_batch": 3}
+    },
+    "evidence_distillation": {"enabled": false, "model_role": "summary", "include_reader_qa": true, "max_input_tokens": 10000, "max_new_tokens": 1200, "max_articles": 8, "max_articles_per_batch": 4, "max_articles_dropped_to_avoid_split": 2, "max_article_chars": 1400, "max_context_sources_per_article": 3, "max_story_clusters": 8, "max_claims_per_cluster": 5, "max_questions": 8, "cache_ttl_seconds": 604800},
+    "delta_extraction": {"enabled": false, "model_role": "summary", "input_source": "evidence_or_articles", "require_prior_reports": false, "max_input_tokens": 8000, "max_new_tokens": 1000, "max_articles": 6, "max_articles_per_batch": 3, "max_articles_dropped_to_avoid_split": 2, "max_article_chars": 600, "max_prior_reports": 4, "cache_ttl_seconds": 604800}
+  },
+  "cache": {"enabled": true, "dir": ".cache/mydailynews", "discovery_mode": "network_first", "article_text_retention_days": 3, "enrichment_retention_days": 30, "wikipedia_retention_days": 30, "http_retention_days": 7, "ai_enabled": true, "synth_fresh_seconds": 604800},
+  "sources": {
+    "google_news": {"enabled": true, "days": 7, "max_results_per_topic": 12, "language": "en-US", "region": "US", "ceid": "US:en"},
+    "prior_reports": {"enabled": true, "days": 7, "max_reports": 5, "max_chars_per_report": 1800, "output_dir": "output"},
+    "rss": [
+      {"name": "BBC World", "url": "https://feeds.bbci.co.uk/news/world/rss.xml", "category": "world", "tags": ["world"], "enabled": true},
+      {"name": "NPR", "url": "https://feeds.npr.org/1001/rss.xml", "category": "general", "tags": ["general", "us"], "enabled": true},
+      {"name": "Ars Technica", "url": "https://feeds.arstechnica.com/arstechnica/index", "category": "technology", "tags": ["technology"], "enabled": true}
+    ]
+  }
+}

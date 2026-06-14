@@ -8,12 +8,12 @@ from typing import Any, Dict, List, Optional
 @dataclass
 class AIConfig:
     backend: str = "llama_cpp_server"
-    model_id: str = "Qwen3.5-35B-A3B-Q3_K_M"
-    server_model: str = "Qwen3.5-35B-A3B-Q3_K_M"
+    model_id: str = "Qwen3-8B-Q4_K_M"
+    server_model: str = "Qwen3-8B-Q4_K_M"
     base_url: str = "http://127.0.0.1:8080/v1"
-    context_window_tokens: int = 0
-    max_input_tokens: int = 40960
-    max_new_tokens: int = 8192
+    context_window_tokens: int = 16384
+    max_input_tokens: int = 12000
+    max_new_tokens: int = 2048
     json_retries: int = 1
     temperature: float = 0.2
     top_p: float = 0.9
@@ -106,12 +106,12 @@ class EvidenceDistillationConfig:
     enabled: bool = False
     model_role: str = "summary"
     include_reader_qa: bool = True
-    max_input_tokens: int = 20000
-    max_new_tokens: int = 2400
-    max_articles: int = 12
-    max_articles_per_batch: int = 12
-    max_articles_dropped_to_avoid_split: int = 4
-    max_article_chars: int = 1200
+    max_input_tokens: int = 10000
+    max_new_tokens: int = 1200
+    max_articles: int = 10
+    max_articles_per_batch: int = 5
+    max_articles_dropped_to_avoid_split: int = 2
+    max_article_chars: int = 1400
     max_context_sources_per_article: int = 3
     max_story_clusters: int = 10
     max_claims_per_cluster: int = 6
@@ -125,12 +125,12 @@ class DeltaExtractionConfig:
     model_role: str = "summary"
     input_source: str = "evidence_or_articles"
     require_prior_reports: bool = False
-    max_input_tokens: int = 16000
-    max_new_tokens: int = 1600
+    max_input_tokens: int = 8000
+    max_new_tokens: int = 1000
     max_articles: int = 8
-    max_articles_per_batch: int = 8
-    max_articles_dropped_to_avoid_split: int = 4
-    max_article_chars: int = 420
+    max_articles_per_batch: int = 4
+    max_articles_dropped_to_avoid_split: int = 2
+    max_article_chars: int = 600
     max_prior_reports: int = 4
     cache_ttl_seconds: int = 604800
 
@@ -303,7 +303,7 @@ class RSSSourceConfig:
 @dataclass
 class AppConfig:
     output_dir: str = "output"
-    user_agent: str = "MyDailyNews/0.4 (+local personal dual news brief)"
+    user_agent: str = "MyDailyNews/1.0 (+local llama.cpp news brief)"
     ai_summary: AIConfig = field(default_factory=AIConfig)
     ai_final: AIConfig = field(default_factory=AIConfig)
     filtering: FilteringConfig = field(default_factory=FilteringConfig)

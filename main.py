@@ -2,13 +2,14 @@ import argparse
 from pathlib import Path
 
 from mydailynews.app.config import load_config
+from mydailynews.app.runtime_config import find_runtime_config_issues, format_runtime_config_issues
 from mydailynews.pipeline.stages import ALL_STAGE_ORDER, PipelineRunOptions
 from mydailynews.diagnostics.reporting import CliReporter
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Generate a local-first topic-focused news brief.")
-    parser.add_argument("--config", default="config.json", help="Path to the JSON config file.")
+    parser.add_argument("--config", default="config.local.json", help="Path to the JSON config file.")
     parser.add_argument("--no-enrichment", action="store_true", help="Skip Wikipedia and past-news enrichment.")
     parser.add_argument("--debug", action="store_true", help="Print safe progress diagnostics while the pipeline runs.")
     parser.add_argument(
@@ -62,10 +63,19 @@ def main() -> int:
     config_path = Path(args.config)
     if not config_path.exists():
         print(f"Config not found: {config_path}")
-        print("Create or restore config.json before running the pipeline.")
+        print("Create a local config before running the pipeline:")
+        print("  copy config.example.json config.local.json")
+        print("  python tools/autoconfig.py --config config.local.json --write config.recommended.json")
+        print("  python main.py --config config.recommended.json")
         return 1
 
     config = load_config(config_path)
+    runtime_issues = find_runtime_config_issues(config)
+    if runtime_issues:
+        print(f"Config is not ready to run: {config_path}")
+        print(format_runtime_config_issues(runtime_issues))
+        print("Run tools/autoconfig.py or edit the local config with your llama.cpp paths and token limits.")
+        return 1
     if args.no_enrichment:
         config.enrichment.enabled = False
     try:

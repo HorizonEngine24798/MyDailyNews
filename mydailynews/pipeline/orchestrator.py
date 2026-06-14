@@ -7,6 +7,7 @@ This borrows the architecture of Horizon's fetch -> dedupe -> AI score -> enrich
 
 Horizon: https://github.com/Thysrael/Horizon
 License: MIT
+Retained notice: see project LICENSE.
 """
 
 import json
@@ -495,7 +496,7 @@ class NewsOrchestrator:
 
     @staticmethod
     def merge_url_duplicates(candidates: List[NewsCandidate]) -> List[NewsCandidate]:
-        # Borrowed from Horizon's non-LLM cross-source URL merge strategy (MIT):
+        # Adapted from Horizon's non-LLM cross-source URL merge strategy (MIT):
         # https://github.com/Thysrael/Horizon
         # Group by canonical URL key, keep the richest item, and merge metadata.
         by_url: Dict[str, List[NewsCandidate]] = {}

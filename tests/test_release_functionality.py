@@ -11,6 +11,7 @@ import unittest
 from mydailynews.ai import create_ai_client
 from mydailynews.app.config import load_config
 from mydailynews.app.models import AIConfig
+from mydailynews.app.runtime_config import find_runtime_config_issues
 from mydailynews.pipeline.stages import PipelineRunOptions
 from mydailynews.pipeline.stage_artifacts import (
     STAGE_ARTIFACT_SCHEMA_VERSION,
@@ -25,7 +26,7 @@ TEMP_ROOT = REPO_ROOT / ".codex_tmp_test" / "release_tests"
 
 class ReleaseSmokeTests(unittest.TestCase):
     def _config_payload(self) -> dict:
-        return json.loads((REPO_ROOT / "config.json").read_text(encoding="utf-8-sig"))
+        return json.loads((REPO_ROOT / "config.example.json").read_text(encoding="utf-8-sig"))
 
     def _write_config_payload(self, directory: Path, payload: dict, name: str) -> Path:
         directory.mkdir(parents=True, exist_ok=True)
@@ -34,12 +35,14 @@ class ReleaseSmokeTests(unittest.TestCase):
         return path
 
     def test_config_contract_keeps_llama_cpp_only_runtime(self) -> None:
-        config = load_config(REPO_ROOT / "config.json")
+        config = load_config(REPO_ROOT / "config.example.json")
 
         self.assertEqual(config.ai_summary.backend, "llama_cpp_server")
         self.assertEqual(config.ai_final.backend, "llama_cpp_server")
-        self.assertEqual(config.ai_summary.effective_model_label, "Qwen3.5-35B-A3B-Q3_K_M")
-        self.assertEqual(config.ai_final.effective_model_label, "Qwen3.5-35B-A3B-Q3_K_M")
+        self.assertEqual(config.ai_summary.effective_model_label, "Qwen3-8B-Q4_K_M")
+        self.assertEqual(config.ai_final.effective_model_label, "Qwen3-8B-Q4_K_M")
+        self.assertEqual(config.ai_summary.context_window_tokens, 16384)
+        self.assertLessEqual(config.ai_summary.max_input_tokens + config.ai_summary.max_new_tokens, 16384)
         self.assertFalse(hasattr(config.ai_summary, "preset"))
         removed_ai_module = ".".join(("mydailynews", "ai", "client"))
         self.assertIsNone(importlib.util.find_spec(removed_ai_module))
@@ -127,6 +130,79 @@ class ReleaseSmokeTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "filtering.fill_selected_articles"):
                 load_config(filtering_path)
 
+    def test_public_config_files_do_not_include_private_runtime_values(self) -> None:
+        public_config_paths = [REPO_ROOT / "config.example.json"]
+        public_config_paths.extend(sorted((REPO_ROOT / "profiles").glob("config.*.example.json")))
+        forbidden = (
+            "D:/Project",
+            "C:/Users/User",
+            ".lmstudio",
+            "Qwen3.5",
+            "HauhauCS",
+            "Uncensored",
+            "65536",
+        )
+
+        for path in public_config_paths:
+            text = path.read_text(encoding="utf-8")
+            with self.subTest(path=str(path.relative_to(REPO_ROOT))):
+                for term in forbidden:
+                    self.assertNotIn(term, text)
+
+    def test_committed_example_profiles_parse(self) -> None:
+        paths = [REPO_ROOT / "config.example.json"]
+        paths.extend(sorted((REPO_ROOT / "profiles").glob("config.*.example.json")))
+        for path in paths:
+            with self.subTest(path=str(path.relative_to(REPO_ROOT))):
+                config = load_config(path)
+                self.assertEqual(config.ai_summary.backend, "llama_cpp_server")
+                self.assertTrue(config.general_topics)
+                self.assertTrue(config.topics_to_examine)
+                self.assertTrue(config.rss_sources)
+
+    def test_runtime_config_readiness_reports_public_setup_issues(self) -> None:
+        example_config = load_config(REPO_ROOT / "config.example.json")
+        issues = find_runtime_config_issues(example_config)
+        messages = "\n".join(issue.message for issue in issues)
+
+        self.assertIn("placeholder", messages)
+        self.assertTrue(any(issue.field == "server_executable" for issue in issues))
+        self.assertTrue(any(issue.field == "server_model_path" for issue in issues))
+
+        remote_config = load_config(REPO_ROOT / "profiles" / "config.remote-server.example.json")
+        self.assertEqual(find_runtime_config_issues(remote_config), [])
+
+    def test_runtime_config_readiness_reports_missing_files_and_context_mismatch(self) -> None:
+        payload = self._config_payload()
+        missing_model_path = TEMP_ROOT / "missing-model.gguf"
+        for section in ("ai_summary", "ai_final"):
+            payload[section]["server_executable"] = sys.executable
+            payload[section]["server_model_path"] = str(missing_model_path)
+            payload[section]["context_window_tokens"] = 1000
+            payload[section]["max_input_tokens"] = 800
+            payload[section]["max_new_tokens"] = 300
+        path = self._write_config_payload(TEMP_ROOT, payload, "runtime_issues")
+        config = load_config(path)
+
+        issues = find_runtime_config_issues(config)
+        messages = "\n".join(issue.message for issue in issues)
+
+        self.assertIn("model file does not exist", messages)
+        self.assertIn("exceeds the configured context window", messages)
+
+    def test_runtime_config_readiness_reports_unresolved_executable(self) -> None:
+        payload = self._config_payload()
+        for section in ("ai_summary", "ai_final"):
+            payload[section]["server_executable"] = "definitely-not-a-llama-server"
+            payload[section]["server_model_path"] = str(TEMP_ROOT / "missing-model.gguf")
+        path = self._write_config_payload(TEMP_ROOT, payload, "missing_executable")
+        config = load_config(path)
+
+        issues = find_runtime_config_issues(config)
+        messages = "\n".join(issue.message for issue in issues)
+
+        self.assertIn("could not resolve llama-server executable", messages)
+
     def test_removed_evaluation_release_surface_stays_removed(self) -> None:
         retired_modules = ("mydailynews.evaluation", "mydailynews.prompt_regression")
         for module_name in retired_modules:
@@ -156,6 +232,19 @@ class ReleaseSmokeTests(unittest.TestCase):
         self.assertIn("Available pipeline stages:", result.stdout)
         self.assertIn("headline_select", result.stdout)
         self.assertNotIn("Config not found", result.stdout)
+
+    def test_cli_missing_config_points_to_public_setup_flow(self) -> None:
+        result = subprocess.run(
+            [sys.executable, "-B", "main.py", "--config", "missing-for-test.json"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("copy config.example.json config.local.json", result.stdout)
+        self.assertIn("tools/autoconfig.py", result.stdout)
 
     def test_stage_options_and_artifacts_are_replay_ready(self) -> None:
         options = PipelineRunOptions.from_cli(

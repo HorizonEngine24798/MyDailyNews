@@ -1,9 +1,15 @@
 __pycache__/
 *.pyc
 *.pyc.*
+config.json
+config.local*.json
+config.recommended.json
+!config.example.json
 output/
 .venv/
 .env
 .cache
 .codex_tmp*
 .pytest_tmp/
+models/
+docs/publish_ready_plan.md

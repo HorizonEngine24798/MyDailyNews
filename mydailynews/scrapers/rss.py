@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-"""RSS scraper inspired by Horizon's RSSSource -> ContentItem normalization.
+"""RSS scraper adapted from Horizon's RSSSource -> ContentItem normalization.
 
 Horizon: https://github.com/Thysrael/Horizon
 License: MIT
+Retained notice: see project LICENSE.
 This implementation is intentionally smaller and supports bounded threadpool fetches.
 """
 
