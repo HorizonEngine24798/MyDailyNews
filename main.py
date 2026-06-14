@@ -1,8 +1,9 @@
 import argparse
 from pathlib import Path
 
-from mydailynews.config import get_ai_model_presets, load_config
-from mydailynews.pipeline_stages import ALL_STAGE_ORDER, PipelineRunOptions
+from mydailynews.app.config import load_config
+from mydailynews.pipeline.stages import ALL_STAGE_ORDER, PipelineRunOptions
+from mydailynews.diagnostics.reporting import CliReporter
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -24,18 +25,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--dump-stage-artifacts",
         action="store_true",
-        help="Write JSON checkpoints for each executed stage.",
+        help="Write replay-oriented JSON artifacts for each executed stage.",
     )
     parser.add_argument(
         "--save-intermediate",
         "--save_intermediate",
         action="store_true",
-        help="Save full intermediate stage payloads for debugging and replay tooling.",
+        help="Write stage artifacts even when the run is not stopped at a checkpoint.",
     )
     parser.add_argument(
         "--no-save-intermediate",
         action="store_true",
-        help="Disable intermediate payload saving even in stage-by-stage runs.",
+        help="Disable the --save-intermediate artifact-writing trigger.",
     )
     parser.add_argument(
         "--stage-artifact-dir",
@@ -47,45 +48,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="List available --stop-after-stage values and exit.",
     )
-    parser.add_argument(
-        "--list-model-presets",
-        action="store_true",
-        help="List built-in ai.preset options and exit.",
-    )
     return parser
-
-
-def _print_model_presets() -> None:
-    presets = get_ai_model_presets()
-    print("Available ai.preset options:")
-    for preset_name, meta in presets.items():
-        generation_ref = str(meta.get("max_generation_tokens_note") or meta["max_generation_tokens"])
-        print(f"- {preset_name}")
-        print(f"  model_id: {meta['model_id']}")
-        print(f"  parameters: {meta['parameter_count']}")
-        print(
-            f"  context_window_tokens: {meta['context_window_tokens']} "
-            f"(max_generation_tokens: {generation_ref})"
-        )
-        print(
-            f"  default_runtime_tokens: "
-            f"max_input_tokens={meta['max_input_tokens']}, max_new_tokens={meta['max_new_tokens']}"
-        )
-        print(f"  notes: {meta['notes']}")
-        print(f"  source: {meta['source']}")
-
-
-def _print_debug_analytics(orchestrator, output_dir: str) -> None:
-    analytics_path = orchestrator.debug.write_analytics_artifact(output_dir)
-    lines = orchestrator.debug.analytics_summary_lines()
-    if not lines and not analytics_path:
-        return
-    print("")
-    print("Debug Analytics:")
-    for line in lines:
-        print(f"- {line}")
-    if analytics_path:
-        print(f"Analytics JSON:       {analytics_path}")
 
 
 def main() -> int:
@@ -94,9 +57,6 @@ def main() -> int:
         print("Available pipeline stages:")
         for stage in ALL_STAGE_ORDER:
             print(f"- {stage}")
-        return 0
-    if args.list_model_presets:
-        _print_model_presets()
         return 0
 
     config_path = Path(args.config)
@@ -121,9 +81,12 @@ def main() -> int:
         print(f"Invalid run option: {exc}")
         return 1
 
-    from mydailynews.orchestrator import NewsOrchestrator
+    reporter = CliReporter(enabled=True)
+    reporter.run_start(config_path=config_path, config=config, run_options=run_options)
 
-    orchestrator = NewsOrchestrator(config, debug=args.debug)
+    from mydailynews.pipeline.orchestrator import NewsOrchestrator
+
+    orchestrator = NewsOrchestrator(config, debug=args.debug, reporter=reporter)
     result = None
     run_error: Exception | None = None
     try:
@@ -132,31 +95,36 @@ def main() -> int:
         run_error = exc
     finally:
         orchestrator.close()
-        if args.debug:
-            _print_debug_analytics(orchestrator, config.output_dir)
 
     if run_error is not None:
+        reporter.warnings(orchestrator.warnings)
+        if args.debug:
+            reporter.debug_summary(
+                debug=orchestrator.debug,
+                output_dir=config.output_dir,
+                artifact_paths=orchestrator.stage_artifact_paths,
+            )
         if isinstance(run_error, RuntimeError):
             print(f"Run failed: {run_error}")
             return 1
         raise run_error
 
     if orchestrator.stopped_after_stage:
-        print(f"Run stopped after stage: {orchestrator.stopped_after_stage}")
-    if orchestrator.stage_artifact_paths:
-        print("Stage artifacts:")
-        for path in orchestrator.stage_artifact_paths:
-            print(f"- {path}")
+        reporter.stopped(orchestrator.stopped_after_stage, orchestrator.stage_artifact_paths)
+    else:
+        reporter.stage_artifacts(orchestrator.stage_artifact_paths)
 
-    for output in result.outputs:
-        print(f"{output.name.title()} markdown brief: {output.markdown_path}")
-        print(f"{output.name.title()} JSON brief:     {output.json_path}")
-        print(f"{output.name.title()} selected {output.selected_count} articles from {output.candidate_count} candidates.")
-    if result.warnings:
-        print("")
-        print("Warnings:")
-        for warning in result.warnings:
-            print(f"- {warning}")
+    if result is None:
+        print("Run failed: no result returned.")
+        return 1
+    reporter.outputs(result)
+    reporter.warnings(result.warnings)
+    if args.debug:
+        reporter.debug_summary(
+            debug=orchestrator.debug,
+            output_dir=config.output_dir,
+            artifact_paths=orchestrator.stage_artifact_paths,
+        )
     return 0
 
 

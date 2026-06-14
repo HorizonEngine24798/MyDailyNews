@@ -123,7 +123,7 @@ Return:
       "why_it_matters": "why this topic matters for the reader now",
       "what_changed": "what is materially different versus recent baseline",
       "who_is_affected": ["affected actor/group and how"],
-      "narrative_summary": "optional compact legacy summary field",
+      "narrative_summary": "optional compact carryover summary field",
       "narrative_changes": [
         {{
           "narrative": "short label",

@@ -9,9 +9,9 @@ from urllib.parse import unquote, urlparse
 import requests
 import trafilatura
 
-from ..cache import CachedHttpClient, HTTPCache
-from ..debug import DebugLogger, safe_url
-from ..utils import normalize_whitespace
+from mydailynews.common.cache import CachedHttpClient, HTTPCache
+from mydailynews.diagnostics.debug import DebugLogger, safe_url
+from mydailynews.common.utils import normalize_whitespace
 
 
 GOOGLE_NEWS_HOST = "news.google.com"
@@ -26,7 +26,6 @@ class ArticleRetriever:
         user_agent: str,
         max_chars: int,
         http_cache: HTTPCache | None = None,
-        cache_fresh_seconds: int = 900,
         debug: DebugLogger | None = None,
     ) -> None:
         self.user_agent = user_agent
@@ -36,13 +35,8 @@ class ArticleRetriever:
         self.http = CachedHttpClient(
             user_agent=user_agent,
             cache=http_cache,
-            fresh_seconds=cache_fresh_seconds,
             debug=self.debug,
         )
-
-    def fetch_text(self, url: str) -> Tuple[str, str]:
-        text, status, _effective_url = self.fetch_text_with_url(url)
-        return text, status
 
     def fetch_text_with_url(self, url: str) -> Tuple[str, str, str]:
         self.debug.log("article.fetch", "starting", url=safe_url(url), max_chars=self.max_chars)

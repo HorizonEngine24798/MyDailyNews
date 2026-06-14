@@ -8,7 +8,6 @@ This implementation is intentionally smaller and supports bounded threadpool fet
 """
 
 import calendar
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import os
 import re
 from datetime import datetime, timezone
@@ -17,10 +16,11 @@ from typing import Any, List, Optional
 
 import feedparser
 
-from ..cache import CachedHttpClient, HTTPCache
-from ..debug import DebugLogger, safe_url
-from ..models import NewsCandidate, RSSSourceConfig
-from ..utils import normalize_url, normalize_whitespace, stable_id, strip_html
+from mydailynews.common.cache import CachedHttpClient, HTTPCache
+from mydailynews.diagnostics.debug import DebugLogger, safe_url
+from mydailynews.app.models import NewsCandidate, RSSSourceConfig
+from mydailynews.common.parallel import ordered_parallel_map
+from mydailynews.common.utils import normalize_url, normalize_whitespace, stable_id, strip_html
 
 
 class RSSScraper:
@@ -31,7 +31,7 @@ class RSSScraper:
         max_per_source: int,
         max_workers: int = 1,
         http_cache: HTTPCache | None = None,
-        cache_fresh_seconds: int = 900,
+        http_cache_mode: str = "cache_first",
         debug: DebugLogger | None = None,
     ) -> None:
         self.sources = sources
@@ -43,8 +43,8 @@ class RSSScraper:
         self.http = CachedHttpClient(
             user_agent=user_agent,
             cache=http_cache,
-            fresh_seconds=cache_fresh_seconds,
             debug=self.debug,
+            cache_mode=http_cache_mode,
         )
 
     def fetch(self, since: datetime) -> List[NewsCandidate]:
@@ -54,36 +54,27 @@ class RSSScraper:
             return []
 
         worker_count = min(self.max_workers, len(enabled_sources))
+        def handle_exception(_index: int, source: RSSSourceConfig, exc: Exception) -> List[NewsCandidate]:
+            self.errors.append(f"{source.name}: worker_exception={type(exc).__name__}")
+            self.debug.log("rss.source", "worker_exception", source=source.name, error=type(exc).__name__)
+            return []
+
+        results = ordered_parallel_map(
+            enabled_sources,
+            worker_count,
+            lambda source: self._fetch_source(source, since),
+            on_exception=handle_exception,
+        )
         items: List[NewsCandidate] = []
-        if worker_count <= 1:
-            for source in enabled_sources:
-                items.extend(self._fetch_source(source, since))
-            return items
-
-        by_index: dict[int, List[NewsCandidate]] = {}
-        with ThreadPoolExecutor(max_workers=worker_count) as executor:
-            future_map = {
-                executor.submit(self._fetch_source, source, since): index
-                for index, source in enumerate(enabled_sources)
-            }
-            for future in as_completed(future_map):
-                index = future_map[future]
-                source = enabled_sources[index]
-                try:
-                    by_index[index] = future.result()
-                except Exception as exc:
-                    self.errors.append(f"{source.name}: worker_exception={type(exc).__name__}")
-                    self.debug.log("rss.source", "worker_exception", source=source.name, error=type(exc).__name__)
-                    by_index[index] = []
-
-        for index in range(len(enabled_sources)):
-            items.extend(by_index.get(index, []))
+        for result in results:
+            items.extend(result)
         return items
 
     def _fetch_source(self, source: RSSSourceConfig, since: datetime) -> List[NewsCandidate]:
         feed_url = self._expand_env_vars(source.url)
         self.debug.log("rss.source", "fetching", source=source.name, url=safe_url(feed_url))
         response = self.http.get_text(feed_url, timeout=20, allow_redirects=True)
+        self.debug.increment(f"cache.discovery.{response.cache_state}")
         if not response.ok:
             self.errors.append(f"{source.name}: HTTP error status={response.status_code}")
             self.debug.log("rss.source", "failed", source=source.name, status=response.status_code)
@@ -99,7 +90,9 @@ class RSSScraper:
             url = normalize_url(entry.get("link", feed_url))
             title = normalize_whitespace(strip_html(entry.get("title", "Untitled")))
             snippet = self._extract_content(entry)
-            entry_key = entry.get("id") or entry.get("guid") or url or title
+            entry_id = str(entry.get("id", "") or "").strip()
+            entry_guid = str(entry.get("guid", "") or "").strip()
+            entry_key = entry_id or entry_guid or url or title
 
             candidates.append(
                 NewsCandidate(
@@ -111,7 +104,11 @@ class RSSScraper:
                     snippet=snippet,
                     published_at=published_at,
                     tags=[*source.tags, *self._entry_tags(entry)],
-                    metadata={"feed_url": feed_url},
+                    metadata={
+                        "feed_url": feed_url,
+                        "entry_id": entry_id,
+                        "entry_guid": entry_guid,
+                    },
                 )
             )
         self.debug.log(

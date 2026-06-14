@@ -5,9 +5,9 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List
 
-from ..debug import DebugLogger
-from ..models import PriorReport, PriorReportsSourceConfig
-from ..utils import normalize_whitespace, stable_id
+from mydailynews.diagnostics.debug import DebugLogger
+from mydailynews.app.models import PriorReport, PriorReportsSourceConfig
+from mydailynews.common.utils import normalize_whitespace, stable_id
 
 
 class PriorReportRetriever:

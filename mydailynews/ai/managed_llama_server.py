@@ -11,8 +11,8 @@ from urllib.parse import urlparse
 
 import requests
 
-from ..debug import DebugLogger
-from ..models import AIConfig
+from mydailynews.diagnostics.debug import DebugLogger
+from mydailynews.app.models import AIConfig
 
 
 @dataclass(frozen=True)
@@ -153,7 +153,6 @@ class ManagedLlamaServerLease:
         if not model_path.exists():
             raise RuntimeError(f"Managed llama.cpp server model path does not exist: {model_path}")
 
-        log_handle = self._open_log_locked()
         cmd = [
             self._key.executable,
             "-m",
@@ -165,11 +164,10 @@ class ManagedLlamaServerLease:
             *self._key.args,
         ]
 
-        creationflags = 0
-        if os.name == "nt" and hasattr(subprocess, "CREATE_NO_WINDOW"):
-            creationflags = int(subprocess.CREATE_NO_WINDOW)
         executable_parent = Path(self._key.executable).parent
         cwd = str(executable_parent) if executable_parent != Path(".") and executable_parent.exists() else None
+        creationflags = self._popen_creationflags()
+        log_handle = self._open_log_locked(cmd=cmd, cwd=cwd, creationflags=creationflags)
 
         try:
             process = subprocess.Popen(
@@ -278,7 +276,7 @@ class ManagedLlamaServerLease:
             self._state.spawned_by_us = False
             self._close_log_locked()
 
-    def _open_log_locked(self) -> BinaryIO:
+    def _open_log_locked(self, *, cmd: list[str], cwd: str | None, creationflags: int) -> BinaryIO:
         if self._state is None or self._key is None:
             raise RuntimeError("Managed llama.cpp server lease is not initialized.")
         self._close_log_locked()
@@ -296,6 +294,9 @@ class ManagedLlamaServerLease:
                 f"executable={self._key.executable}\n"
                 f"model={self._key.model_path}\n"
                 f"args={' '.join(self._key.args)}\n\n"
+                f"cwd={cwd or ''}\n"
+                f"creationflags={creationflags}\n"
+                f"command={' '.join(cmd)}\n\n"
             ).encode("utf-8", errors="replace")
         )
         handle.flush()
@@ -322,6 +323,13 @@ class ManagedLlamaServerLease:
     def _safe_filename(value: str) -> str:
         safe = "".join(ch if ch.isalnum() or ch in {"-", "_", "."} else "_" for ch in value.strip())
         return safe[:120] or "model"
+
+    @staticmethod
+    def _popen_creationflags() -> int:
+        # CUDA llama.cpp builds can fail before logging with 0xc0000022 when
+        # launched with CREATE_NO_WINDOW. stdout/stderr are already redirected,
+        # so the normal console launch path is the more reliable Windows mode.
+        return 0
 
     def _endpoint_is_ready(self) -> bool:
         for url in self._probe_urls():

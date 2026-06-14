@@ -4,9 +4,10 @@ import json
 from typing import List
 from urllib.parse import quote
 
-from ..cache import CachedHttpClient, HTTPCache
-from ..models import WikipediaContext
-from ..utils import normalize_whitespace
+from mydailynews.common.cache import CachedHttpClient, HTTPCache
+from mydailynews.app.models import WikipediaContext
+from mydailynews.diagnostics.debug import DebugLogger
+from mydailynews.common.utils import normalize_whitespace
 
 
 class WikipediaRetriever:
@@ -17,13 +18,14 @@ class WikipediaRetriever:
         self,
         user_agent: str,
         http_cache: HTTPCache | None = None,
-        cache_fresh_seconds: int = 900,
+        debug: DebugLogger | None = None,
     ) -> None:
         self.user_agent = user_agent
+        self.debug = debug or DebugLogger(False)
         self.http = CachedHttpClient(
             user_agent=user_agent,
             cache=http_cache,
-            fresh_seconds=cache_fresh_seconds,
+            debug=self.debug,
         )
 
     def search(self, query: str, limit: int) -> List[WikipediaContext]:
@@ -41,6 +43,12 @@ class WikipediaRetriever:
             timeout=15,
             allow_redirects=True,
         )
+        cache_metric = (
+            "cache.wikipedia.hit"
+            if response.cache_state == "fresh_cache"
+            else f"cache.wikipedia.{response.cache_state}"
+        )
+        self.debug.increment(cache_metric)
         if not response.ok:
             return []
         try:
@@ -62,6 +70,12 @@ class WikipediaRetriever:
             timeout=15,
             allow_redirects=True,
         )
+        cache_metric = (
+            "cache.wikipedia.hit"
+            if response.cache_state == "fresh_cache"
+            else f"cache.wikipedia.{response.cache_state}"
+        )
+        self.debug.increment(cache_metric)
         if not response.ok:
             return None
         try:

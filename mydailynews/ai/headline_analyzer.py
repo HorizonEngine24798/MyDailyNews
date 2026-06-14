@@ -1,22 +1,17 @@
 from __future__ import annotations
 
-import json
 import re
 from typing import Any, Dict, List
 
 from .base import AIClient, AIJsonError, write_ai_json_artifact
 from .prompts import HEADLINE_ANALYSIS_SYSTEM, HEADLINE_ANALYSIS_USER
 from .schemas import HEADLINE_ANALYSIS_JSON_SCHEMA
-from ..cache import JSONCache
-from ..debug import DebugLogger
-from ..models import HeadlineDecision, NewsCandidate, TopicConfig, UserMemory
-from ..utils import datetime_to_iso
+from mydailynews.common.cache import JSONCache
+from mydailynews.diagnostics.debug import DebugLogger
+from mydailynews.app.models import HeadlineDecision, NewsCandidate, TopicConfig, UserMemory
+from mydailynews.common.utils import compact_json, datetime_to_iso
 
 HEADLINE_DECISION_CACHE_FINGERPRINT_VERSION = 8
-
-
-def _compact_json(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
 
 class HeadlineAnalyzer:
@@ -280,7 +275,7 @@ class HeadlineAnalyzer:
             "topics": self._topics_payload(topics),
             "items": payload,
         }
-        return JSONCache.make_key(_compact_json(fingerprint))
+        return JSONCache.make_key(compact_json(fingerprint))
 
     def _single_item_replay(
         self,
@@ -381,8 +376,8 @@ class HeadlineAnalyzer:
         return HEADLINE_ANALYSIS_USER.format(
             memory=memory.to_prompt(),
             brief_goal=brief_goal,
-            topics=_compact_json(self._topics_payload(topics)),
-            items=_compact_json(payload),
+            topics=compact_json(self._topics_payload(topics)),
+            items=compact_json(payload),
         )
 
     def _build_batches(
@@ -403,7 +398,7 @@ class HeadlineAnalyzer:
         current: List[tuple[NewsCandidate, Dict[str, Any]]] = []
         current_tokens = base_tokens
         for item, payload in payloads:
-            payload_tokens = max(1, self.client.estimate_tokens(_compact_json(payload)))
+            payload_tokens = max(1, self.client.estimate_tokens(compact_json(payload)))
             if current and (len(current) >= self.batch_size or current_tokens + payload_tokens > target_input_tokens):
                 batches.append(current)
                 current = [(item, payload)]

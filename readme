@@ -1,17 +1,17 @@
 # MyDailyNews
 
-MyDailyNews is a local-first news briefing pipeline. It gathers headlines from RSS and Google News RSS queries, deduplicates and clusters them, asks a local LLM to score headline candidates, fetches/enriches selected articles, and writes daily Markdown and JSON briefs.
+MyDailyNews is a local-first news briefing pipeline nearing a 1.0 release shape. It collects headlines from RSS and Google News RSS, deduplicates and clusters them, uses a local llama.cpp model to score candidates, retrieves and enriches selected articles, then writes Markdown and JSON daily briefs.
 
-The project is optimized for a single-machine workflow with a managed llama.cpp backend. The Transformers backend still exists as an emergency fallback, but normal operation should use llama.cpp.
+The release stance is simple: llama.cpp is the only supported AI runtime. The configured model is the local Qwen3.5 35B uncensored GGUF served through llama.cpp.
 
-## What The App Produces
+## What It Produces
 
-The pipeline can generate two brief types in one run:
+One run can produce two brief types:
 
-- `general`: a broad daily briefing across the configured general topics.
-- `detailed`: a narrower, deeper briefing across the configured `topics_to_examine`.
+- `general`: a broad daily briefing across `general_topics`.
+- `detailed`: a focused briefing across `topics_to_examine`.
 
-Each completed brief writes:
+Output files are written under `output/`:
 
 ```text
 output/YYYY-MM-DD_general_brief.md
@@ -20,120 +20,196 @@ output/YYYY-MM-DD_detailed_brief.md
 output/YYYY-MM-DD_detailed_brief.json
 ```
 
-Debug runs also write analytics and backend diagnostics under `output/diagnostics/`.
+Diagnostics and stage artifacts, when enabled, are written under `output/diagnostics/`.
 
-## High-Level Pipeline
+## Quick Start
+
+Install the Python dependencies:
+
+```powershell
+python -m pip install -r requirements.txt
+```
+
+Review `config.json`, especially:
+
+- `ai_summary` and `ai_final` for llama.cpp server settings and role-specific token limits.
+- `general_topics` and `topics_to_examine` for what the brief should cover.
+- `sources` for RSS feeds, Google News settings, and prior-report lookup.
+- `general_filtering` and `filtering` for candidate limits, score cutoffs, and selection rules.
+
+Run the pipeline:
+
+```powershell
+python main.py --config config.json
+```
+
+Useful CLI options:
+
+```powershell
+python main.py --config config.json --brief general
+python main.py --config config.json --brief detailed
+python main.py --config config.json --no-enrichment
+python main.py --config config.json --debug
+python main.py --list-stages
+```
+
+Stage-oriented runs:
+
+```powershell
+python main.py --config config.json --brief general --stop-after-stage headline_select
+python main.py --config config.json --brief general --stop-after-stage article_fetch --dump-stage-artifacts
+python main.py --config config.json --brief detailed --save-intermediate
+```
+
+`--stop-after-stage` is a global run stop, not a per-brief selector. Pipeline-level
+stages such as `prior_reports`, `snapshot`, and `shared_headline_scoring` run once.
+Brief-level stages run in brief order (`general` before `detailed` when
+`--brief both` is used), and the first selected brief to reach the requested
+stage stops the whole run. For targeted replay of a brief-stage checkpoint, use
+`--brief general` or `--brief detailed` with `--stop-after-stage`.
+
+## AI Runtime
+
+Supported backend:
+
+```json
+{
+  "backend": "llama_cpp_server"
+}
+```
+
+The managed llama.cpp server path is configured in both `ai_summary` and `ai_final`:
+
+```json
+{
+  "backend": "llama_cpp_server",
+  "base_url": "http://127.0.0.1:8080/v1",
+  "server_model": "Qwen3.5-35B-A3B-Q3_K_M",
+  "manage_server": true,
+  "server_executable": "llama-server",
+  "server_model_path": "models/Qwen3.5-35B-A3B-Uncensored-HauhauCS-Aggressive-Q3_K_M.gguf",
+  "server_arguments": ["--no-webui", "--reasoning", "off", "-ngl", "all", "-c", "65536", "-np", "1"],
+  "server_log_dir": "output/diagnostics/llama_server"
+}
+```
+
+Notes:
+
+- The duplicated managed-server fields in `ai_summary` and `ai_final` are intentional. The default config points both roles at the same local llama.cpp server while keeping separate knobs for headline/analysis work and final synthesis.
+- `server_model_path` is the actual GGUF model loaded by llama.cpp.
+- `server_model` is the model label sent to the OpenAI-compatible endpoint.
+- When `manage_server=true`, `server_executable` and `server_model_path` must be present.
+- If `server_executable` points to `llama-cli`, the manager resolves a sibling `llama-server` when present.
+- Keep `max_input_tokens + max_new_tokens` within the llama.cpp `-c` context size.
+- `server_auto_stop` controls whether a managed server is stopped after the app releases its lease.
+
+## Pipeline
 
 ```text
 config.json
+-> fetch prior reports
 -> fetch RSS headlines
 -> fetch Google News RSS topic headlines
--> merge URL duplicates
+-> merge duplicate URLs
 -> dedupe similar titles
 -> annotate event clusters
--> limit candidates for LLM scoring, unless configured as "all"
--> score headlines with local LLM
--> deterministically select articles from scores
--> fetch selected article text
--> enrich thin/selected stories with related context
+-> limit headline candidates
+-> score candidates with local llama.cpp
+-> select articles deterministically
+-> fetch article text
+-> enrich selected stories with recent context and Wikipedia
 -> optionally distill evidence
--> optionally extract deltas from prior reports
--> generate final brief JSON with local LLM
--> normalize and write Markdown + JSON outputs
+-> optionally extract narrative deltas
+-> generate final brief JSON with local llama.cpp
+-> normalize and write Markdown + JSON
 ```
 
-The LLM does not directly control the whole pipeline. It scores headline candidates and writes synthesis outputs. Candidate limiting, final article selection, diversity caps, fallback scaffolds, output paths, and diagnostics are deterministic Python code.
+The LLM is not the pipeline controller. Python code owns source fetching, dedupe, candidate limiting, selection caps, fallback scaffolds, artifact paths, output normalization, and diagnostics. The model scores headline candidates and performs synthesis inside constrained JSON interfaces.
 
 ## Repository Map
 
 ```text
 main.py
-  CLI entrypoint. Loads config, builds run options, starts the orchestrator, prints outputs and debug analytics.
+  CLI entrypoint and final run summary.
 
 config.json
-  Live runtime configuration. This is now the canonical local config; there is no config.example.json.
+  The maintained project configuration.
 
-mydailynews/orchestrator.py
-  Top-level pipeline coordinator. Owns shared snapshots, shared headline scoring, brief execution, output writing, and client cleanup.
+mydailynews/app/
+  Config loading, validation, and shared dataclass models.
 
-mydailynews/brief_execution.py
-  Executes one brief mode. Wires candidate prep, headline limiting/scoring, selection, article fetch, enrichment, optional analysis, final synthesis, and diagnostics.
+mydailynews/pipeline/
+  Top-level orchestration, stage execution, snapshot/scoring reuse, stage artifacts, and run options.
 
-mydailynews/headline_selection.py
-  Deterministic headline preprocessing and selection: title dedupe, event clusters, heuristic pre-ranking, profile-aware ranking, source/cluster caps, and selection reason codes.
+mydailynews/analysis/
+  Evidence distillation, delta extraction, rollout profiles, and deterministic delta fallback packets.
 
-mydailynews/ai/headline_analyzer.py
-  LLM headline scoring. Batches candidate prompts, parses JSON decisions, handles repair/replay behavior, and records scoring diagnostics.
+mydailynews/briefing/
+  Final brief generation, output rendering, and final prompt budget pruning.
 
-mydailynews/brief.py
-  Final brief generation. Builds the final prompt, validates required JSON keys, normalizes the response, and renders Markdown-facing structures.
+mydailynews/domain/
+  Candidate annotations, event clusters, headline selection, ranking, caps, and reason codes.
 
-mydailynews/analysis_pipeline.py
-  Optional evidence distillation and delta extraction stages. These enrich the final synthesis prompt with claims, known unknowns, watch signals, and prior-report deltas.
+mydailynews/common/
+  Small shared utilities for cache, JSON/time helpers, boolean parsing, warning handling, and ordered parallelism.
 
-mydailynews/article_pipeline.py
-  Selected article retrieval stage wrapper.
-
-mydailynews/enrichment.py
-  Context enrichment from related recent headlines and Wikipedia.
-
-mydailynews/retrieval/
-  Google News and related retrieval helpers.
-
-mydailynews/scrapers/
-  RSS and article text extraction helpers.
+mydailynews/diagnostics/
+  Structured debug event output, analytics artifact generation, and CLI reporting.
 
 mydailynews/ai/llama_cpp_server_client.py
-  OpenAI-compatible client for llama.cpp server.
+  OpenAI-compatible llama.cpp client with JSON parsing, retry, prompt fitting, and diagnostics.
 
 mydailynews/ai/managed_llama_server.py
-  Managed llama-server lifecycle: spawn, readiness probe, log capture, reference counting, and shutdown.
+  Managed llama-server lifecycle with reference-counted leases, readiness probes, logs, and shutdown.
 
-mydailynews/ai/transformers_client.py
-  Legacy in-process Hugging Face backend. Kept only as fallback/escape hatch.
+mydailynews/ai/headline_analyzer.py
+  Headline scoring prompts, batching, response parsing, repair/replay behavior, and scoring diagnostics.
 
-mydailynews/config.py
-  Config loader, defaults, validation, and normalization.
+mydailynews/briefing/generator.py
+  Final brief prompt building, response normalization, warning generation, and output structures.
 
-mydailynews/models.py
-  Dataclasses used across the pipeline.
+mydailynews/analysis/evidence.py
+  Optional evidence distillation stage.
 
-mydailynews/debug.py
-  Structured debug logging and analytics artifact generation.
+mydailynews/analysis/delta.py
+  Optional delta extraction stage.
+
+mydailynews/retrieval/
+  Google News, article text, past-news, prior-report, and Wikipedia retrieval helpers.
+
+mydailynews/scrapers/
+  RSS feed scraping.
 
 tests/
-  Unit tests for pipeline behavior, config parsing, selection, prompt artifacts, and backend wrappers.
-
-tools/
-  Utility scripts for staged runs, prompt checks, sweeps, and release-quality helpers.
-
-docs/
-  Historical implementation plans and design notes.
+  Maintained smoke tests and focused unit checks.
 ```
 
 ## Configuration Model
 
-`config.json` is the primary control surface. Important sections:
+The main config sections are:
 
-- `ai_summary`: LLM client used for headline scoring and some analysis stages.
-- `ai_final`: LLM client used for final brief synthesis.
+- `ai_summary`: llama.cpp client used for headline scoring and summary-role analysis stages.
+- `ai_final`: llama.cpp client used for final brief synthesis and final-role analysis stages.
 - `general_topics`: broad-topic query definitions for the general brief.
 - `topics_to_examine`: focused-topic query definitions for the detailed brief.
-- `general_filtering`: candidate/scoring/selection settings for the general brief.
-- `filtering`: candidate/scoring/selection settings for the detailed brief.
-- `user_memory`: profile and preference signals used in prompts and deterministic ranking.
-- `sources`: RSS feeds, Google News settings, and prior-report lookup settings.
+- `general_filtering`: candidate, scoring, selection, and article limits for the general brief.
+- `filtering`: the same control surface for the detailed brief.
+- `user_memory`: reader profile, source preferences, beats, avoided classes, and briefing style.
+- `sources`: RSS feeds, Google News RSS options, and prior-report lookup.
 - `analysis`: optional evidence/delta stage rollout settings.
 - `runtime`: local worker counts and shared snapshot behavior.
 - `cache`: HTTP and synthesis cache settings.
 
-### Candidate And Selection Limits
+Runtime environment values include `server_executable`, `server_model_path`, `base_url`, worker counts, output paths, and cache paths. Product policy values include topics, source lists, user-memory preferences, scoring thresholds, selection limits, enrichment settings, and analysis rollout settings.
 
-`max_candidates_for_ai` controls how many post-dedupe headline candidates are sent to LLM scoring.
+Cache behavior is purpose-specific:
 
-`max_selected_articles` controls the hard cap on selected articles after scoring.
+- RSS feeds and Google News RSS discovery use `cache.discovery_mode`, which defaults to `network_first`. Normal runs fetch live discovery results and only use cached discovery responses as a fallback when the network request fails.
+- Selected full articles are cached as extracted article text under `json/article_text` and alias records under `json/article_aliases`, with `article_text_retention_days` defaulting to 3 days.
+- Past-news enrichment and Wikipedia HTTP responses use separate cache namespaces with longer retention, controlled by `enrichment_retention_days` and `wikipedia_retention_days`.
+- `http_retention_days` is still accepted for backward compatibility and currently controls pruning of discovery fallback HTTP records.
 
-Both fields support either an integer or an unbounded value:
+Limit fields such as `max_candidates_for_ai` and `max_selected_articles` accept either an integer or an unbounded value:
 
 ```json
 {
@@ -146,137 +222,90 @@ Accepted unbounded values are `"all"`, `"unlimited"`, `"unbounded"`, `"any"`, `"
 
 Important behavior:
 
-- `"all"` for `max_candidates_for_ai` means score every candidate remaining after URL/title dedupe and heuristic sanity filtering.
-- `"all"` for `max_selected_articles` removes only the hard article-count cap.
+- Unbounded candidate scoring still runs after URL/title dedupe and heuristic sanity filtering.
+- Unbounded article selection removes only the hard count cap.
 - Score cutoffs, topic caps, source caps, cluster caps, novelty floors, and duplicate rules can still prevent selection.
-- `0` still means select/score nothing, which is useful for debugging or disabling a path.
-
-## AI Backend
-
-Recommended backend mode:
-
-```json
-{
-  "backend": "llama_cpp_server"
-}
-```
-
-Supported modes:
-
-- `llama_cpp_server`: use llama.cpp only. This is the preferred mode for normal local runs.
-- `auto`: use llama.cpp first, lazily fall back to Transformers if llama.cpp startup or HTTP transport fails.
-- `transformers`: legacy in-process Hugging Face backend.
-
-The llama.cpp path can manage the server automatically:
-
-```json
-{
-  "manage_server": true,
-  "server_executable": "D:/Project/llama-b9544-bin-win-cuda-12.4-x64/llama-cli.exe",
-  "server_model_path": "C:/Users/User/.lmstudio/models/.../model.gguf",
-  "server_arguments": ["--no-webui", "--reasoning", "off", "-ngl", "all", "-c", "49152", "-np", "1"],
-  "server_log_dir": "output/diagnostics/llama_server"
-}
-```
-
-Notes:
-
-- If `server_executable` points to `llama-cli.exe`, the manager resolves the sibling `llama-server.exe` automatically.
-- `server_log_dir` captures llama-server stdout/stderr. Check the newest log for CUDA initialization, layer offload, context allocation, and startup failures.
-- `-ngl all` asks llama.cpp to offload all possible layers.
-- `-np 1` avoids allocating multiple large context slots for this mostly serial local pipeline.
-- Keep `max_input_tokens + max_new_tokens` within the llama.cpp `-c` context size.
-
-## Running The Pipeline
-
-From the repo root:
-
-```powershell
-python main.py --config config.json
-```
-
-Common debug commands:
-
-```powershell
-python main.py --config config.json --debug
-python main.py --config config.json --brief general --debug
-python main.py --config config.json --brief detailed --debug
-python main.py --config config.json --no-enrichment --debug
-```
-
-Stage debugging:
-
-```powershell
-python main.py --list-stages
-python main.py --config config.json --brief general --stop-after-stage headline_select --debug
-python main.py --config config.json --brief general --stop-after-stage article_fetch --dump-stage-artifacts --debug
-```
-
-Listing model presets:
-
-```powershell
-python main.py --list-model-presets
-```
+- `0` still means score or select nothing, which is useful for targeted testing.
 
 ## Diagnostics
 
-Debug runs print a compact analytics summary and write a JSON artifact:
+Normal runs print only final output paths, selected/candidate counts, stop-stage information, stage artifact paths, and warnings.
+
+`--debug` enables structured progress events and a compact analytics summary. Analytics are also written here:
 
 ```text
 output/diagnostics/analytics/YYYYMMDD_HHMMSS_debug_analytics.json
 ```
 
-Managed llama.cpp launches write logs here:
+Managed llama.cpp logs are written here:
 
 ```text
 output/diagnostics/llama_server/YYYYMMDD_HHMMSS_llama_server_*.log
 ```
 
-Useful analytics fields:
+Stage artifacts are written when `--stop-after-stage`, `--dump-stage-artifacts`, or `--save-intermediate` is used:
 
-- `snapshot raw/rss/topic/unique`: how many headlines entered the run.
-- `limited`: how many candidates were sent to LLM scoring.
-- `decisions`: how many LLM scoring decisions were parsed.
-- `selected`: how many articles the deterministic selector kept.
-- `dropped_prefilter`: candidates removed before LLM scoring.
-- `dropped_scoring`: scored candidates missing decisions.
-- `dropped_selection`: candidates scored but not selected.
-- `article_fetch ok/short_text/failed`: quality of extracted full article text.
-- `ai[...] input_tokens/output_tokens`: estimated LLM usage by stage.
+```text
+output/diagnostics/stages/YYYYMMDD_HHMMSS/<brief>/<stage>.json
+```
+
+Each stage artifact uses the replay-oriented artifact schema: `summary` records what happened, and `next_stage_input` records the data required by the following stage. Dates can still be supplied by the caller at replay time.
+
+Useful debug counters include:
+
+- Snapshot counts: raw, RSS, topic, unique, and duplicate drop counts.
+- Candidate funnel counts: unique, limited, decisions, selected.
+- Selection reason counts: selected and skipped reason codes.
+- Article fetch quality: ok, short_text, failed.
+- Cache behavior: discovery network/fallback counts, article text hits/misses/stores/prunes, and enrichment/Wikipedia cache/network counts.
+- Enrichment counts: needed, skipped, context sources.
+- AI usage estimates: request counts, input tokens, output tokens, invalid JSON, transport errors.
+- Stage timings: snapshot, scoring, article fetch, enrichment, analysis, final brief, and output writing.
 
 ## Selection Model
 
 Headline selection is hybrid:
 
-- The LLM scores candidates and can provide multifactor fields such as impact, novelty, urgency, actionability, confidence, and relevance.
-- Python code ranks and selects using the configured cutoff, composite ranking settings, user-memory profile signals, source caps, cluster caps, topic caps, and duplicate checks.
-- Selection reason codes are recorded for diagnostics, such as `selected_high_score`, `selected_cluster_diversity`, `skipped_below_cutoff`, `skipped_capacity`, `skipped_source_cap`, and `skipped_cluster_cap`.
+- The model scores each candidate and may provide multifactor fields such as impact, novelty, urgency, actionability, confidence, relevance, and reason.
+- Deterministic code ranks and selects using configured cutoffs, composite ranking settings, source caps, topic caps, cluster caps, user-memory preferences, and duplicate checks.
+- Selection reason codes are recorded on decisions and output metadata.
 
-This means changing `max_selected_articles` changes the hard count cap, but changing `headline_score_cutoff` changes what the system considers worth selecting.
+Common reason codes include:
+
+```text
+selected_high_score
+selected_high_composite
+selected_cluster_diversity
+skipped_below_cutoff
+skipped_capacity
+skipped_source_cap
+skipped_cluster_cap
+skipped_topic_cap
+skipped_low_novelty
+skipped_duplicate
+skipped_final_budget
+```
+
+## Release Checks
+
+Run the maintained smoke suite:
+
+```powershell
+python -B -m unittest discover -s tests
+python -B main.py --list-stages
+```
+
+The suite is intentionally small. It checks the real config contract, the lightweight CLI discovery path, rollout resolution, and replay-oriented stage options/artifacts without starting llama.cpp or fetching the network.
+
+Historical evaluation and prompt-regression harnesses are not part of the maintained release surface. Current release checks are the smoke tests above plus targeted tests added with new runtime behavior.
 
 ## Current Known Tradeoffs
 
-- Many publisher/article URLs return `short_text` because they are Google News redirect wrappers, JavaScript-heavy pages, paywalled pages, or pages that `trafilatura` cannot extract cleanly.
-- Larger candidate batches are faster with llama.cpp but can make JSON recovery harder if the model truncates or wanders.
-- Unbounded selection is useful for exploration, but final briefs may become long or noisy if score cutoffs are too low.
-- Evidence and delta stages add quality but also add latency and prompt pressure.
-
-## Development Notes
-
-Run tests:
-
-```powershell
-python -B -m unittest tests.test_pipeline_basics
-```
-
-Useful local checks:
-
-```powershell
-python -B -c "from pathlib import Path; from mydailynews.config import load_config; print(load_config(Path('config.json')).general_filtering.max_candidates_for_ai)"
-python -B -c "import sys, mydailynews.ai; print('torch' in sys.modules, 'transformers' in sys.modules)"
-```
-
-The test suite uses an in-test config fixture. It does not depend on `config.example.json`.
+- Article extraction can return `short_text` for Google News wrappers, paywalls, JavaScript-heavy pages, or pages that `trafilatura` cannot extract cleanly.
+- Larger candidate batches are faster with llama.cpp but increase JSON recovery risk if the model truncates or drifts.
+- Evidence and delta stages can improve synthesis quality but add latency and prompt pressure.
+- Config is powerful: `config.json` is the single maintained configuration file, so keep it intentional.
+- Debug output is functional but needs a 1.0 pass to separate normal CLI progress, structured debug events, analytics, and deep replay artifacts.
 
 ## Attribution
 

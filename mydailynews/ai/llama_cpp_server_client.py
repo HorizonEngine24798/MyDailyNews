@@ -5,9 +5,9 @@ from typing import Any, Dict, Optional, Tuple
 
 import requests
 
-from ..debug import DebugLogger
-from ..models import AIConfig
-from ..utils import safe_json_load
+from mydailynews.diagnostics.debug import DebugLogger
+from mydailynews.app.models import AIConfig
+from mydailynews.common.utils import safe_json_load
 from .base import AIClient, AIJsonError, AITransportError, JSONSchemaSpec, write_ai_json_artifact, write_ai_text_artifact
 from .managed_llama_server import ManagedLlamaServerLease
 

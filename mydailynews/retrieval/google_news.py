@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from threading import Lock
 from typing import List
@@ -8,11 +7,12 @@ from urllib.parse import quote_plus
 
 import feedparser
 
-from ..cache import CachedHttpClient, HTTPCache
-from ..debug import DebugLogger, safe_url
-from ..models import GoogleNewsSourceConfig, NewsCandidate, TopicConfig
-from ..scrapers.rss import RSSScraper
-from ..utils import normalize_url, normalize_whitespace, stable_id, strip_html
+from mydailynews.common.cache import CachedHttpClient, HTTPCache
+from mydailynews.diagnostics.debug import DebugLogger, safe_url
+from mydailynews.app.models import GoogleNewsSourceConfig, NewsCandidate, TopicConfig
+from mydailynews.common.parallel import ordered_parallel_map
+from mydailynews.scrapers.rss import RSSScraper
+from mydailynews.common.utils import normalize_url, normalize_whitespace, stable_id, strip_html
 
 
 class GoogleNewsQueryRetriever:
@@ -24,7 +24,7 @@ class GoogleNewsQueryRetriever:
         user_agent: str,
         max_workers: int = 1,
         http_cache: HTTPCache | None = None,
-        cache_fresh_seconds: int = 900,
+        http_cache_mode: str = "cache_first",
         debug: DebugLogger | None = None,
     ) -> None:
         self.config = config
@@ -36,8 +36,8 @@ class GoogleNewsQueryRetriever:
         self.http = CachedHttpClient(
             user_agent=user_agent,
             cache=http_cache,
-            fresh_seconds=cache_fresh_seconds,
             debug=self.debug,
+            cache_mode=http_cache_mode,
         )
 
     def fetch(self, topics: List[TopicConfig], since: datetime) -> List[NewsCandidate]:
@@ -51,30 +51,20 @@ class GoogleNewsQueryRetriever:
             return []
 
         worker_count = min(self.max_workers, len(enabled_topics))
+        def handle_exception(_index: int, topic: TopicConfig, exc: Exception) -> List[NewsCandidate]:
+            self._push_error(f"{topic.name}: worker_exception={type(exc).__name__}")
+            self.debug.log("google_news.topic", "worker_exception", topic=topic.name, error=type(exc).__name__)
+            return []
+
+        results = ordered_parallel_map(
+            enabled_topics,
+            worker_count,
+            lambda topic: self._fetch_topic(topic, since),
+            on_exception=handle_exception,
+        )
         candidates: List[NewsCandidate] = []
-        if worker_count <= 1:
-            for topic in enabled_topics:
-                candidates.extend(self._fetch_topic(topic, since))
-            return candidates
-
-        by_index: dict[int, List[NewsCandidate]] = {}
-        with ThreadPoolExecutor(max_workers=worker_count) as executor:
-            future_map = {
-                executor.submit(self._fetch_topic, topic, since): index
-                for index, topic in enumerate(enabled_topics)
-            }
-            for future in as_completed(future_map):
-                index = future_map[future]
-                topic = enabled_topics[index]
-                try:
-                    by_index[index] = future.result()
-                except Exception as exc:
-                    self._push_error(f"{topic.name}: worker_exception={type(exc).__name__}")
-                    self.debug.log("google_news.topic", "worker_exception", topic=topic.name, error=type(exc).__name__)
-                    by_index[index] = []
-
-        for index in range(len(enabled_topics)):
-            candidates.extend(by_index.get(index, []))
+        for result in results:
+            candidates.extend(result)
         return candidates
 
     def _fetch_topic(self, topic: TopicConfig, since: datetime) -> List[NewsCandidate]:
@@ -124,6 +114,7 @@ class GoogleNewsQueryRetriever:
         )
         self.debug.log("google_news.query", "fetching", topic=topic.name, query=query, url=safe_url(rss_url))
         response = self.http.get_text(rss_url, timeout=20, allow_redirects=True)
+        self.debug.increment(f"cache.discovery.{response.cache_state}")
         if not response.ok:
             self._push_error(f"{topic.name}: HTTP error status={response.status_code}")
             self.debug.log("google_news.query", "failed", topic=topic.name, status=response.status_code)
@@ -147,7 +138,9 @@ class GoogleNewsQueryRetriever:
             title = normalize_whitespace(strip_html(entry.get("title", "Untitled")))
             source = self._entry_source(entry) or f"Google News: {topic.name}"
             snippet = strip_html(entry.get("summary", "") or entry.get("description", ""))
-            entry_key = entry.get("id") or entry.get("guid") or url or title
+            entry_id = str(entry.get("id", "") or "").strip()
+            entry_guid = str(entry.get("guid", "") or "").strip()
+            entry_key = entry_id or entry_guid or url or title
             candidates.append(
                 NewsCandidate(
                     id=stable_id("google_news", topic.name, query, entry_key),
@@ -164,6 +157,10 @@ class GoogleNewsQueryRetriever:
                         "topic_description": topic.description,
                         "query": query,
                         "feed_url": rss_url,
+                        "entry_id": entry_id,
+                        "entry_guid": entry_guid,
+                        "google_news_entry_id": entry_id,
+                        "google_news_guid": entry_guid,
                     },
                 )
             )

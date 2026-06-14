@@ -6,10 +6,11 @@ from urllib.parse import quote_plus
 
 import feedparser
 
-from ..cache import CachedHttpClient, HTTPCache
-from ..models import PastNewsContext
-from ..scrapers.rss import RSSScraper
-from ..utils import normalize_url, strip_html
+from mydailynews.common.cache import CachedHttpClient, HTTPCache
+from mydailynews.app.models import PastNewsContext
+from mydailynews.diagnostics.debug import DebugLogger
+from mydailynews.scrapers.rss import RSSScraper
+from mydailynews.common.utils import normalize_url, strip_html
 
 
 class PastNewsRetriever:
@@ -17,13 +18,14 @@ class PastNewsRetriever:
         self,
         user_agent: str,
         http_cache: HTTPCache | None = None,
-        cache_fresh_seconds: int = 900,
+        debug: DebugLogger | None = None,
     ) -> None:
         self.user_agent = user_agent
+        self.debug = debug or DebugLogger(False)
         self.http = CachedHttpClient(
             user_agent=user_agent,
             cache=http_cache,
-            fresh_seconds=cache_fresh_seconds,
+            debug=self.debug,
         )
 
     def search(self, query: str, days: int, limit: int, exclude_url: str = "") -> List[PastNewsContext]:
@@ -35,6 +37,12 @@ class PastNewsRetriever:
             f"q={quote_plus(query + ' when:' + str(days) + 'd')}&hl=en-US&gl=US&ceid=US:en"
         )
         response = self.http.get_text(rss_url, timeout=20, allow_redirects=True)
+        cache_metric = (
+            "cache.enrichment.hit"
+            if response.cache_state == "fresh_cache"
+            else f"cache.enrichment.{response.cache_state}"
+        )
+        self.debug.increment(cache_metric)
         if not response.ok:
             return []
 

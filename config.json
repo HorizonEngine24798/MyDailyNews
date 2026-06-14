@@ -3,7 +3,6 @@
   "user_agent": "MyDailyNews/0.4 (+local personal dual news brief)",
   "ai_summary": {
     "backend": "llama_cpp_server",
-    "preset": "qwen3-1.7b",
     "base_url": "http://127.0.0.1:8080/v1",
     "server_model": "Qwen3.5-35B-A3B-Q3_K_M",
     "max_input_tokens": 40960,
@@ -32,7 +31,6 @@
   },
   "ai_final": {
     "backend": "llama_cpp_server",
-    "preset": "qwen3-8b",
     "base_url": "http://127.0.0.1:8080/v1",
     "server_model": "Qwen3.5-35B-A3B-Q3_K_M",
     "max_input_tokens": 40960,
@@ -282,7 +280,11 @@
   "cache": {
     "enabled": true,
     "dir": ".cache/mydailynews",
-    "http_fresh_seconds": 900,
+    "discovery_mode": "network_first",
+    "article_text_retention_days": 3,
+    "enrichment_retention_days": 30,
+    "wikipedia_retention_days": 30,
+    "http_retention_days": 7,
     "ai_enabled": true,
     "synth_fresh_seconds": 604800
   },
