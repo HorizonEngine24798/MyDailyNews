@@ -52,7 +52,9 @@ class ReleaseSmokeTests(unittest.TestCase):
         self.assertEqual(config.cache.discovery_mode, "network_first")
         self.assertEqual(config.cache.article_text_retention_days, 3)
         self.assertEqual(config.cache.enrichment_retention_days, 30)
-        self.assertEqual(config.cache.wikipedia_retention_days, 30)
+        self.assertFalse(config.enrichment.enabled)
+        self.assertTrue(config.narrative_briefing.enabled)
+        self.assertEqual(config.narrative_briefing.target_words, 1800)
 
         with self.subTest("summary and final share managed llama runtime"):
             shared_runtime_fields = (
@@ -80,7 +82,6 @@ class ReleaseSmokeTests(unittest.TestCase):
                 "discovery_mode",
                 "article_text_retention_days",
                 "enrichment_retention_days",
-                "wikipedia_retention_days",
             ):
                 legacy_cache_payload["cache"].pop(key, None)
             legacy_cache_payload["cache"]["http_retention_days"] = 7
@@ -89,13 +90,41 @@ class ReleaseSmokeTests(unittest.TestCase):
             self.assertEqual(legacy_config.cache.discovery_mode, "network_first")
             self.assertEqual(legacy_config.cache.article_text_retention_days, 3)
             self.assertEqual(legacy_config.cache.enrichment_retention_days, 30)
-            self.assertEqual(legacy_config.cache.wikipedia_retention_days, 30)
 
-        with self.subTest("removed ai preset"):
+        with self.subTest("removed simple enrichment config"):
+            simple_enrichment_payload = deepcopy(payload)
+            simple_enrichment_payload["enrichment"]["mode"] = "simple"
+            simple_enrichment_path = self._write_config_payload(
+                TEMP_ROOT,
+                simple_enrichment_payload,
+                "simple_enrichment_mode",
+            )
+            with self.assertRaisesRegex(ValueError, "enrichment.mode must be one of: story_llm, disabled"):
+                load_config(simple_enrichment_path)
+
+        with self.subTest("unrecognized enrichment keys"):
+            old_enrichment_payload = deepcopy(payload)
+            old_enrichment_payload["enrichment"]["past_news_days"] = 30
+            old_enrichment_path = self._write_config_payload(
+                TEMP_ROOT,
+                old_enrichment_payload,
+                "old_enrichment_key",
+            )
+            with self.assertRaisesRegex(ValueError, r"Config section enrichment has unrecognized key\(s\): past_news_days"):
+                load_config(old_enrichment_path)
+
+        with self.subTest("unrecognized cache key"):
+            old_cache_payload = deepcopy(payload)
+            old_cache_payload["cache"]["wikipedia_retention_days"] = 30
+            old_cache_path = self._write_config_payload(TEMP_ROOT, old_cache_payload, "old_wikipedia_cache_key")
+            with self.assertRaisesRegex(ValueError, r"Config section cache has unrecognized key\(s\): wikipedia_retention_days"):
+                load_config(old_cache_path)
+
+        with self.subTest("unrecognized ai preset"):
             preset_payload = deepcopy(payload)
             preset_payload["ai_summary"]["preset"] = "qwen3-8b"
             preset_path = self._write_config_payload(TEMP_ROOT, preset_payload, "preset")
-            with self.assertRaisesRegex(ValueError, "ai_summary.preset is no longer supported"):
+            with self.assertRaisesRegex(ValueError, r"Config section ai_summary has unrecognized key\(s\): preset"):
                 load_config(preset_path)
 
         with self.subTest("removed backend aliases"):
@@ -148,6 +177,11 @@ class ReleaseSmokeTests(unittest.TestCase):
             with self.subTest(path=str(path.relative_to(REPO_ROOT))):
                 for term in forbidden:
                     self.assertNotIn(term, text)
+
+    def test_release_docs_do_not_reference_missing_revamp_files(self) -> None:
+        self.assertTrue((REPO_ROOT / "docs" / "shared_story_grouping_plan.md").exists())
+        readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertNotIn("docs/tts_integration_plan.md", readme)
 
     def test_committed_example_profiles_parse(self) -> None:
         paths = [REPO_ROOT / "config.example.json"]
@@ -203,6 +237,20 @@ class ReleaseSmokeTests(unittest.TestCase):
 
         self.assertIn("could not resolve llama-server executable", messages)
 
+    def test_runtime_config_readiness_accepts_absolute_executable_paths(self) -> None:
+        payload = self._config_payload()
+        model_path = TEMP_ROOT / "dummy-model.gguf"
+        model_path.parent.mkdir(parents=True, exist_ok=True)
+        model_path.write_text("dummy", encoding="utf-8")
+        executable = Path(sys.executable).resolve().as_posix()
+        for section in ("ai_summary", "ai_final"):
+            payload[section]["server_executable"] = executable
+            payload[section]["server_model_path"] = str(model_path)
+        path = self._write_config_payload(TEMP_ROOT, payload, "absolute_executable")
+        config = load_config(path)
+
+        self.assertEqual(find_runtime_config_issues(config), [])
+
     def test_removed_evaluation_release_surface_stays_removed(self) -> None:
         retired_modules = ("mydailynews.evaluation", "mydailynews.prompt_regression")
         for module_name in retired_modules:
@@ -231,6 +279,8 @@ class ReleaseSmokeTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Available pipeline stages:", result.stdout)
         self.assertIn("headline_select", result.stdout)
+        self.assertIn("story_grouping", result.stdout)
+        self.assertIn("narrative_brief", result.stdout)
         self.assertNotIn("Config not found", result.stdout)
 
     def test_cli_missing_config_points_to_public_setup_flow(self) -> None:

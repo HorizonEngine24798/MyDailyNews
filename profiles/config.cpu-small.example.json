@@ -98,17 +98,20 @@
     "article_text_max_chars": 2500
   },
   "enrichment": {
-    "enabled": true,
-    "past_news_days": 14,
-    "max_past_news_results": 2,
-    "max_wikipedia_results": 2,
-    "max_entities": 3,
-    "max_context_chars_per_article": 900
+    "enabled": false,
+    "mode": "story_llm",
+    "max_story_threads": 5,
+    "planner_max_questions_per_story": 3,
+    "search_results_per_query": 8,
+    "max_fetched_research_pages_per_story": 2,
+    "max_selected_article_excerpt_chars": 1800,
+    "max_research_excerpt_chars": 1200,
+    "cache_ttl_seconds": 604800,
+    "max_context_chars_per_article": 1600
   },
   "runtime": {
     "max_http_workers": 1,
     "max_article_workers": 1,
-    "max_enrichment_workers": 1,
     "use_shared_snapshot": true
   },
   "analysis": {
@@ -162,7 +165,6 @@
     "discovery_mode": "network_first",
     "article_text_retention_days": 3,
     "enrichment_retention_days": 30,
-    "wikipedia_retention_days": 30,
     "http_retention_days": 7,
     "ai_enabled": true,
     "synth_fresh_seconds": 604800

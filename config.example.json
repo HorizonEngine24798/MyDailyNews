@@ -209,18 +209,28 @@
     "article_text_max_chars": 5000
   },
   "enrichment": {
-    "enabled": true,
-    "past_news_days": 30,
-    "max_past_news_results": 4,
-    "max_wikipedia_results": 3,
-    "max_entities": 4,
-    "max_context_chars_per_article": 1600
+    "enabled": false,
+    "mode": "story_llm",
+    "max_story_threads": 10,
+    "planner_max_questions_per_story": 4,
+    "search_results_per_query": 16,
+    "max_fetched_research_pages_per_story": 8,
+    "max_selected_article_excerpt_chars": 3600,
+    "max_research_excerpt_chars": 2800,
+    "cache_ttl_seconds": 604800,
+    "max_context_chars_per_article": 3200
   },
   "runtime": {
     "max_http_workers": 1,
     "max_article_workers": 1,
-    "max_enrichment_workers": 1,
     "use_shared_snapshot": true
+  },
+  "narrative_briefing": {
+    "enabled": true,
+    "max_input_tokens": null,
+    "max_new_tokens": null,
+    "target_words": 1800,
+    "editorial_style": "Write like a sharp human news editor, not a consultant memo. Use clear narrative paragraphs, concrete verbs, and varied sentence rhythm. Avoid repeated Status/Impact/Operational Implication labels. Do not address the reader as an operator. Use bullets sparingly, only for genuinely scannable watch items. Prefer 'what changed, why it matters, what remains uncertain' woven into prose."
   },
   "analysis": {
     "rollout": {
@@ -290,7 +300,6 @@
     "discovery_mode": "network_first",
     "article_text_retention_days": 3,
     "enrichment_retention_days": 30,
-    "wikipedia_retention_days": 30,
     "http_retention_days": 7,
     "ai_enabled": true,
     "synth_fresh_seconds": 604800

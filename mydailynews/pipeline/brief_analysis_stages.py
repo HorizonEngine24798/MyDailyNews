@@ -8,6 +8,7 @@ from mydailynews.pipeline.brief_stages import _report_phase
 from mydailynews.analysis.deterministic_delta import build_deterministic_delta_scaffold
 from mydailynews.app.models import DeltaExtractionConfig, EvidenceDistillationConfig, PriorReport, SelectedArticle, TopicConfig
 from mydailynews.pipeline.stage_results import DeltaStageResult, EvidenceStageResult
+from mydailynews.story_grouping.models import StoryGroup
 from mydailynews.common.warnings import extend_warnings, prompt_pressure_warning_count
 
 
@@ -23,6 +24,7 @@ def _run_evidence_stage(
     include_enrichment_context: bool,
     evidence_config: EvidenceDistillationConfig,
     analysis_rollout_meta: Dict[str, Any],
+    story_groups: List[StoryGroup] | None = None,
 ) -> EvidenceStageResult:
     warnings: List[str] = []
     evidence_packet: Dict[str, Any] = {}
@@ -73,6 +75,7 @@ def _run_evidence_stage(
                     brief_goal,
                     date,
                     brief_name=brief_name,
+                    story_groups=story_groups,
                 )
             except Exception as exc:
                 warning = (
@@ -93,9 +96,19 @@ def _run_evidence_stage(
             f"brief.{brief_name}.analysis.evidence.prompt_pressure_warnings",
             int(evidence_pressure_warnings),
         )
+        orchestrator.debug.set_metric(
+            f"brief.{brief_name}.analysis.evidence.shared_grouping_used",
+            story_groups is not None,
+        )
+        orchestrator.debug.set_metric(
+            f"brief.{brief_name}.analysis.evidence.group_boundary_warnings",
+            int(getattr(evidence_distiller, "group_boundary_warning_count", 0)),
+        )
     else:
         reason = str(analysis_rollout_meta.get("evidence_skip_reason", "disabled"))
         orchestrator.debug.set_metric(f"brief.{brief_name}.analysis.evidence.skipped_reason.{reason}", 1)
+        orchestrator.debug.set_metric(f"brief.{brief_name}.analysis.evidence.shared_grouping_used", False)
+        orchestrator.debug.set_metric(f"brief.{brief_name}.analysis.evidence.group_boundary_warnings", 0)
     orchestrator.debug.set_metric(
         f"brief.{brief_name}.analysis.evidence.story_clusters",
         len(evidence_packet.get("story_clusters", [])) if evidence_packet else 0,

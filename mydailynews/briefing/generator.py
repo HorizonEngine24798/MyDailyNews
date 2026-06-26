@@ -6,8 +6,8 @@ from typing import Any, Dict, List
 from mydailynews.ai.base import AIClient
 from mydailynews.ai.prompts import BRIEF_SYSTEM, BRIEF_USER
 from mydailynews.ai.schemas import FINAL_BRIEF_JSON_SCHEMA
+from mydailynews.analysis.shared import story_thread_payloads
 from mydailynews.diagnostics.debug import DebugLogger
-from mydailynews.domain.event_clusters import candidate_event_cluster_payload
 from mydailynews.app.models import PriorReport, SelectedArticle, TopicConfig, UserMemory
 from mydailynews.common.utils import compact_json, datetime_to_iso
 
@@ -250,7 +250,7 @@ class BriefGenerator:
             "score": article.decision.score,
             "article_text": (article.article_text or article.candidate.snippet)[:excerpt_chars],
             "extraction_status": article.extraction_status,
-            "event_cluster": candidate_event_cluster_payload(article.candidate),
+            "story_threads": story_thread_payloads(article, max_items=2),
         }
         if self.include_enrichment_context:
             payload["context_note"] = article.enrichment_reason
@@ -301,7 +301,7 @@ class BriefGenerator:
                 "url": article.candidate.url,
                 "score": article.decision.score,
                 "topic": article.decision.topic or article.candidate.metadata.get("topic_name", ""),
-                "event_cluster": candidate_event_cluster_payload(article.candidate),
+                "story_threads": story_thread_payloads(article, max_items=2),
             }
             for article in articles
         ]
@@ -317,7 +317,7 @@ class BriefGenerator:
                 "score": article.decision.score,
                 "topic": article.decision.topic or article.candidate.metadata.get("topic_name", ""),
                 "snippet": (article.candidate.snippet or "")[:180],
-                "event_cluster": candidate_event_cluster_payload(article.candidate),
+                "story_threads": story_thread_payloads(article, max_items=2),
             }
             for article in articles
         ]

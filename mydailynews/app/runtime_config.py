@@ -145,12 +145,12 @@ def _looks_like_placeholder(value: str) -> bool:
 
 def _executable_is_resolvable(raw_path: str) -> bool:
     expanded = os.path.expandvars(os.path.expanduser(raw_path))
-    parsed = urlparse(expanded)
-    if parsed.scheme and parsed.scheme != "file":
-        return False
     path = Path(expanded)
     if path.parent != Path("."):
         return path.exists()
+    parsed = urlparse(expanded)
+    if parsed.scheme and parsed.scheme != "file":
+        return False
     if shutil.which(expanded):
         return True
     if expanded in {"llama-cli", "llama-cli.exe"}:

@@ -3,9 +3,13 @@ from __future__ import annotations
 from typing import Any, Dict, List
 
 from mydailynews.ai.headline_analyzer import HeadlineAnalyzer
-from mydailynews.pipeline.article_pipeline import populate_article_texts, record_article_fetch_metrics, record_enrichment_metrics
-from mydailynews.pipeline.enrichment import SimpleEnricher
-from mydailynews.domain.event_clusters import candidate_scope_counts, selected_scope_counts
+from mydailynews.pipeline.article_pipeline import (
+    populate_article_texts,
+    record_article_fetch_metrics,
+    record_enrichment_metrics,
+    story_thread_enrichment_counts,
+)
+from mydailynews.enrichment.runner import StoryThreadEnricher
 from mydailynews.briefing.final_budget import prune_selected_for_final_token_budget
 from mydailynews.domain.headline_selection import (
     decisions_for_brief,
@@ -22,9 +26,24 @@ from mydailynews.pipeline.stage_results import (
     HeadlineLimitResult,
     HeadlineScoringResult,
     SelectionResult,
+    StoryGroupingStageResult,
 )
+from mydailynews.story_grouping.planner import StoryGroupingPlanner
 from mydailynews.pipeline.snapshot_helpers import snapshot_candidates_for_brief
 from mydailynews.common.warnings import extend_warnings
+
+
+def _candidate_source_count(candidates: List[NewsCandidate]) -> int:
+    sources = {
+        str(candidate.source or "").strip().lower()
+        for candidate in candidates
+        if str(candidate.source or "").strip()
+    }
+    return len(sources)
+
+
+def _selected_source_count(selected: List[SelectedArticle]) -> int:
+    return _candidate_source_count([article.candidate for article in selected])
 
 
 def _checkpoint_stage(
@@ -187,19 +206,12 @@ def _limit_headlines_stage(
                 candidates_for_ai=len(limited_candidates),
             )
 
-    scope_counts = candidate_scope_counts(limited_candidates)
+    source_count = _candidate_source_count(limited_candidates)
     orchestrator.debug.set_metric(f"brief.{brief_name}.limited_candidates", len(limited_candidates))
-    orchestrator.debug.set_metric(f"brief.{brief_name}.limited_sources", scope_counts.sources)
-    orchestrator.debug.set_metric(f"brief.{brief_name}.limited_event_clusters", scope_counts.clusters)
-    orchestrator.debug.set_metric(
-        f"brief.{brief_name}.limited_multi_source_clusters",
-        scope_counts.multi_source_clusters,
-    )
+    orchestrator.debug.set_metric(f"brief.{brief_name}.limited_sources", source_count)
     return HeadlineLimitResult(
         limited_candidates=limited_candidates,
-        limited_sources=scope_counts.sources,
-        limited_event_clusters=scope_counts.clusters,
-        limited_multi_source_clusters=scope_counts.multi_source_clusters,
+        limited_sources=source_count,
     )
 
 
@@ -304,21 +316,14 @@ def _select_articles_stage(
         f"brief.{brief_name}.selection.skipped_reason_total",
         sum(int(value) for value in skipped_reason_counts.values()),
     )
-    scope_counts = selected_scope_counts(selected)
-    orchestrator.debug.set_metric(f"brief.{brief_name}.selected_sources", scope_counts.sources)
-    orchestrator.debug.set_metric(f"brief.{brief_name}.selected_event_clusters", scope_counts.clusters)
-    orchestrator.debug.set_metric(
-        f"brief.{brief_name}.selected_multi_source_clusters",
-        scope_counts.multi_source_clusters,
-    )
+    source_count = _selected_source_count(selected)
+    orchestrator.debug.set_metric(f"brief.{brief_name}.selected_sources", source_count)
     orchestrator.debug.log(
         "headline.select",
         "complete",
         brief=brief_name,
         selected=len(selected),
-        selected_sources=scope_counts.sources,
-        selected_clusters=scope_counts.clusters,
-        multi_source_clusters=scope_counts.multi_source_clusters,
+        selected_sources=source_count,
         selected_reason_codes=selected_reason_counts,
         skipped_reason_codes=skipped_reason_counts,
     )
@@ -326,9 +331,7 @@ def _select_articles_stage(
         selected=selected,
         selection_counts=selection_counts,
         warnings=warnings,
-        selected_sources=scope_counts.sources,
-        selected_event_clusters=scope_counts.clusters,
-        selected_multi_source_clusters=scope_counts.multi_source_clusters,
+        selected_sources=source_count,
     )
 
 
@@ -386,33 +389,165 @@ def _fetch_articles_stage(
     )
 
 
+def _story_grouping_stage(
+    orchestrator,
+    *,
+    brief_name: str,
+    selected: List[SelectedArticle],
+    include_enrichment_context: bool,
+    evidence_config,
+    date: str = "",
+) -> StoryGroupingStageResult:
+    needs_enrichment_grouping = bool(include_enrichment_context)
+    needs_evidence_grouping = bool(getattr(evidence_config, "enabled", False))
+    warning_sink: List[str] = []
+
+    def skipped(reason: str) -> StoryGroupingStageResult:
+        result = StoryGroupingStageResult.skipped(selected=selected, reason=reason)
+        _record_story_grouping_metrics(orchestrator, brief_name=brief_name, result=result)
+        if reason:
+            orchestrator.debug.set_metric(f"brief.{brief_name}.story_grouping.skipped_reason.{reason}", 1)
+        orchestrator.debug.log(
+            "story_grouping",
+            "skipped",
+            brief=brief_name,
+            reason=reason,
+            selected=len(selected),
+            needs_enrichment=needs_enrichment_grouping,
+            needs_evidence=needs_evidence_grouping,
+        )
+        return result
+
+    if not selected:
+        return skipped("no_selected_articles")
+    if not needs_enrichment_grouping and not needs_evidence_grouping:
+        return skipped("both_consumers_not_enabled")
+    if not needs_enrichment_grouping:
+        return skipped("enrichment_disabled")
+    if not needs_evidence_grouping:
+        return skipped("evidence_disabled")
+
+    ai_client = getattr(orchestrator, "summary_ai_client", None)
+    if ai_client is None:
+        return skipped("no_ai_client")
+
+    _report_phase(orchestrator, f"Planning {brief_name} story grouping...")
+    planner = StoryGroupingPlanner(
+        orchestrator.config,
+        ai_client,
+        cache=getattr(orchestrator, "synth_cache", None),
+        debug=orchestrator.debug,
+        warning_sink=warning_sink.append,
+        brief_name=brief_name,
+        date=date,
+    )
+    with orchestrator.debug.span(f"brief.{brief_name}.story_grouping"):
+        planning = planner.plan(selected)
+    if str(planning.artifact.get("status", "")).strip() == "skipped_budget":
+        result = StoryGroupingStageResult.skipped(
+            selected=selected,
+            reason="budget_unfit",
+            warnings=warning_sink,
+            artifact=planning.artifact,
+        )
+    else:
+        result = StoryGroupingStageResult.planned(
+            selected=selected,
+            story_groups=planning.story_groups,
+            planner_artifact=planning.artifact,
+            warnings=warning_sink,
+            cache_hit=bool(getattr(planner, "cache_hits", 0)),
+        )
+    _record_story_grouping_metrics(orchestrator, brief_name=brief_name, result=result)
+    orchestrator.debug.log(
+        "story_grouping",
+        "complete",
+        brief=brief_name,
+        status=result.artifact.get("status", ""),
+        groups=len(result.story_groups),
+        fallback_groups=len(result.artifact.get("fallback_groups", [])),
+        cache_hit=bool(result.artifact.get("cache_hit", False)),
+    )
+    return result
+
+
+def _record_story_grouping_metrics(
+    orchestrator,
+    *,
+    brief_name: str,
+    result: StoryGroupingStageResult,
+) -> None:
+    artifact = result.artifact
+    orchestrator.debug.set_metric(f"brief.{brief_name}.story_grouping.enabled", bool(artifact.get("enabled", False)))
+    orchestrator.debug.set_metric(f"brief.{brief_name}.story_grouping.groups", len(result.story_groups))
+    orchestrator.debug.set_metric(
+        f"brief.{brief_name}.story_grouping.fallback_groups",
+        len(artifact.get("fallback_groups", [])),
+    )
+    orchestrator.debug.set_metric(f"brief.{brief_name}.story_grouping.cache_hit", bool(artifact.get("cache_hit", False)))
+    orchestrator.debug.set_metric(
+        f"brief.{brief_name}.story_grouping.skipped_reason",
+        str(artifact.get("skipped_reason", "")),
+    )
+    orchestrator.debug.set_metric(
+        f"brief.{brief_name}.story_grouping.requests",
+        len(artifact.get("requests", [])),
+    )
+    orchestrator.debug.set_metric(
+        f"brief.{brief_name}.story_grouping.split_requests",
+        bool(artifact.get("split_requests", False)),
+    )
+
+
 def _enrich_articles_stage(
     orchestrator,
     *,
     brief_name: str,
     selected: List[SelectedArticle],
     include_enrichment_context: bool,
+    date: str = "",
+    story_groups=None,
 ) -> EnrichmentStageResult:
-    enricher = SimpleEnricher(
+    enricher = StoryThreadEnricher(
         orchestrator.config,
         http_cache=getattr(orchestrator, "enrichment_cache", None),
-        wikipedia_cache=getattr(orchestrator, "wikipedia_cache", None),
         debug=orchestrator.debug,
+        ai_client=getattr(orchestrator, "summary_ai_client", None),
+        cache=getattr(orchestrator, "synth_cache", None),
+        brief_name=brief_name,
+        date=date,
     )
     if include_enrichment_context:
         _report_phase(orchestrator, f"Enriching {brief_name} articles...")
     with orchestrator.debug.span(f"brief.{brief_name}.enrichment"):
-        enricher.enrich_many(selected, max_workers=orchestrator.config.runtime.max_enrichment_workers)
+        enricher.enrich_many(
+            selected,
+            story_groups=story_groups,
+        )
     record_enrichment_metrics(
         brief_name=brief_name,
         selected=selected,
         debug=orchestrator.debug,
+        story_thread_counts=(
+            int(getattr(enricher, "story_threads_created", 0)),
+            int(getattr(enricher, "story_threads_enriched", 0)),
+            int(getattr(enricher, "story_threads_skipped", 0)),
+        ),
     )
+    story_threads_created, story_threads_enriched, story_threads_skipped = (
+        int(getattr(enricher, "story_threads_created", 0)),
+        int(getattr(enricher, "story_threads_enriched", 0)),
+        int(getattr(enricher, "story_threads_skipped", 0)),
+    )
+    if not any((story_threads_created, story_threads_enriched, story_threads_skipped)):
+        story_threads_created, story_threads_enriched, story_threads_skipped = story_thread_enrichment_counts(selected)
     return EnrichmentStageResult(
         selected=selected,
         enrichment_needed=sum(1 for article in selected if article.enrichment_needed),
         context_sources=sum(len(article.context_sources) for article in selected),
-        wikipedia_results=sum(len(article.wikipedia_context) for article in selected),
-        past_news_results=sum(len(article.past_news_context) for article in selected),
+        story_threads_created=story_threads_created,
+        story_threads_enriched=story_threads_enriched,
+        story_threads_skipped=story_threads_skipped,
+        artifact=dict(getattr(enricher, "artifact", {}) or {}),
         warnings=list(enricher.warnings),
     )

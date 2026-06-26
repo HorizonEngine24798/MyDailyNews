@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, fields
 import json
 from pathlib import Path
 from typing import Any, Dict, List
@@ -19,6 +19,7 @@ from mydailynews.app.models import (
     EnrichmentConfig,
     FilteringConfig,
     GoogleNewsSourceConfig,
+    NarrativeBriefingConfig,
     PriorReportsSourceConfig,
     RSSSourceConfig,
     RuntimeConfig,
@@ -47,9 +48,55 @@ DEFAULT_GENERAL_FILTERING = _defaults(default_general_filtering_config())
 DEFAULT_ENRICHMENT = _defaults(EnrichmentConfig())
 DEFAULT_CACHE = _defaults(CacheConfig())
 DEFAULT_RUNTIME = _defaults(RuntimeConfig())
+DEFAULT_NARRATIVE_BRIEFING = _defaults(NarrativeBriefingConfig())
 DEFAULT_ANALYSIS_EVIDENCE = _defaults(EvidenceDistillationConfig())
 DEFAULT_ANALYSIS_DELTA = _defaults(DeltaExtractionConfig())
 DEFAULT_ANALYSIS_ROLLOUT = _defaults(AnalysisRolloutConfig())
+
+ROOT_CONFIG_KEYS = {
+    "output_dir",
+    "user_agent",
+    "ai_summary",
+    "ai_final",
+    "user_memory",
+    "general_topics",
+    "general_filtering",
+    "topics_to_examine",
+    "filtering",
+    "enrichment",
+    "runtime",
+    "narrative_briefing",
+    "analysis",
+    "cache",
+    "sources",
+}
+AI_CONFIG_KEYS = set(_defaults(AIConfig()).keys())
+AI_CONFIG_KEYS.update({"model", "gguf_model_path"})
+FILTERING_CONFIG_KEYS = set(DEFAULT_FILTERING.keys())
+ENRICHMENT_CONFIG_KEYS = set(DEFAULT_ENRICHMENT.keys())
+CACHE_CONFIG_KEYS = set(DEFAULT_CACHE.keys())
+RUNTIME_CONFIG_KEYS = set(DEFAULT_RUNTIME.keys())
+NARRATIVE_BRIEFING_CONFIG_KEYS = set(DEFAULT_NARRATIVE_BRIEFING.keys())
+ANALYSIS_CONFIG_KEYS = {"evidence_distillation", "delta_extraction", "rollout"}
+EVIDENCE_DISTILLATION_CONFIG_KEYS = set(DEFAULT_ANALYSIS_EVIDENCE.keys())
+DELTA_EXTRACTION_CONFIG_KEYS = set(DEFAULT_ANALYSIS_DELTA.keys())
+ANALYSIS_ROLLOUT_CONFIG_KEYS = set(DEFAULT_ANALYSIS_ROLLOUT.keys())
+ANALYSIS_ROLLOUT_MODE_CONFIG_KEYS = {field.name for field in fields(AnalysisRolloutModeConfig)}
+USER_MEMORY_CONFIG_KEYS = {field.name for field in fields(UserMemory)}
+TOPIC_CONFIG_KEYS = {field.name for field in fields(TopicConfig)}
+SOURCES_CONFIG_KEYS = {"rss", "google_news", "prior_reports"}
+RSS_SOURCE_CONFIG_KEYS = {field.name for field in fields(RSSSourceConfig)}
+GOOGLE_NEWS_SOURCE_CONFIG_KEYS = {field.name for field in fields(GoogleNewsSourceConfig)}
+PRIOR_REPORTS_SOURCE_CONFIG_KEYS = {field.name for field in fields(PriorReportsSourceConfig)}
+
+
+def _reject_unknown_keys(raw: Dict[str, Any], allowed: set[str], section_name: str) -> None:
+    unknown = sorted(str(key) for key in raw.keys() if str(key) not in allowed)
+    if not unknown:
+        return
+    if section_name == "config":
+        raise ValueError(f"Config has unrecognized key(s): {', '.join(unknown)}")
+    raise ValueError(f"Config section {section_name} has unrecognized key(s): {', '.join(unknown)}")
 
 
 def _list(value: Any) -> List[str]:
@@ -104,10 +151,25 @@ def _load_weighted_beats(value: Any) -> Dict[str, float]:
 
 
 def _load_sources(raw: Dict[str, Any]) -> List[RSSSourceConfig]:
-    source_items = raw["sources"].get("rss", [])
+    sources_raw = raw["sources"]
+    _reject_unknown_keys(sources_raw, SOURCES_CONFIG_KEYS, "sources")
+    google_news_raw = sources_raw.get("google_news", {})
+    prior_reports_raw = sources_raw.get("prior_reports", {})
+    if not isinstance(google_news_raw, dict):
+        raise ValueError("Config section sources.google_news must be an object")
+    if not isinstance(prior_reports_raw, dict):
+        raise ValueError("Config section sources.prior_reports must be an object")
+    _reject_unknown_keys(google_news_raw, GOOGLE_NEWS_SOURCE_CONFIG_KEYS, "sources.google_news")
+    _reject_unknown_keys(prior_reports_raw, PRIOR_REPORTS_SOURCE_CONFIG_KEYS, "sources.prior_reports")
+    source_items = sources_raw.get("rss", [])
+    if not isinstance(source_items, list):
+        raise ValueError("Config section sources.rss must be a list")
 
     sources: List[RSSSourceConfig] = []
     for item in source_items:
+        if not isinstance(item, dict):
+            raise ValueError("Each sources.rss item must be an object")
+        _reject_unknown_keys(item, RSS_SOURCE_CONFIG_KEYS, "sources.rss[]")
         sources.append(
             RSSSourceConfig(
                 name=item["name"],
@@ -129,6 +191,7 @@ def _load_topics(raw: Dict[str, Any], key: str) -> List[TopicConfig]:
     for item in topics_raw:
         if not isinstance(item, dict):
             raise ValueError(f"Each {key} item must be an object")
+        _reject_unknown_keys(item, TOPIC_CONFIG_KEYS, f"{key}[]")
         topics.append(
             TopicConfig(
                 name=item["name"],
@@ -199,11 +262,20 @@ def _normalize_delta_input_source(value: Any) -> str:
     return mode
 
 
+def _normalize_enrichment_mode(value: Any) -> str:
+    mode = str(value or DEFAULT_ENRICHMENT["mode"]).strip().lower()
+    allowed = {"story_llm", "disabled"}
+    if mode not in allowed:
+        raise ValueError("enrichment.mode must be one of: story_llm, disabled")
+    return mode
+
+
 def _load_analysis_rollout_mode(value: Any, field_name: str) -> AnalysisRolloutModeConfig:
     if value is None:
         value = {}
     if not isinstance(value, dict):
         raise ValueError(f"Config section {field_name} must be an object")
+    _reject_unknown_keys(value, ANALYSIS_ROLLOUT_MODE_CONFIG_KEYS, field_name)
     return AnalysisRolloutModeConfig(
         evidence_enabled=_optional_bool(
             value.get("evidence_enabled"),
@@ -240,6 +312,7 @@ def _load_analysis_rollout(value: Any) -> AnalysisRolloutConfig:
         value = {}
     if not isinstance(value, dict):
         raise ValueError("Config section analysis.rollout must be an object")
+    _reject_unknown_keys(value, ANALYSIS_ROLLOUT_CONFIG_KEYS, "analysis.rollout")
     profile = str(value.get("profile", DEFAULT_ANALYSIS_ROLLOUT["profile"])).strip().lower()
     profile = profile or str(DEFAULT_ANALYSIS_ROLLOUT["profile"])
     if profile not in ANALYSIS_ROLLOUT_PROFILE_NAMES:
@@ -258,12 +331,12 @@ def _load_analysis_rollout(value: Any) -> AnalysisRolloutConfig:
 
 
 def _load_ai(ai_raw: Dict[str, Any], section_name: str = "ai") -> AIConfig:
+    if ai_raw is None:
+        ai_raw = {}
+    if not isinstance(ai_raw, dict):
+        raise ValueError(f"Config section {section_name} must be an object")
+    _reject_unknown_keys(ai_raw, AI_CONFIG_KEYS, section_name)
     backend = _load_ai_backend(ai_raw.get("backend", "llama_cpp_server"), section_name)
-    if "preset" in ai_raw:
-        raise ValueError(
-            f"{section_name}.preset is no longer supported. "
-            "Configure llama.cpp server_model, server_model_path, and token limits directly."
-        )
     default_server_model = str(
         ai_raw.get(
             "server_model",
@@ -322,6 +395,7 @@ def _load_ai_sections(raw: Dict[str, Any]) -> tuple[AIConfig, AIConfig]:
 
 
 def _load_filtering(raw: Dict[str, Any], defaults: Dict[str, Any], *, section_name: str) -> FilteringConfig:
+    _reject_unknown_keys(raw, FILTERING_CONFIG_KEYS, section_name)
     return FilteringConfig(
         time_window_hours=int(raw.get("time_window_hours", defaults["time_window_hours"])),
         headline_score_cutoff=float(raw.get("headline_score_cutoff", defaults["headline_score_cutoff"])),
@@ -357,23 +431,6 @@ def _load_filtering(raw: Dict[str, Any], defaults: Dict[str, Any], *, section_na
         ),
         article_text_max_chars=int(raw.get("article_text_max_chars", defaults["article_text_max_chars"])),
         max_selected_per_source=max(0, int(raw.get("max_selected_per_source", defaults["max_selected_per_source"]))),
-        max_selected_per_event_cluster=max(
-            0,
-            int(raw.get("max_selected_per_event_cluster", defaults["max_selected_per_event_cluster"])),
-        ),
-        prefer_multi_source_clusters=parse_bool(
-            raw.get("prefer_multi_source_clusters", defaults["prefer_multi_source_clusters"]),
-            default=defaults["prefer_multi_source_clusters"],
-            field_name=f"{section_name}.prefer_multi_source_clusters",
-        ),
-        multi_source_cluster_bonus=max(
-            0.0,
-            float(raw.get("multi_source_cluster_bonus", defaults["multi_source_cluster_bonus"])),
-        ),
-        event_cluster_time_window_hours=max(
-            2,
-            min(72, int(raw.get("event_cluster_time_window_hours", defaults["event_cluster_time_window_hours"]))),
-        ),
         use_multifactor_composite_ranking=parse_bool(
             raw.get("use_multifactor_composite_ranking", defaults["use_multifactor_composite_ranking"]),
             default=defaults["use_multifactor_composite_ranking"],
@@ -400,18 +457,21 @@ def _load_analysis(raw: Dict[str, Any]) -> AnalysisConfig:
         analysis_raw = {}
     if not isinstance(analysis_raw, dict):
         raise ValueError("Config section analysis must be an object")
+    _reject_unknown_keys(analysis_raw, ANALYSIS_CONFIG_KEYS, "analysis")
 
     evidence_raw = analysis_raw.get("evidence_distillation", {})
     if evidence_raw is None:
         evidence_raw = {}
     if not isinstance(evidence_raw, dict):
         raise ValueError("Config section analysis.evidence_distillation must be an object")
+    _reject_unknown_keys(evidence_raw, EVIDENCE_DISTILLATION_CONFIG_KEYS, "analysis.evidence_distillation")
 
     delta_raw = analysis_raw.get("delta_extraction", {})
     if delta_raw is None:
         delta_raw = {}
     if not isinstance(delta_raw, dict):
         raise ValueError("Config section analysis.delta_extraction must be an object")
+    _reject_unknown_keys(delta_raw, DELTA_EXTRACTION_CONFIG_KEYS, "analysis.delta_extraction")
     rollout_raw = analysis_raw.get("rollout", {})
 
     evidence_defaults = DEFAULT_ANALYSIS_EVIDENCE
@@ -498,6 +558,31 @@ def _load_analysis(raw: Dict[str, Any]) -> AnalysisConfig:
     )
 
 
+def _load_narrative_briefing(raw: Dict[str, Any]) -> NarrativeBriefingConfig:
+    narrative_raw = raw.get("narrative_briefing", {})
+    if narrative_raw is None:
+        narrative_raw = {}
+    if not isinstance(narrative_raw, dict):
+        raise ValueError("Config section narrative_briefing must be an object")
+    _reject_unknown_keys(narrative_raw, NARRATIVE_BRIEFING_CONFIG_KEYS, "narrative_briefing")
+    return NarrativeBriefingConfig(
+        enabled=parse_bool(
+            narrative_raw.get("enabled", DEFAULT_NARRATIVE_BRIEFING["enabled"]),
+            default=DEFAULT_NARRATIVE_BRIEFING["enabled"],
+            field_name="narrative_briefing.enabled",
+        ),
+        max_input_tokens=_optional_pos_int(narrative_raw.get("max_input_tokens"), minimum=512),
+        max_new_tokens=_optional_pos_int(narrative_raw.get("max_new_tokens"), minimum=128),
+        target_words=max(300, int(narrative_raw.get("target_words", DEFAULT_NARRATIVE_BRIEFING["target_words"]))),
+        editorial_style=str(
+            narrative_raw.get(
+                "editorial_style",
+                DEFAULT_NARRATIVE_BRIEFING["editorial_style"],
+            )
+        ),
+    )
+
+
 def _worker_count(raw: Dict[str, Any], key: str, default_value: int) -> int:
     value = int(raw.get(key, default_value))
     if value < 1:
@@ -521,6 +606,7 @@ def _load_cache(raw: Dict[str, Any]) -> CacheConfig:
         cache_raw = {}
     if not isinstance(cache_raw, dict):
         raise ValueError("Config section cache must be an object")
+    _reject_unknown_keys(cache_raw, CACHE_CONFIG_KEYS, "cache")
 
     legacy_http_retention = max(
         0,
@@ -546,10 +632,6 @@ def _load_cache(raw: Dict[str, Any]) -> CacheConfig:
             0,
             int(cache_raw.get("enrichment_retention_days", max(legacy_http_retention, 30))),
         ),
-        wikipedia_retention_days=max(
-            0,
-            int(cache_raw.get("wikipedia_retention_days", DEFAULT_CACHE["wikipedia_retention_days"])),
-        ),
         ai_enabled=parse_bool(
             cache_raw.get("ai_enabled", DEFAULT_CACHE["ai_enabled"]),
             default=DEFAULT_CACHE["ai_enabled"],
@@ -560,25 +642,9 @@ def _load_cache(raw: Dict[str, Any]) -> CacheConfig:
 
 
 def _require_sections(raw: Dict[str, Any]) -> None:
-    removed_keys = {
-        "database_path",
-        "lookback_hours",
-        "max_articles_per_feed",
-        "target_articles",
-        "rss_feeds",
-        "preferred_topics",
-    }
-    present_removed_keys = sorted(removed_keys.intersection(raw.keys()))
-    if present_removed_keys:
-        raise ValueError(f"Config uses removed key(s): {', '.join(present_removed_keys)}")
-
-    if "topics to examine" in raw:
-        raise ValueError("Use JSON key topics_to_examine, not 'topics to examine'")
-    if "preferred_topics" in raw.get("user_memory", {}):
-        raise ValueError("Config uses removed user_memory.preferred_topics; move topics into general_topics or topics_to_examine")
-
-    if "ai" in raw and ("ai_summary" not in raw or "ai_final" not in raw):
-        raise ValueError("Config key 'ai' is no longer supported. Define both ai_summary and ai_final.")
+    if not isinstance(raw, dict):
+        raise ValueError("Config root must be an object")
+    _reject_unknown_keys(raw, ROOT_CONFIG_KEYS, "config")
     missing_ai_sections = [key for key in ("ai_summary", "ai_final") if key not in raw]
     if missing_ai_sections:
         raise ValueError(f"Config missing required AI section(s): {', '.join(missing_ai_sections)}")
@@ -609,8 +675,22 @@ def load_config(path: Path) -> AppConfig:
     sources_raw = raw["sources"]
     runtime_raw = raw.get("runtime", {})
     analysis = _load_analysis(raw)
+    narrative_briefing = _load_narrative_briefing(raw)
+    if not isinstance(filtering_raw, dict):
+        raise ValueError("Config section filtering must be an object")
+    if not isinstance(general_filtering_raw, dict):
+        raise ValueError("Config section general_filtering must be an object")
     if not isinstance(runtime_raw, dict):
         raise ValueError("Config section runtime must be an object")
+    _reject_unknown_keys(runtime_raw, RUNTIME_CONFIG_KEYS, "runtime")
+    if not isinstance(enrichment_raw, dict):
+        raise ValueError("Config section enrichment must be an object")
+    _reject_unknown_keys(enrichment_raw, ENRICHMENT_CONFIG_KEYS, "enrichment")
+    if not isinstance(memory_raw, dict):
+        raise ValueError("Config section user_memory must be an object")
+    _reject_unknown_keys(memory_raw, USER_MEMORY_CONFIG_KEYS, "user_memory")
+    if not isinstance(sources_raw, dict):
+        raise ValueError("Config section sources must be an object")
 
     filtering = _load_filtering(filtering_raw, DEFAULT_FILTERING, section_name="filtering")
     general_filtering = _load_filtering(
@@ -632,16 +712,57 @@ def load_config(path: Path) -> AppConfig:
                 default=DEFAULT_ENRICHMENT["enabled"],
                 field_name="enrichment.enabled",
             ),
-            past_news_days=int(enrichment_raw.get("past_news_days", DEFAULT_ENRICHMENT["past_news_days"])),
-            max_past_news_results=int(
-                enrichment_raw.get("max_past_news_results", DEFAULT_ENRICHMENT["max_past_news_results"])
-            ),
-            max_wikipedia_results=int(
-                enrichment_raw.get("max_wikipedia_results", DEFAULT_ENRICHMENT["max_wikipedia_results"])
-            ),
-            max_entities=int(enrichment_raw.get("max_entities", DEFAULT_ENRICHMENT["max_entities"])),
+            mode=_normalize_enrichment_mode(enrichment_raw.get("mode", DEFAULT_ENRICHMENT["mode"])),
             max_context_chars_per_article=int(
                 enrichment_raw.get("max_context_chars_per_article", DEFAULT_ENRICHMENT["max_context_chars_per_article"])
+            ),
+            max_story_threads=max(
+                1,
+                int(enrichment_raw.get("max_story_threads", DEFAULT_ENRICHMENT["max_story_threads"])),
+            ),
+            planner_max_questions_per_story=max(
+                0,
+                int(
+                    enrichment_raw.get(
+                        "planner_max_questions_per_story",
+                        DEFAULT_ENRICHMENT["planner_max_questions_per_story"],
+                    )
+                ),
+            ),
+            search_results_per_query=max(
+                0,
+                int(enrichment_raw.get("search_results_per_query", DEFAULT_ENRICHMENT["search_results_per_query"])),
+            ),
+            max_fetched_research_pages_per_story=max(
+                0,
+                int(
+                    enrichment_raw.get(
+                        "max_fetched_research_pages_per_story",
+                        DEFAULT_ENRICHMENT["max_fetched_research_pages_per_story"],
+                    )
+                ),
+            ),
+            max_selected_article_excerpt_chars=max(
+                0,
+                int(
+                    enrichment_raw.get(
+                        "max_selected_article_excerpt_chars",
+                        DEFAULT_ENRICHMENT["max_selected_article_excerpt_chars"],
+                    )
+                ),
+            ),
+            max_research_excerpt_chars=max(
+                0,
+                int(
+                    enrichment_raw.get(
+                        "max_research_excerpt_chars",
+                        DEFAULT_ENRICHMENT["max_research_excerpt_chars"],
+                    )
+                ),
+            ),
+            cache_ttl_seconds=max(
+                0,
+                int(enrichment_raw.get("cache_ttl_seconds", DEFAULT_ENRICHMENT["cache_ttl_seconds"])),
             ),
         ),
         user_memory=UserMemory(
@@ -697,11 +818,6 @@ def load_config(path: Path) -> AppConfig:
         runtime=RuntimeConfig(
             max_http_workers=_worker_count(runtime_raw, "max_http_workers", DEFAULT_RUNTIME["max_http_workers"]),
             max_article_workers=_worker_count(runtime_raw, "max_article_workers", DEFAULT_RUNTIME["max_article_workers"]),
-            max_enrichment_workers=_worker_count(
-                runtime_raw,
-                "max_enrichment_workers",
-                DEFAULT_RUNTIME["max_enrichment_workers"],
-            ),
             use_shared_snapshot=parse_bool(
                 runtime_raw.get("use_shared_snapshot", DEFAULT_RUNTIME["use_shared_snapshot"]),
                 default=DEFAULT_RUNTIME["use_shared_snapshot"],
@@ -709,4 +825,5 @@ def load_config(path: Path) -> AppConfig:
             ),
         ),
         analysis=analysis,
+        narrative_briefing=narrative_briefing,
     )

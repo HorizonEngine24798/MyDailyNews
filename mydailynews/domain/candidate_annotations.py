@@ -6,21 +6,12 @@ from typing import Any
 from mydailynews.common.booleans import parse_bool
 from mydailynews.app.models import (
     CandidateAnnotations,
-    EventClusterAnnotation,
     NewsCandidate,
     ProfileMatchAnnotation,
     SelectionAnnotation,
 )
 
 
-EVENT_CLUSTER_METADATA_KEYS = (
-    "event_cluster_id",
-    "event_cluster_label",
-    "event_cluster_size",
-    "event_cluster_source_count",
-    "event_cluster_multi_source",
-    "event_cluster_latest_published_at",
-)
 PROFILE_MATCH_METADATA_KEYS = (
     "user_source_preferred",
     "user_source_avoided",
@@ -46,65 +37,10 @@ def candidate_annotations(candidate: NewsCandidate) -> CandidateAnnotations:
         return annotations
     normalized = CandidateAnnotations()
     if isinstance(annotations, Mapping):
-        normalized.event_cluster = _event_cluster_annotation_from_raw(annotations.get("event_cluster"))
         normalized.profile_match = _profile_match_annotation_from_raw(annotations.get("profile_match"))
         normalized.selection = _selection_annotation_from_raw(annotations.get("selection"))
     setattr(candidate, "annotations", normalized)
     return normalized
-
-
-def candidate_event_cluster_annotation(candidate: NewsCandidate) -> EventClusterAnnotation | None:
-    typed = candidate_annotations(candidate).event_cluster
-    if typed is not None and str(typed.id or "").strip():
-        return _normalize_event_cluster_annotation(typed)
-    return event_cluster_annotation_from_metadata(candidate.metadata)
-
-
-def candidate_event_cluster_id(candidate: NewsCandidate) -> str:
-    annotation = candidate_event_cluster_annotation(candidate)
-    return annotation.id if annotation is not None else ""
-
-
-def event_cluster_annotation_from_metadata(metadata: Mapping[str, Any]) -> EventClusterAnnotation | None:
-    cluster_id = str(metadata.get("event_cluster_id", "") or "").strip()
-    if not cluster_id:
-        return None
-    return EventClusterAnnotation(
-        id=cluster_id,
-        label=str(metadata.get("event_cluster_label", "") or ""),
-        size=max(1, _to_int(metadata.get("event_cluster_size", 1), 1)),
-        source_count=max(1, _to_int(metadata.get("event_cluster_source_count", 1), 1)),
-        multi_source=_to_bool(metadata.get("event_cluster_multi_source", False)),
-        latest_published_at=str(metadata.get("event_cluster_latest_published_at", "") or ""),
-    )
-
-
-def set_event_cluster_annotation(
-    candidate: NewsCandidate,
-    *,
-    cluster_id: str,
-    label: str,
-    size: int,
-    source_count: int,
-    multi_source: bool,
-    latest_published_at: str,
-) -> EventClusterAnnotation:
-    annotation = EventClusterAnnotation(
-        id=str(cluster_id or "").strip(),
-        label=str(label or ""),
-        size=max(1, int(size or 1)),
-        source_count=max(1, int(source_count or 1)),
-        multi_source=parse_bool(multi_source, default=False, field_name="event_cluster.multi_source"),
-        latest_published_at=str(latest_published_at or ""),
-    )
-    candidate_annotations(candidate).event_cluster = annotation
-    candidate.metadata["event_cluster_id"] = annotation.id
-    candidate.metadata["event_cluster_label"] = annotation.label
-    candidate.metadata["event_cluster_size"] = annotation.size
-    candidate.metadata["event_cluster_source_count"] = annotation.source_count
-    candidate.metadata["event_cluster_multi_source"] = annotation.multi_source
-    candidate.metadata["event_cluster_latest_published_at"] = annotation.latest_published_at
-    return annotation
 
 
 def candidate_profile_match_annotation(candidate: NewsCandidate) -> ProfileMatchAnnotation | None:
@@ -232,17 +168,6 @@ def set_selection_selected_annotation(candidate: NewsCandidate, code: str) -> Se
     return annotation
 
 
-def _normalize_event_cluster_annotation(annotation: EventClusterAnnotation) -> EventClusterAnnotation:
-    return EventClusterAnnotation(
-        id=str(annotation.id or "").strip(),
-        label=str(annotation.label or ""),
-        size=max(1, _to_int(annotation.size, 1)),
-        source_count=max(1, _to_int(annotation.source_count, 1)),
-        multi_source=parse_bool(annotation.multi_source, default=False, field_name="event_cluster.multi_source"),
-        latest_published_at=str(annotation.latest_published_at or ""),
-    )
-
-
 def _normalize_profile_match_annotation(annotation: ProfileMatchAnnotation) -> ProfileMatchAnnotation:
     return ProfileMatchAnnotation(
         source_preferred=parse_bool(annotation.source_preferred, default=False, field_name="profile_match.source_preferred"),
@@ -264,24 +189,6 @@ def _normalize_selection_annotation(annotation: SelectionAnnotation) -> Selectio
         skip_reason=str(annotation.skip_reason or "").strip(),
         rank_score=_to_float(annotation.rank_score, 0.0),
         rank_mode=str(annotation.rank_mode or "score").strip() or "score",
-    )
-
-
-def _event_cluster_annotation_from_raw(value: Any) -> EventClusterAnnotation | None:
-    if isinstance(value, EventClusterAnnotation):
-        return _normalize_event_cluster_annotation(value)
-    if not isinstance(value, Mapping):
-        return None
-    cluster_id = str(value.get("id", "") or "").strip()
-    if not cluster_id:
-        return None
-    return EventClusterAnnotation(
-        id=cluster_id,
-        label=str(value.get("label", "") or ""),
-        size=max(1, _to_int(value.get("size", 1), 1)),
-        source_count=max(1, _to_int(value.get("source_count", 1), 1)),
-        multi_source=_to_bool(value.get("multi_source", False)),
-        latest_published_at=str(value.get("latest_published_at", "") or ""),
     )
 
 

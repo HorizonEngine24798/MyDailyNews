@@ -14,11 +14,11 @@ from mydailynews.analysis.shared import (
     article_cache_payload,
     headline_context_cache_payload,
     prior_reports_payload,
+    story_thread_payloads,
     topics_payload,
 )
 from mydailynews.common.cache import JSONCache
 from mydailynews.diagnostics.debug import DebugLogger
-from mydailynews.domain.event_clusters import candidate_event_cluster_payload
 from mydailynews.app.models import DeltaExtractionConfig, PriorReport, SelectedArticle, TopicConfig, UserMemory
 from mydailynews.common.utils import compact_json, datetime_to_iso
 
@@ -531,7 +531,7 @@ class DeltaExtractor:
         headline_context_articles: List[SelectedArticle],
     ) -> str:
         fingerprint = {
-            "v": 4,
+            "v": 5,
             "stage": "delta_extraction",
             "backend": self.client.config.backend,
             "model": self.client.config.effective_model_label,
@@ -592,7 +592,7 @@ class DeltaExtractor:
             "score": article.decision.score,
             "article_text": (article.article_text or article.candidate.snippet)[:excerpt_chars],
             "snippet": (article.candidate.snippet or "")[:160],
-            "event_cluster": candidate_event_cluster_payload(article.candidate),
+            "story_threads": story_thread_payloads(article, max_items=2),
         }
 
     @staticmethod

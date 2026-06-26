@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from typing import Dict, List, Tuple
 
-from mydailynews.app.models import SelectedArticle
+from mydailynews.app.models import ContextSource, SelectedArticle
 from mydailynews.common.parallel import ordered_parallel_map
 from mydailynews.domain.article_identity import article_aliases_for_candidate
 from mydailynews.retrieval.article_cache import ArticleTextCache
+
+
+STORY_THREAD_CONTEXT_KINDS = {"story_llm_research_context", "story_thread_context"}
 
 
 def _apply_article_fetch_result(article: SelectedArticle, text: str, status: str, resolved_url: str) -> None:
@@ -104,20 +107,50 @@ def record_enrichment_metrics(
     brief_name: str,
     selected: List[SelectedArticle],
     debug,
+    story_thread_counts: tuple[int, int, int] | None = None,
 ) -> None:
     total = len(selected)
     needed = sum(1 for article in selected if article.enrichment_needed)
     skipped = total - needed
-    wiki_results = sum(len(article.wikipedia_context) for article in selected)
-    past_news_results = sum(len(article.past_news_context) for article in selected)
     context_sources = sum(len(article.context_sources) for article in selected)
+    if story_thread_counts is None:
+        story_threads_created, story_threads_enriched, story_threads_skipped = story_thread_enrichment_counts(selected)
+    else:
+        story_threads_created, story_threads_enriched, story_threads_skipped = story_thread_counts
     debug.set_metric(f"brief.{brief_name}.enrichment.total_articles", total)
     debug.set_metric(f"brief.{brief_name}.enrichment.needed", needed)
     debug.set_metric(f"brief.{brief_name}.enrichment.skipped", skipped)
-    debug.set_metric(f"brief.{brief_name}.enrichment.wikipedia_results", wiki_results)
-    debug.set_metric(f"brief.{brief_name}.enrichment.past_news_results", past_news_results)
     debug.set_metric(f"brief.{brief_name}.enrichment.context_sources", context_sources)
+    debug.set_metric(f"brief.{brief_name}.enrichment.story_threads_created", story_threads_created)
+    debug.set_metric(f"brief.{brief_name}.enrichment.story_threads_enriched", story_threads_enriched)
+    debug.set_metric(f"brief.{brief_name}.enrichment.story_threads_skipped", story_threads_skipped)
     debug.increment("enrichment.total_articles", total)
     debug.increment("enrichment.needed", needed)
     debug.increment("enrichment.skipped", skipped)
     debug.increment("enrichment.context_sources", context_sources)
+    debug.increment("enrichment.story_threads_created", story_threads_created)
+    debug.increment("enrichment.story_threads_enriched", story_threads_enriched)
+    debug.increment("enrichment.story_threads_skipped", story_threads_skipped)
+
+
+def story_thread_enrichment_counts(selected: List[SelectedArticle]) -> tuple[int, int, int]:
+    story_ids: set[str] = set()
+    for article in selected:
+        for source in article.context_sources:
+            story_id = _story_thread_context_id(source)
+            if story_id:
+                story_ids.add(story_id)
+    created = len(story_ids)
+    return created, created, 0
+
+
+def _story_thread_context_id(source: ContextSource) -> str:
+    if str(source.kind or "").strip() not in STORY_THREAD_CONTEXT_KINDS:
+        return ""
+    for item in source.items:
+        if not isinstance(item, dict):
+            continue
+        story_id = str(item.get("story_id") or item.get("id") or "").strip()
+        if story_id:
+            return story_id[:80]
+    return str(source.id or "").strip()[:80]

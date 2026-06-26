@@ -16,6 +16,7 @@ from mydailynews.pipeline.brief_stages import (
     _report_phase,
     _score_headlines_stage,
     _select_articles_stage,
+    _story_grouping_stage,
 )
 from mydailynews.domain.headline_selection import selection_rationale_rows
 from mydailynews.app.models import BriefOutput, HeadlineDecision, NewsCandidate, PriorReport, RunSourceSnapshot, TopicConfig
@@ -121,8 +122,6 @@ def run_brief(
                     "limited_candidates": len(limited_candidates),
                     "limited_candidate_ids": [candidate.id for candidate in limited_candidates],
                     "limited_sources": headline_limit.limited_sources,
-                    "limited_event_clusters": headline_limit.limited_event_clusters,
-                    "limited_multi_source_clusters": headline_limit.limited_multi_source_clusters,
                 },
                 next_stage_input={
                     "limited_candidates": limited_candidates,
@@ -163,12 +162,15 @@ def run_brief(
                     "filtering": filtering,
                     "prior_reports": prior_reports,
                     "brief_goal": brief_goal,
-                    "include_enrichment_context": bool(getattr(orchestrator.config.enrichment, "enabled", True)),
+                    "include_enrichment_context": bool(getattr(orchestrator.config.enrichment, "enabled", True))
+                    and str(getattr(orchestrator.config.enrichment, "mode", "story_llm")).strip().lower() != "disabled",
                 },
             ):
                 return None
 
-            include_enrichment_context = bool(getattr(orchestrator.config.enrichment, "enabled", True))
+            include_enrichment_context = bool(getattr(orchestrator.config.enrichment, "enabled", True)) and str(
+                getattr(orchestrator.config.enrichment, "mode", "story_llm")
+            ).strip().lower() != "disabled"
             selection_result = _select_articles_stage(
                 orchestrator,
                 brief_name=name,
@@ -194,8 +196,6 @@ def run_brief(
                     "selected": len(selected),
                     "selected_article_ids": [article.candidate.id for article in selected],
                     "selected_sources": selection_result.selected_sources,
-                    "selected_event_clusters": selection_result.selected_event_clusters,
-                    "selected_multi_source_clusters": selection_result.selected_multi_source_clusters,
                     "selected_reason_codes": selected_reason_counts,
                     "skipped_reason_codes": skipped_reason_counts,
                     "composite_ranking_enabled": bool(getattr(filtering, "use_multifactor_composite_ranking", False)),
@@ -228,6 +228,10 @@ def run_brief(
             )
             extend_warnings(run_warnings, article_fetch_result.warnings)
             selected = article_fetch_result.selected
+            evidence_config, delta_config, analysis_rollout_meta = resolve_analysis_stage_configs(
+                orchestrator.config.analysis,
+                name,
+            )
             if _checkpoint_stage(
                 orchestrator,
                 brief_name=name,
@@ -240,6 +244,53 @@ def run_brief(
                 next_stage_input={
                     "selected": selected,
                     "filtering": filtering,
+                    "include_enrichment_context": include_enrichment_context,
+                    "evidence_config": evidence_config,
+                    "delta_config": delta_config,
+                    "analysis_rollout_meta": analysis_rollout_meta,
+                },
+            ):
+                return None
+
+            story_grouping_result = _story_grouping_stage(
+                orchestrator,
+                brief_name=name,
+                selected=selected,
+                include_enrichment_context=include_enrichment_context,
+                evidence_config=evidence_config,
+                date=date,
+            )
+            extend_warnings(run_warnings, story_grouping_result.warnings)
+            story_groups = story_grouping_result.story_groups
+            shared_story_grouping_ran = bool(story_grouping_result.artifact.get("enabled", False))
+            shared_story_groups = story_groups if shared_story_grouping_ran else None
+            if _checkpoint_stage(
+                orchestrator,
+                brief_name=name,
+                stage="story_grouping",
+                summary={
+                    "enabled": bool(story_grouping_result.artifact.get("enabled", False)),
+                    "status": str(story_grouping_result.artifact.get("status", "")),
+                    "skipped_reason": str(story_grouping_result.artifact.get("skipped_reason", "")),
+                    "shared_grouping_ran": shared_story_grouping_ran,
+                    "selected": len(selected),
+                    "story_groups": len(story_groups),
+                    "fallback_groups": len(story_grouping_result.artifact.get("fallback_groups", [])),
+                    "split_requests": bool(story_grouping_result.artifact.get("split_requests", False)),
+                    "cache_hit": bool(story_grouping_result.artifact.get("cache_hit", False)),
+                    "story_grouping": story_grouping_result.artifact,
+                },
+                next_stage_input={
+                    "selected": selected,
+                    "story_groups": story_groups,
+                    "story_grouping": story_grouping_result.artifact,
+                    "topics": topics,
+                    "prior_reports": prior_reports,
+                    "brief_goal": brief_goal,
+                    "include_enrichment_context": include_enrichment_context,
+                    "evidence_config": evidence_config,
+                    "delta_config": delta_config,
+                    "analysis_rollout_meta": analysis_rollout_meta,
                 },
             ):
                 return None
@@ -249,12 +300,10 @@ def run_brief(
                 brief_name=name,
                 selected=selected,
                 include_enrichment_context=include_enrichment_context,
+                date=date,
+                story_groups=shared_story_groups,
             )
             selected = enrichment_result.selected
-            evidence_config, delta_config, analysis_rollout_meta = resolve_analysis_stage_configs(
-                orchestrator.config.analysis,
-                name,
-            )
             if _checkpoint_stage(
                 orchestrator,
                 brief_name=name,
@@ -263,8 +312,10 @@ def run_brief(
                     "selected": len(selected),
                     "enrichment_needed": enrichment_result.enrichment_needed,
                     "context_sources": enrichment_result.context_sources,
-                    "wikipedia_results": enrichment_result.wikipedia_results,
-                    "past_news_results": enrichment_result.past_news_results,
+                    "story_threads_created": enrichment_result.story_threads_created,
+                    "story_threads_enriched": enrichment_result.story_threads_enriched,
+                    "story_threads_skipped": enrichment_result.story_threads_skipped,
+                    "story_enrichment": enrichment_result.artifact,
                 },
                 next_stage_input={
                     "selected": selected,
@@ -275,6 +326,9 @@ def run_brief(
                     "evidence_config": evidence_config,
                     "delta_config": delta_config,
                     "analysis_rollout_meta": analysis_rollout_meta,
+                    "story_groups": story_groups,
+                    "shared_story_grouping_ran": shared_story_grouping_ran,
+                    "story_grouping": story_grouping_result.artifact,
                 },
             ):
                 return None
@@ -290,6 +344,7 @@ def run_brief(
                 include_enrichment_context=include_enrichment_context,
                 evidence_config=evidence_config,
                 analysis_rollout_meta=analysis_rollout_meta,
+                story_groups=shared_story_groups,
             )
             extend_warnings(run_warnings, evidence_result.warnings)
             evidence_packet = evidence_result.evidence_packet
@@ -315,6 +370,9 @@ def run_brief(
                     "evidence_config": evidence_config,
                     "delta_config": delta_config,
                     "analysis_rollout_meta": analysis_rollout_meta,
+                    "story_groups": story_groups,
+                    "shared_story_grouping_ran": shared_story_grouping_ran,
+                    "story_grouping": story_grouping_result.artifact,
                 },
             ):
                 return None

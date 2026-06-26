@@ -20,6 +20,7 @@ from mydailynews.ai.factory import create_ai_client
 from mydailynews.ai.headline_analyzer import HeadlineAnalyzer
 from mydailynews.common.cache import HTTPCache, JSONCache
 from mydailynews.pipeline.brief_execution import run_brief as run_brief_helper
+from mydailynews.pipeline.narrative_brief import run_narrative_brief as run_narrative_brief_helper
 from mydailynews.diagnostics.debug import DebugLogger
 from mydailynews.app.models import (
     AppConfig,
@@ -30,6 +31,7 @@ from mydailynews.app.models import (
     PipelineResult,
     PriorReport,
     RunSourceSnapshot,
+    NarrativeBriefOutput,
     TopicConfig,
 )
 from mydailynews.pipeline.stages import PipelineRunOptions
@@ -69,13 +71,6 @@ class NewsOrchestrator:
             debug=self.debug,
         )
         self.enrichment_cache.prune_older_than_days(config.cache.enrichment_retention_days)
-        self.wikipedia_cache = HTTPCache(
-            root_dir=config.cache.dir,
-            namespace="wikipedia",
-            enabled=config.cache.enabled,
-            debug=self.debug,
-        )
-        self.wikipedia_cache.prune_older_than_days(config.cache.wikipedia_retention_days)
         self.http_cache = self.enrichment_cache
         self.article_text_cache = ArticleTextCache(
             JSONCache(
@@ -271,6 +266,7 @@ class NewsOrchestrator:
                     return self._stopped_result()
 
                 outputs: List[BriefOutput] = []
+                narrative_outputs: List[NarrativeBriefOutput] = []
                 if "general" in self.run_options.briefs:
                     general_output = self._run_brief(
                         name="general",
@@ -309,10 +305,23 @@ class NewsOrchestrator:
                     if self.stopped_after_stage:
                         return self._stopped_result(outputs=outputs)
 
+                narrative_output = self._run_narrative_brief(outputs=outputs, date=date)
+                if narrative_output is not None:
+                    narrative_outputs.append(narrative_output)
+                if self._stop_requested("narrative_brief"):
+                    return self._stopped_result(outputs=outputs, narrative_outputs=narrative_outputs)
+
                 self.debug.set_metric("pipeline.outputs", len(outputs))
+                self.debug.set_metric("pipeline.narrative_outputs", len(narrative_outputs))
                 self.debug.set_metric("pipeline.status", "completed")
-                self.debug.log("pipeline", "complete", outputs=len(outputs), warnings=len(self.warnings))
-                return PipelineResult(outputs=outputs, warnings=self.warnings)
+                self.debug.log(
+                    "pipeline",
+                    "complete",
+                    outputs=len(outputs),
+                    narrative_outputs=len(narrative_outputs),
+                    warnings=len(self.warnings),
+                )
+                return PipelineResult(outputs=outputs, narrative_outputs=narrative_outputs, warnings=self.warnings)
             except Exception as exc:
                 self.debug.set_metric("pipeline.status", "failed")
                 self.debug.set_metric("pipeline.error", f"{type(exc).__name__}: {exc}")
@@ -329,16 +338,26 @@ class NewsOrchestrator:
         else:
             self._stage_artifact_root = Path(self.config.output_dir) / "diagnostics" / "stages"
 
-    def _stopped_result(self, outputs: List[BriefOutput] | None = None) -> PipelineResult:
+    def _stopped_result(
+        self,
+        outputs: List[BriefOutput] | None = None,
+        narrative_outputs: List[NarrativeBriefOutput] | None = None,
+    ) -> PipelineResult:
         self.debug.set_metric("pipeline.outputs", len(outputs or []))
+        self.debug.set_metric("pipeline.narrative_outputs", len(narrative_outputs or []))
         self.debug.set_metric("pipeline.status", "stopped")
         self.debug.log(
             "pipeline",
             "stopped",
             stage=self.stopped_after_stage or self.run_options.stop_after_stage,
             outputs=len(outputs or []),
+            narrative_outputs=len(narrative_outputs or []),
         )
-        return PipelineResult(outputs=list(outputs or []), warnings=self.warnings)
+        return PipelineResult(
+            outputs=list(outputs or []),
+            narrative_outputs=list(narrative_outputs or []),
+            warnings=self.warnings,
+        )
 
     def _stage_payload(
         self,
@@ -425,6 +444,9 @@ class NewsOrchestrator:
             limited_candidates_override=limited_candidates_override,
             shared_decisions=shared_decisions,
         )
+
+    def _run_narrative_brief(self, *, outputs: List[BriefOutput], date: str) -> NarrativeBriefOutput | None:
+        return run_narrative_brief_helper(self, outputs=outputs, date=date)
 
     def _close_ai_client(self, client, *, role: str) -> None:
         close_fn = getattr(client, "close", None)

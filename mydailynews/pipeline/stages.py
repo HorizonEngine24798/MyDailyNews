@@ -16,6 +16,7 @@ BRIEF_STAGE_ORDER = (
     "headline_decisions",
     "headline_select",
     "article_fetch",
+    "story_grouping",
     "enrichment",
     "evidence_distillation",
     "delta_extraction",
@@ -23,7 +24,11 @@ BRIEF_STAGE_ORDER = (
     "write_output",
 )
 
-ALL_STAGE_ORDER = PIPELINE_STAGE_ORDER + BRIEF_STAGE_ORDER
+POST_BRIEF_STAGE_ORDER = (
+    "narrative_brief",
+)
+
+ALL_STAGE_ORDER = PIPELINE_STAGE_ORDER + BRIEF_STAGE_ORDER + POST_BRIEF_STAGE_ORDER
 
 
 def _normalize(value: str) -> str:

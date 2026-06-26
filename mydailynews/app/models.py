@@ -49,10 +49,6 @@ class FilteringConfig:
     fill_selected_articles: bool = False
     article_text_max_chars: int = 6000
     max_selected_per_source: int = 2
-    max_selected_per_event_cluster: int = 2
-    prefer_multi_source_clusters: bool = True
-    multi_source_cluster_bonus: float = 0.35
-    event_cluster_time_window_hours: int = 18
     use_multifactor_composite_ranking: bool = False
     min_novelty_for_selection: float = 0.0
     source_preference_bonus: float = 0.35
@@ -72,12 +68,16 @@ def default_general_filtering_config() -> FilteringConfig:
 
 @dataclass
 class EnrichmentConfig:
-    enabled: bool = True
-    past_news_days: int = 30
-    max_past_news_results: int = 4
-    max_wikipedia_results: int = 3
-    max_entities: int = 4
-    max_context_chars_per_article: int = 1600
+    enabled: bool = False
+    mode: str = "story_llm"
+    max_context_chars_per_article: int = 3200
+    max_story_threads: int = 10
+    planner_max_questions_per_story: int = 4
+    search_results_per_query: int = 16
+    max_fetched_research_pages_per_story: int = 8
+    max_selected_article_excerpt_chars: int = 3600
+    max_research_excerpt_chars: int = 2800
+    cache_ttl_seconds: int = 604800
 
 
 @dataclass
@@ -88,7 +88,6 @@ class CacheConfig:
     discovery_mode: str = "network_first"
     article_text_retention_days: int = 3
     enrichment_retention_days: int = 30
-    wikipedia_retention_days: int = 30
     ai_enabled: bool = True
     synth_fresh_seconds: int = 604800
 
@@ -97,8 +96,21 @@ class CacheConfig:
 class RuntimeConfig:
     max_http_workers: int = 1
     max_article_workers: int = 1
-    max_enrichment_workers: int = 1
     use_shared_snapshot: bool = True
+
+
+@dataclass
+class NarrativeBriefingConfig:
+    enabled: bool = True
+    max_input_tokens: Optional[int] = None
+    max_new_tokens: Optional[int] = None
+    target_words: int = 1800
+    editorial_style: str = (
+        "Write like a sharp human news editor, not a consultant memo. Use clear narrative paragraphs, "
+        "concrete verbs, and varied sentence rhythm. Avoid repeated Status/Impact/Operational Implication "
+        "labels. Do not address the reader as an operator. Use bullets sparingly, only for genuinely scannable "
+        "watch items. Prefer 'what changed, why it matters, what remains uncertain' woven into prose."
+    )
 
 
 @dataclass
@@ -318,6 +330,7 @@ class AppConfig:
     cache: CacheConfig = field(default_factory=CacheConfig)
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
     analysis: AnalysisConfig = field(default_factory=AnalysisConfig)
+    narrative_briefing: NarrativeBriefingConfig = field(default_factory=NarrativeBriefingConfig)
 
 
 @dataclass
@@ -332,16 +345,6 @@ class NewsCandidate:
     tags: List[str] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
     annotations: "CandidateAnnotations" = field(default_factory=lambda: CandidateAnnotations())
-
-
-@dataclass
-class EventClusterAnnotation:
-    id: str = ""
-    label: str = ""
-    size: int = 1
-    source_count: int = 1
-    multi_source: bool = False
-    latest_published_at: str = ""
 
 
 @dataclass
@@ -368,7 +371,6 @@ class SelectionAnnotation:
 
 @dataclass
 class CandidateAnnotations:
-    event_cluster: Optional[EventClusterAnnotation] = None
     profile_match: Optional[ProfileMatchAnnotation] = None
     selection: Optional[SelectionAnnotation] = None
 
@@ -399,22 +401,6 @@ class HeadlineDecision:
     selection_reason_code: str = ""
     selection_rank_score: float = 0.0
     selection_rank_mode: str = "score"
-
-
-@dataclass
-class WikipediaContext:
-    title: str
-    url: str
-    summary: str
-
-
-@dataclass
-class PastNewsContext:
-    title: str
-    url: str
-    source: str
-    published_at: Optional[datetime]
-    snippet: str
 
 
 @dataclass
@@ -451,12 +437,6 @@ class SelectedArticle:
     extraction_status: str = "pending"
     enrichment_needed: bool = False
     enrichment_reason: str = ""
-    wikipedia_query: str = ""
-    past_news_query: str = ""
-    extracted_entities: List[str] = field(default_factory=list)
-    extracted_keywords: List[str] = field(default_factory=list)
-    wikipedia_context: List[WikipediaContext] = field(default_factory=list)
-    past_news_context: List[PastNewsContext] = field(default_factory=list)
     context_sources: List[ContextSource] = field(default_factory=list)
 
 
@@ -471,6 +451,16 @@ class BriefOutput:
 
 
 @dataclass
+class NarrativeBriefOutput:
+    name: str
+    markdown_path: str
+    json_path: str
+    source_briefs: List[str] = field(default_factory=list)
+    warnings: List[str] = field(default_factory=list)
+
+
+@dataclass
 class PipelineResult:
     outputs: List[BriefOutput] = field(default_factory=list)
+    narrative_outputs: List[NarrativeBriefOutput] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)

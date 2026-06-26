@@ -6,11 +6,8 @@ from urllib.parse import urlparse
 
 from mydailynews.ai.headline_analyzer import HeadlineAnalyzer
 from mydailynews.domain.candidate_annotations import (
-    candidate_event_cluster_annotation,
-    candidate_event_cluster_id,
     candidate_profile_match_annotation,
     reset_selection_annotation,
-    set_event_cluster_annotation,
     set_profile_match_annotation,
     set_selection_selected_annotation,
     set_selection_skip_annotation,
@@ -23,7 +20,7 @@ from mydailynews.app.models import (
     TopicConfig,
     UserMemory,
 )
-from mydailynews.common.utils import datetime_to_iso, utc_now
+from mydailynews.common.utils import utc_now
 
 PROFILE_GEO_MATCH_BONUS = 0.7
 PROFILE_WANTS_MATCH_BONUS = 0.35
@@ -98,7 +95,6 @@ def limit_candidates_for_ai(
     preferred_sources = {source.lower().strip() for source in user_memory.preferred_sources if str(source).strip()}
     avoided_sources = {source.lower().strip() for source in user_memory.avoided_sources if str(source).strip()}
     candidates = dedupe_similar_titles(candidates, debug)
-    candidates = annotate_event_clusters(candidates, filtering, since, debug)
     for item in candidates:
         source_key = (item.source or "").strip().lower()
         profile_signals = _profile_signal_matches(item, user_memory)
@@ -232,13 +228,6 @@ def candidate_heuristic_score(
     merged_count = int(item.metadata.get("merged_count", 1) or 1)
     if merged_count > 1:
         score += min(1.5, 0.35 * (merged_count - 1))
-    event_cluster = candidate_event_cluster_annotation(item)
-    cluster_size = event_cluster.size if event_cluster is not None else 1
-    if cluster_size > 1:
-        score += min(0.7, 0.1 * (cluster_size - 1))
-    if event_cluster is not None and event_cluster.multi_source:
-        cluster_source_count = event_cluster.source_count
-        score += min(1.1, 0.25 * cluster_source_count)
 
     snippet_len = len(item.snippet or "")
     if snippet_len >= 260:
@@ -389,14 +378,12 @@ def _profile_term_matches(text: str, terms: List[str]) -> List[str]:
 
 
 def _profile_signal_text(candidate: NewsCandidate) -> str:
-    event_cluster = candidate_event_cluster_annotation(candidate)
     fields: List[str] = [
         str(candidate.title or ""),
         str(candidate.snippet or ""),
         str(candidate.source or ""),
         str(candidate.url or ""),
         str(candidate.metadata.get("topic_name", "") or ""),
-        str(event_cluster.label if event_cluster is not None else ""),
     ]
     tags = candidate.tags if isinstance(candidate.tags, list) else []
     fields.extend(str(tag) for tag in tags[:6])
@@ -480,183 +467,6 @@ def _primary_source_key(candidate: NewsCandidate) -> str:
         return direct
     keys = _source_keys_for_candidate(candidate)
     return keys[0] if keys else ""
-
-
-def _event_url_key(url: str) -> str:
-    parsed = urlparse(url or "")
-    host = (parsed.hostname or "").strip().lower()
-    if host.startswith("www."):
-        host = host[4:]
-    segments = [segment for segment in (parsed.path or "").split("/") if segment]
-    if segments:
-        return f"{host}/{'/'.join(segments[:3])}"
-    return host
-
-
-def _event_candidate_features(candidate: NewsCandidate, fallback_date) -> Dict[str, object]:
-    published = candidate.published_at or fallback_date
-    title_key = title_dedupe_key(candidate.title)
-    tokens = set(tokenize_for_match(title_key or candidate.title))
-    topic_key = str(candidate.metadata.get("topic_name", "")).strip().lower()
-    return {
-        "candidate": candidate,
-        "published_at": published,
-        "topic_key": topic_key,
-        "tokens": tokens,
-        "url_key": _event_url_key(candidate.url),
-        "source_keys": _source_keys_for_candidate(candidate),
-    }
-
-
-def _cluster_similarity(features: Dict[str, object], cluster: Dict[str, object], window_hours: int) -> float:
-    published_at = features["published_at"]
-    earliest = cluster["earliest_published_at"]
-    latest = cluster["latest_published_at"]
-    if published_at < earliest or published_at > latest:
-        distance_hours = (
-            (earliest - published_at).total_seconds() / 3600.0
-            if published_at < earliest
-            else (published_at - latest).total_seconds() / 3600.0
-        )
-        if distance_hours > float(window_hours):
-            return -1.0
-
-    cluster_topic_keys = cluster["topic_keys"]
-    topic_key = str(features["topic_key"])
-    has_topic_conflict = bool(topic_key and cluster_topic_keys and topic_key not in cluster_topic_keys)
-
-    tokens = features["tokens"]
-    cluster_tokens = cluster["prototype_tokens"] or cluster["all_tokens"]
-    overlap = len(tokens.intersection(cluster_tokens))
-    union = len(tokens.union(cluster_tokens))
-    token_ratio = overlap / max(1, min(len(tokens), len(cluster_tokens)))
-    jaccard = overlap / union if union > 0 else 0.0
-
-    url_key = str(features["url_key"])
-    url_match = bool(url_key) and url_key in cluster["url_keys"]
-    strong_text_match = token_ratio >= 0.55
-    medium_text_match = token_ratio >= 0.40 and (overlap >= 3 or jaccard >= 0.30)
-    if not url_match and not strong_text_match and not medium_text_match:
-        return -1.0
-
-    topic_bonus = 0.15 if topic_key and topic_key in cluster_topic_keys else 0.0
-    topic_penalty = 0.25 if has_topic_conflict else 0.0
-    return token_ratio + jaccard + (0.9 if url_match else 0.0) + topic_bonus - topic_penalty
-
-
-def annotate_event_clusters(
-    candidates: List[NewsCandidate],
-    filtering: FilteringConfig,
-    since,
-    debug,
-) -> List[NewsCandidate]:
-    if not candidates:
-        return candidates
-
-    window_hours = max(2, int(getattr(filtering, "event_cluster_time_window_hours", 18)))
-    ordered = sorted(
-        candidates,
-        key=lambda item: ((item.published_at or since), item.id),
-        reverse=True,
-    )
-    feature_by_id = {
-        item.id: _event_candidate_features(item, since)
-        for item in ordered
-    }
-    clusters: List[Dict[str, object]] = []
-
-    for candidate in ordered:
-        features = feature_by_id[candidate.id]
-        best_index = -1
-        best_score = -1.0
-        for index, cluster in enumerate(clusters):
-            score = _cluster_similarity(features, cluster, window_hours)
-            if score > best_score:
-                best_score = score
-                best_index = index
-
-        if best_index < 0:
-            clusters.append(
-                {
-                    "members": [candidate],
-                    "all_tokens": set(features["tokens"]),
-                    "prototype_tokens": set(features["tokens"]),
-                    "url_keys": {features["url_key"]} if features["url_key"] else set(),
-                    "source_keys": set(features["source_keys"]),
-                    "topic_keys": {features["topic_key"]} if features["topic_key"] else set(),
-                    "earliest_published_at": features["published_at"],
-                    "latest_published_at": features["published_at"],
-                    "representative_id": candidate.id,
-                }
-            )
-            continue
-
-        cluster = clusters[best_index]
-        cluster["members"].append(candidate)
-        cluster["all_tokens"].update(features["tokens"])
-        if features["url_key"]:
-            cluster["url_keys"].add(features["url_key"])
-        cluster["source_keys"].update(features["source_keys"])
-        if features["topic_key"]:
-            cluster["topic_keys"].add(features["topic_key"])
-        if features["published_at"] < cluster["earliest_published_at"]:
-            cluster["earliest_published_at"] = features["published_at"]
-        if features["published_at"] > cluster["latest_published_at"]:
-            cluster["latest_published_at"] = features["published_at"]
-
-        representative = feature_by_id[cluster["representative_id"]]["candidate"]
-        representative_rank = (
-            len(representative.snippet or ""),
-            representative.published_at or since,
-        )
-        candidate_rank = (
-            len(candidate.snippet or ""),
-            candidate.published_at or since,
-        )
-        if candidate_rank > representative_rank:
-            cluster["representative_id"] = candidate.id
-            cluster["prototype_tokens"] = set(features["tokens"])
-
-    ordered_clusters = sorted(
-        clusters,
-        key=lambda cluster: (
-            cluster["latest_published_at"],
-            str(feature_by_id[cluster["representative_id"]]["candidate"].title or "").lower(),
-        ),
-        reverse=True,
-    )
-
-    multi_source_clusters = 0
-    for index, cluster in enumerate(ordered_clusters, start=1):
-        cluster_id = f"evt-{index:03d}"
-        representative = feature_by_id[cluster["representative_id"]]["candidate"]
-        label = (representative.title or "").strip()[:160] or cluster_id
-        members = cluster["members"]
-        source_count = len(cluster["source_keys"])
-        is_multi_source = source_count >= 2
-        if is_multi_source:
-            multi_source_clusters += 1
-        latest_iso = datetime_to_iso(cluster["latest_published_at"])
-        cluster_size = len(members)
-        for member in members:
-            set_event_cluster_annotation(
-                member,
-                cluster_id=cluster_id,
-                label=label,
-                size=cluster_size,
-                source_count=source_count,
-                multi_source=is_multi_source,
-                latest_published_at=latest_iso,
-            )
-
-    debug.log(
-        "headline.heuristics",
-        "event_clusters",
-        clusters=len(ordered_clusters),
-        multi_source_clusters=multi_source_clusters,
-        window_hours=window_hours,
-    )
-    return candidates
 
 
 def dedupe_similar_titles(candidates: List[NewsCandidate], debug) -> List[NewsCandidate]:
@@ -766,11 +576,6 @@ def ranking_score_for_candidate(
         rank_mode = "score"
 
     adjusted = float(base_score)
-    prefer_multi_source = bool(getattr(filtering, "prefer_multi_source_clusters", False))
-    multi_source_bonus = max(0.0, float(getattr(filtering, "multi_source_cluster_bonus", 0.0)))
-    event_cluster = candidate_event_cluster_annotation(candidate)
-    if prefer_multi_source and event_cluster is not None and event_cluster.multi_source:
-        adjusted += multi_source_bonus
 
     profile_annotation = candidate_profile_match_annotation(candidate)
     if profile_annotation is not None and profile_annotation.source_preferred:
@@ -874,10 +679,7 @@ def select_articles(
     }
     topic_counts: Dict[str, int] = {}
     source_counts: Dict[str, int] = {}
-    cluster_counts: Dict[str, int] = {}
     source_cap = max(0, int(getattr(filtering, "max_selected_per_source", 0)))
-    cluster_cap = max(0, int(getattr(filtering, "max_selected_per_event_cluster", 0)))
-    prefer_multi_source = bool(getattr(filtering, "prefer_multi_source_clusters", False))
     novelty_floor = max(0.0, min(10.0, float(getattr(filtering, "min_novelty_for_selection", 0.0))))
 
     for candidate in candidates:
@@ -922,7 +724,6 @@ def select_articles(
         *,
         require_cutoff: bool,
         enforce_source_cap: bool,
-        enforce_cluster_cap: bool,
     ) -> bool:
         decision = decisions.get(candidate.id)
         if not decision:
@@ -954,21 +755,7 @@ def select_articles(
         if enforce_source_cap and source_cap > 0 and source_key and source_counts.get(source_key, 0) >= source_cap:
             mark_skip(candidate, decision, "skipped_source_cap")
             return False
-        cluster_id = candidate_event_cluster_id(candidate)
-        if (
-            enforce_cluster_cap
-            and cluster_cap > 0
-            and cluster_id
-            and cluster_counts.get(cluster_id, 0) >= cluster_cap
-        ):
-            mark_skip(candidate, decision, "skipped_cluster_cap")
-            return False
-
-        event_cluster = candidate_event_cluster_annotation(candidate)
-        if prefer_multi_source and event_cluster is not None and event_cluster.multi_source:
-            reason_code = "selected_cluster_diversity"
-        else:
-            reason_code = "selected_high_composite" if decision.selection_rank_mode == "composite" else "selected_high_score"
+        reason_code = "selected_high_composite" if decision.selection_rank_mode == "composite" else "selected_high_score"
         mark_selected(candidate, decision, reason_code)
 
         seen_duplicate_targets.add(candidate.id)
@@ -986,22 +773,18 @@ def select_articles(
             topic_counts[topic] = topic_counts.get(topic, 0) + 1
         if source_key:
             source_counts[source_key] = source_counts.get(source_key, 0) + 1
-        if cluster_id:
-            cluster_counts[cluster_id] = cluster_counts.get(cluster_id, 0) + 1
         return True
 
     def select_from_ranked(
         *,
         require_cutoff: bool,
         enforce_source_cap: bool,
-        enforce_cluster_cap: bool,
     ) -> None:
         for candidate in sorted_candidates:
             try_select(
                 candidate,
                 require_cutoff=require_cutoff,
                 enforce_source_cap=enforce_source_cap,
-                enforce_cluster_cap=enforce_cluster_cap,
             )
             if max_selected is not None and len(selected) >= max_selected:
                 break
@@ -1009,25 +792,16 @@ def select_articles(
     select_from_ranked(
         require_cutoff=True,
         enforce_source_cap=True,
-        enforce_cluster_cap=True,
     )
     if filtering.fill_selected_articles and max_selected is not None and len(selected) < max_selected:
         select_from_ranked(
             require_cutoff=False,
             enforce_source_cap=True,
-            enforce_cluster_cap=True,
-        )
-    if filtering.fill_selected_articles and max_selected is not None and len(selected) < max_selected and cluster_cap > 0:
-        select_from_ranked(
-            require_cutoff=False,
-            enforce_source_cap=True,
-            enforce_cluster_cap=False,
         )
     if filtering.fill_selected_articles and max_selected is not None and len(selected) < max_selected and source_cap > 0:
         select_from_ranked(
             require_cutoff=False,
             enforce_source_cap=False,
-            enforce_cluster_cap=False,
         )
 
     for candidate in sorted_candidates:

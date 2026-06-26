@@ -10,7 +10,7 @@ from mydailynews.diagnostics.reporting import CliReporter
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Generate a local-first topic-focused news brief.")
     parser.add_argument("--config", default="config.local.json", help="Path to the JSON config file.")
-    parser.add_argument("--no-enrichment", action="store_true", help="Skip Wikipedia and past-news enrichment.")
+    parser.add_argument("--no-enrichment", action="store_true", help="Force-skip story-thread/context enrichment.")
     parser.add_argument("--debug", action="store_true", help="Print safe progress diagnostics while the pipeline runs.")
     parser.add_argument(
         "--brief",

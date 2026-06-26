@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from mydailynews.domain.event_clusters import candidate_event_cluster_id, candidate_event_cluster_payload
 from mydailynews.app.models import PriorReport, SelectedArticle, TopicConfig
 from mydailynews.common.utils import compact_json, datetime_to_iso
+
+
+STORY_THREAD_CONTEXT_KINDS = {"story_llm_research_context", "story_thread_context"}
 
 
 def _short_text(value: Any, max_chars: int) -> str:
@@ -60,10 +62,48 @@ def _article_rank_key(article: SelectedArticle) -> tuple[float, float, str]:
 
 
 def _article_group_key(article: SelectedArticle) -> str:
-    cluster_id = candidate_event_cluster_id(article.candidate)
-    if cluster_id:
-        return f"cluster:{cluster_id}"
+    story_threads = story_thread_payloads(article, max_items=1)
+    if story_threads:
+        return f"story:{story_threads[0]['story_id']}"
     return f"article:{article.candidate.id}"
+
+
+def story_thread_payloads(article: SelectedArticle, *, max_items: int = 3) -> List[Dict[str, Any]]:
+    payload: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    if max_items <= 0:
+        return payload
+    for source in article.context_sources:
+        if str(source.kind or "").strip() not in STORY_THREAD_CONTEXT_KINDS:
+            continue
+        story_id = ""
+        story_title = ""
+        for item in source.items:
+            if not isinstance(item, dict):
+                continue
+            story_id = str(item.get("story_id") or item.get("id") or story_id or "").strip()
+            story_title = str(item.get("story_title") or item.get("title") or story_title or "").strip()
+            if story_id and story_title:
+                break
+        story_id = story_id or str(source.id or "").strip()
+        story_title = story_title or str(source.title or "").strip()
+        if not story_id:
+            continue
+        key = story_id.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        payload.append(
+            {
+                "story_id": story_id[:80],
+                "story_title": story_title[:180],
+                "context_title": str(source.title or "")[:180],
+                "context_summary": str(source.summary or "")[:220],
+            }
+        )
+        if len(payload) >= max_items:
+            break
+    return payload
 
 
 def _ordered_article_groups(articles: List[SelectedArticle]) -> List[List[SelectedArticle]]:
@@ -86,7 +126,7 @@ def _headline_context_payload(articles: List[SelectedArticle]) -> List[Dict[str,
                 "headline": str(article.candidate.title or "")[:180],
                 "source": str(article.candidate.source or "")[:80],
                 "score": float(article.decision.score),
-                "event_cluster": candidate_event_cluster_payload(article.candidate),
+                "story_threads": story_thread_payloads(article, max_items=2),
             }
         )
     return payload
@@ -133,7 +173,7 @@ def article_cache_payload(article: SelectedArticle) -> Dict[str, Any]:
         "score": article.decision.score,
         "article_text": (article.article_text or article.candidate.snippet)[:220],
         "snippet": (article.candidate.snippet or "")[:120],
-        "event_cluster": candidate_event_cluster_payload(article.candidate),
+        "story_threads": story_thread_payloads(article, max_items=2),
     }
 
 
@@ -144,7 +184,7 @@ def headline_context_cache_payload(article: SelectedArticle) -> Dict[str, Any]:
         "source": article.candidate.source,
         "score": article.decision.score,
         "topic": article.decision.topic or article.candidate.metadata.get("topic_name", ""),
-        "event_cluster": candidate_event_cluster_payload(article.candidate),
+        "story_threads": story_thread_payloads(article, max_items=2),
     }
 
 

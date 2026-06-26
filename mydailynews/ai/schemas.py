@@ -33,6 +33,109 @@ HEADLINE_ANALYSIS_JSON_SCHEMA = JSONSchemaSpec(
     },
 )
 
+STORY_GROUPING_JSON_SCHEMA = JSONSchemaSpec(
+    name="story_grouping",
+    schema={
+        "type": "object",
+        "properties": {
+            "story_groups": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "story_id": {"type": "string"},
+                        "story_title": {"type": "string"},
+                        "topic": {"type": "string"},
+                        "article_ids": {"type": "array", "items": {"type": "string"}},
+                        "research_questions": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "question": {"type": "string"},
+                                    "queries": {"type": "array", "items": {"type": "string"}},
+                                },
+                                "required": ["question", "queries"],
+                            },
+                        },
+                        "fallback": {"type": "boolean"},
+                    },
+                    "required": ["story_id", "story_title", "article_ids"],
+                },
+            }
+        },
+        "required": ["story_groups"],
+    },
+)
+
+STORY_THREAD_PLANNER_JSON_SCHEMA = STORY_GROUPING_JSON_SCHEMA
+
+STORY_ENRICHMENT_JSON_SCHEMA = JSONSchemaSpec(
+    name="story_enrichment",
+    schema={
+        "type": "object",
+        "properties": {
+            "story_id": {"type": "string"},
+            "story_title": {"type": "string"},
+            "internal_articles": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "title": {"type": "string"},
+                        "summary": {"type": "string"},
+                        "what_it_adds": {"type": "string"},
+                        "source_ids": {"type": "array", "items": {"type": "string"}},
+                        "confidence": {"type": "string"},
+                    },
+                    "required": ["title", "summary", "what_it_adds", "source_ids", "confidence"],
+                },
+            },
+            "confirmed_facts": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "fact": {"type": "string"},
+                        "source_ids": {"type": "array", "items": {"type": "string"}},
+                    },
+                    "required": ["fact", "source_ids"],
+                },
+            },
+            "conflicting_claims": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "claim": {"type": "string"},
+                        "source_ids": {"type": "array", "items": {"type": "string"}},
+                    },
+                    "required": ["claim", "source_ids"],
+                },
+            },
+            "open_questions": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "question": {"type": "string"},
+                        "source_ids": {"type": "array", "items": {"type": "string"}},
+                    },
+                    "required": ["question", "source_ids"],
+                },
+            },
+        },
+        "required": [
+            "story_id",
+            "story_title",
+            "internal_articles",
+            "confirmed_facts",
+            "conflicting_claims",
+            "open_questions",
+        ],
+    },
+)
+
 FINAL_BRIEF_JSON_SCHEMA = JSONSchemaSpec(
     name="final_brief",
     schema={
@@ -82,6 +185,32 @@ FINAL_BRIEF_JSON_SCHEMA = JSONSchemaSpec(
         # Keep minimal required keys for backend tolerance; BriefGenerator
         # normalizes and guarantees knowns/unknowns/watch_signals post-generation.
         "required": ["title", "lead", "topic_reports", "sections"],
+    },
+)
+
+
+NARRATIVE_BRIEF_JSON_SCHEMA = JSONSchemaSpec(
+    name="narrative_brief",
+    schema={
+        "type": "object",
+        "properties": {
+            "title": {"type": "string"},
+            "lede": {"type": "string"},
+            "segments": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "heading": {"type": "string"},
+                        "body": {"type": "string"},
+                        "key_points": {"type": "array", "items": {"type": "string"}},
+                        "what_to_watch": {"type": "array", "items": {"type": "string"}},
+                    },
+                },
+            },
+            "closing": {"type": "string"},
+        },
+        "required": ["title", "lede", "segments"],
     },
 )
 

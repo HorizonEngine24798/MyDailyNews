@@ -22,6 +22,23 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG = REPO_ROOT / "config.local.json"
 DEFAULT_WRITE = REPO_ROOT / "config.recommended.json"
 DEFAULT_MODEL_CATALOG = REPO_ROOT / "profiles" / "model_catalog.json"
+STORY_ENRICHMENT_BUDGET_KEYS = (
+    "max_context_chars_per_article",
+    "max_story_threads",
+    "planner_max_questions_per_story",
+    "search_results_per_query",
+    "max_fetched_research_pages_per_story",
+    "max_selected_article_excerpt_chars",
+    "max_research_excerpt_chars",
+    "cache_ttl_seconds",
+)
+REMOVED_FILTERING_KEYS = (
+    "max_selected_per_event_cluster",
+    "prefer_multi_source_clusters",
+    "multi_source_cluster_bonus",
+    "event_cluster_time_window_hours",
+)
+REMOVED_CACHE_KEYS = ("wikipedia_retention_days",)
 
 
 @dataclass(frozen=True)
@@ -274,11 +291,17 @@ def build_recommended_config(config: dict[str, Any], tier: dict[str, Any], model
 
     _apply_filtering(updated.setdefault("general_filtering", {}), settings, general=True)
     _apply_filtering(updated.setdefault("filtering", {}), settings, general=False)
+    _apply_narrative_briefing(updated.setdefault("narrative_briefing", {}))
+    _apply_story_enrichment_budget(updated.setdefault("enrichment", {}), settings)
     _apply_analysis(updated.setdefault("analysis", {}), settings)
+    _apply_runtime(updated.setdefault("runtime", {}))
+    _apply_cache(updated.setdefault("cache", {}))
     return updated
 
 
 def _apply_filtering(section: dict[str, Any], settings: dict[str, Any], *, general: bool) -> None:
+    for key in REMOVED_FILTERING_KEYS:
+        section.pop(key, None)
     section["max_candidates_for_ai"] = settings["max_candidates_for_ai"]
     section["max_headlines_per_ai_batch"] = settings["max_headlines_per_ai_batch"]
     section["headline_max_input_tokens"] = settings["headline_max_input_tokens"]
@@ -288,6 +311,49 @@ def _apply_filtering(section: dict[str, Any], settings: dict[str, Any], *, gener
         settings["general_max_selected_articles"] if general else settings["detailed_max_selected_articles"]
     )
     section["article_text_max_chars"] = settings["article_text_max_chars"]
+
+
+def _apply_narrative_briefing(section: dict[str, Any]) -> None:
+    section["enabled"] = bool(section.get("enabled", True))
+    section.setdefault("max_input_tokens", None)
+    section.setdefault("max_new_tokens", None)
+    section.setdefault("target_words", 1800)
+    section.setdefault(
+        "editorial_style",
+        "Write like a sharp human news editor, not a consultant memo. Use clear narrative paragraphs, "
+        "concrete verbs, and varied sentence rhythm. Avoid repeated Status/Impact/Operational Implication "
+        "labels. Do not address the reader as an operator. Use bullets sparingly, only for genuinely scannable "
+        "watch items. Prefer 'what changed, why it matters, what remains uncertain' woven into prose.",
+    )
+
+
+def _apply_runtime(section: dict[str, Any]) -> None:
+    section.pop("max_enrichment_workers", None)
+    section.setdefault("max_http_workers", 1)
+    section.setdefault("max_article_workers", 1)
+    section.setdefault("use_shared_snapshot", True)
+
+
+def _apply_cache(section: dict[str, Any]) -> None:
+    for key in REMOVED_CACHE_KEYS:
+        section.pop(key, None)
+
+
+def _apply_story_enrichment_budget(section: dict[str, Any], settings: dict[str, Any]) -> None:
+    budget = settings.get("story_enrichment_budget")
+    if not isinstance(budget, dict):
+        raise ValueError("Catalog tier settings must include story_enrichment_budget.")
+
+    enabled = bool(section.get("enabled", False))
+    mode = str(section.get("mode") or "story_llm").strip().lower()
+    target_mode = "disabled" if mode == "disabled" else "story_llm"
+    section.clear()
+    section["enabled"] = bool(enabled and target_mode != "disabled")
+    section["mode"] = target_mode
+    for key in STORY_ENRICHMENT_BUDGET_KEYS:
+        if key not in budget:
+            raise ValueError(f"Catalog story_enrichment_budget is missing required key: {key}")
+        section[key] = budget[key]
 
 
 def _apply_analysis(analysis: dict[str, Any], settings: dict[str, Any]) -> None:

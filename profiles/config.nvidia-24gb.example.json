@@ -56,8 +56,8 @@
   },
   "general_filtering": {"time_window_hours": 36, "headline_score_cutoff": 7.0, "max_headlines_per_source": 18, "max_candidates_for_ai": 80, "max_headlines_per_ai_batch": 16, "headline_max_input_tokens": 18000, "headline_max_new_tokens": 2800, "headline_single_replay_max_new_tokens": 1200, "max_selected_articles": 16, "fill_selected_articles": true, "article_text_max_chars": 6000},
   "filtering": {"time_window_hours": 36, "headline_score_cutoff": 7.0, "max_headlines_per_source": 18, "max_candidates_for_ai": 80, "max_headlines_per_ai_batch": 16, "headline_max_input_tokens": 18000, "headline_max_new_tokens": 2800, "headline_single_replay_max_new_tokens": 1200, "max_selected_articles": 12, "fill_selected_articles": false, "article_text_max_chars": 6000},
-  "enrichment": {"enabled": true, "past_news_days": 30, "max_past_news_results": 4, "max_wikipedia_results": 3, "max_entities": 4, "max_context_chars_per_article": 1800},
-  "runtime": {"max_http_workers": 1, "max_article_workers": 1, "max_enrichment_workers": 1, "use_shared_snapshot": true},
+  "enrichment": {"enabled": false, "mode": "story_llm", "max_story_threads": 16, "planner_max_questions_per_story": 5, "search_results_per_query": 20, "max_fetched_research_pages_per_story": 10, "max_selected_article_excerpt_chars": 5200, "max_research_excerpt_chars": 4000, "cache_ttl_seconds": 604800, "max_context_chars_per_article": 4200},
+  "runtime": {"max_http_workers": 1, "max_article_workers": 1, "use_shared_snapshot": true},
   "analysis": {
     "rollout": {
       "enabled": true,
@@ -68,7 +68,7 @@
     "evidence_distillation": {"enabled": false, "model_role": "summary", "include_reader_qa": true, "max_input_tokens": 18000, "max_new_tokens": 2200, "max_articles": 16, "max_articles_per_batch": 8, "max_articles_dropped_to_avoid_split": 3, "max_article_chars": 1800, "max_context_sources_per_article": 3, "max_story_clusters": 10, "max_claims_per_cluster": 6, "max_questions": 10, "cache_ttl_seconds": 604800},
     "delta_extraction": {"enabled": false, "model_role": "summary", "input_source": "evidence_or_articles", "require_prior_reports": false, "max_input_tokens": 14000, "max_new_tokens": 1600, "max_articles": 12, "max_articles_per_batch": 6, "max_articles_dropped_to_avoid_split": 3, "max_article_chars": 900, "max_prior_reports": 6, "cache_ttl_seconds": 604800}
   },
-  "cache": {"enabled": true, "dir": ".cache/mydailynews", "discovery_mode": "network_first", "article_text_retention_days": 3, "enrichment_retention_days": 30, "wikipedia_retention_days": 30, "http_retention_days": 7, "ai_enabled": true, "synth_fresh_seconds": 604800},
+  "cache": {"enabled": true, "dir": ".cache/mydailynews", "discovery_mode": "network_first", "article_text_retention_days": 3, "enrichment_retention_days": 30, "http_retention_days": 7, "ai_enabled": true, "synth_fresh_seconds": 604800},
   "sources": {
     "google_news": {"enabled": true, "days": 7, "max_results_per_topic": 14, "language": "en-US", "region": "US", "ceid": "US:en"},
     "prior_reports": {"enabled": true, "days": 7, "max_reports": 5, "max_chars_per_report": 1800, "output_dir": "output"},

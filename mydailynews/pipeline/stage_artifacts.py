@@ -15,12 +15,14 @@ NEXT_STAGE_BY_STAGE = {
     "headline_limit": "headline_decisions",
     "headline_decisions": "headline_select",
     "headline_select": "article_fetch",
-    "article_fetch": "enrichment",
+    "article_fetch": "story_grouping",
+    "story_grouping": "enrichment",
     "enrichment": "evidence_distillation",
     "evidence_distillation": "delta_extraction",
     "delta_extraction": "final_brief",
     "final_brief": "write_output",
-    "write_output": "",
+    "write_output": "narrative_brief",
+    "narrative_brief": "",
 }
 
 

@@ -9,6 +9,7 @@ import unittest
 from unittest.mock import patch
 import uuid
 
+from mydailynews.app.config import load_config
 from tools import autoconfig
 
 
@@ -77,7 +78,56 @@ class AutoconfigTests(unittest.TestCase):
         self.assertEqual(recommended["ai_final"]["max_new_tokens"], 1024)
         self.assertEqual(recommended["general_filtering"]["max_headlines_per_ai_batch"], 6)
         self.assertEqual(recommended["filtering"]["max_selected_articles"], 5)
+        self.assertFalse(recommended["enrichment"]["enabled"])
+        self.assertEqual(recommended["enrichment"]["max_story_threads"], 8)
+        self.assertEqual(recommended["enrichment"]["planner_max_questions_per_story"], 3)
+        self.assertEqual(recommended["enrichment"]["max_fetched_research_pages_per_story"], 4)
+        self.assertEqual(recommended["enrichment"]["max_selected_article_excerpt_chars"], 2800)
+        self.assertEqual(recommended["enrichment"]["max_context_chars_per_article"], 2400)
+        self.assertTrue(recommended["narrative_briefing"]["enabled"])
+        self.assertEqual(recommended["narrative_briefing"]["target_words"], 1800)
         self.assertEqual(recommended["analysis"]["evidence_distillation"]["max_input_tokens"], 5000)
+
+    def test_recommended_config_rewrites_stale_enrichment_section(self) -> None:
+        catalog = self._catalog()
+        source = self._example_config()
+        source["enrichment"]["mode"] = "simple"
+        source["enrichment"]["max_entities"] = 5
+        source.setdefault("runtime", {})["max_enrichment_workers"] = 4
+        source.setdefault("cache", {})["wikipedia_retention_days"] = 30
+        source["filtering"]["max_selected_per_event_cluster"] = 1
+        source["general_filtering"]["prefer_multi_source_clusters"] = True
+        tier = next(item for item in catalog["tiers"] if item["id"] == "nvidia_12gb")
+        model = autoconfig.model_for_tier(catalog, tier)
+
+        recommended = autoconfig.build_recommended_config(source, tier, model)
+
+        self.assertFalse(recommended["enrichment"]["enabled"])
+        self.assertEqual(recommended["enrichment"]["mode"], "story_llm")
+        self.assertNotIn("max_entities", recommended["enrichment"])
+        self.assertNotIn("max_enrichment_workers", recommended["runtime"])
+        self.assertNotIn("wikipedia_retention_days", recommended["cache"])
+        self.assertNotIn("max_selected_per_event_cluster", recommended["filtering"])
+        self.assertNotIn("prefer_multi_source_clusters", recommended["general_filtering"])
+        self.assertEqual(recommended["enrichment"]["max_story_threads"], 10)
+        self.assertEqual(recommended["enrichment"]["cache_ttl_seconds"], 604800)
+
+        path = self._temp_dir() / "recommended.json"
+        path.write_text(json.dumps(recommended, ensure_ascii=False, indent=2), encoding="utf-8")
+        load_config(path)
+
+    def test_recommended_config_preserves_explicit_enrichment_opt_in(self) -> None:
+        catalog = self._catalog()
+        source = self._example_config()
+        source["enrichment"]["enabled"] = True
+        tier = next(item for item in catalog["tiers"] if item["id"] == "nvidia_8gb")
+        model = autoconfig.model_for_tier(catalog, tier)
+
+        recommended = autoconfig.build_recommended_config(source, tier, model)
+
+        self.assertTrue(recommended["enrichment"]["enabled"])
+        self.assertEqual(recommended["enrichment"]["mode"], "story_llm")
+        self.assertEqual(recommended["enrichment"]["max_story_threads"], 8)
 
     def test_existing_model_path_is_preserved_and_wired_to_both_ai_sections(self) -> None:
         temp_dir = self._temp_dir()
@@ -141,6 +191,10 @@ class AutoconfigTests(unittest.TestCase):
         written = json.loads(target_path.read_text(encoding="utf-8"))
         self.assertEqual(written["ai_summary"]["server_model"], "Qwen3-30B-A3B-Q4_K_M")
         self.assertEqual(written["ai_summary"]["context_window_tokens"], 32768)
+        self.assertFalse(written["enrichment"]["enabled"])
+        self.assertEqual(written["enrichment"]["max_story_threads"], 16)
+        self.assertEqual(written["enrichment"]["max_fetched_research_pages_per_story"], 10)
+        self.assertEqual(written["enrichment"]["max_research_excerpt_chars"], 4000)
 
 
 if __name__ == "__main__":

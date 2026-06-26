@@ -174,14 +174,11 @@ class DebugAnalytics:
                 f"duration={durations.get(f'brief.{brief_name}.total', 0.0):.2f}s"
             )
             limited_sources = metric(f"brief.{brief_name}.limited_sources")
-            limited_clusters = metric(f"brief.{brief_name}.limited_event_clusters")
             selected_sources = metric(f"brief.{brief_name}.selected_sources")
-            selected_clusters = metric(f"brief.{brief_name}.selected_event_clusters")
-            if any([limited_sources, limited_clusters, selected_sources, selected_clusters]):
+            if any([limited_sources, selected_sources]):
                 lines.append(
-                    f"{brief_name} diversity limited_sources={limited_sources} limited_clusters={limited_clusters} "
-                    f"selected_sources={selected_sources} selected_clusters={selected_clusters} "
-                    f"selected_multi_source_clusters={metric(f'brief.{brief_name}.selected_multi_source_clusters')}"
+                    f"{brief_name} source diversity limited_sources={limited_sources} "
+                    f"selected_sources={selected_sources}"
                 )
             lines.append(
                 f"{brief_name} timings prepare={durations.get(f'brief.{brief_name}.candidate_prepare', 0.0):.2f}s "
@@ -207,6 +204,9 @@ class DebugAnalytics:
                     f"{brief_name} enrichment total={enrichment_articles} needed={metric(f'brief.{brief_name}.enrichment.needed')} "
                     f"skipped={metric(f'brief.{brief_name}.enrichment.skipped')} "
                     f"context_sources={metric(f'brief.{brief_name}.enrichment.context_sources')} "
+                    f"story_threads_created={metric(f'brief.{brief_name}.enrichment.story_threads_created')} "
+                    f"story_threads_enriched={metric(f'brief.{brief_name}.enrichment.story_threads_enriched')} "
+                    f"story_threads_skipped={metric(f'brief.{brief_name}.enrichment.story_threads_skipped')} "
                     f"duration={durations.get(f'brief.{brief_name}.enrichment', 0.0):.2f}s"
                 )
 
@@ -262,7 +262,7 @@ class DebugEventEmitter:
         "snapshot": {"built"},
         "headline.fetch": {"complete", "reused_snapshot"},
         "headline.dedupe": {"complete"},
-        "headline.heuristics": {"prefilter_complete", "title_dedupe", "event_clusters"},
+        "headline.heuristics": {"prefilter_complete", "title_dedupe"},
         "headline.limit": {"complete", "reused_shared_prefilter"},
         "headline.decisions": {"complete", "reused_shared"},
         "headline.select": {"complete"},
