@@ -9,7 +9,6 @@ from mydailynews.briefing.generator import BriefGenerator, brief_metadata
 from mydailynews.pipeline.brief_analysis_stages import _run_delta_stage, _run_evidence_stage
 from mydailynews.pipeline.brief_stages import (
     _checkpoint_stage,
-    _enrich_articles_stage,
     _fetch_articles_stage,
     _limit_headlines_stage,
     _prepare_candidates_stage,
@@ -18,6 +17,7 @@ from mydailynews.pipeline.brief_stages import (
     _select_articles_stage,
     _story_grouping_stage,
 )
+from mydailynews.pipeline.handoff import write_brief_handoff
 from mydailynews.domain.headline_selection import selection_rationale_rows
 from mydailynews.app.models import BriefOutput, HeadlineDecision, NewsCandidate, PriorReport, RunSourceSnapshot, TopicConfig
 from mydailynews.briefing.output import write_json, write_markdown
@@ -162,15 +162,12 @@ def run_brief(
                     "filtering": filtering,
                     "prior_reports": prior_reports,
                     "brief_goal": brief_goal,
-                    "include_enrichment_context": bool(getattr(orchestrator.config.enrichment, "enabled", True))
-                    and str(getattr(orchestrator.config.enrichment, "mode", "story_llm")).strip().lower() != "disabled",
+                    "include_enrichment_context": False,
                 },
             ):
                 return None
 
-            include_enrichment_context = bool(getattr(orchestrator.config.enrichment, "enabled", True)) and str(
-                getattr(orchestrator.config.enrichment, "mode", "story_llm")
-            ).strip().lower() != "disabled"
+            include_enrichment_context = False
             selection_result = _select_articles_stage(
                 orchestrator,
                 brief_name=name,
@@ -295,44 +292,6 @@ def run_brief(
             ):
                 return None
 
-            enrichment_result = _enrich_articles_stage(
-                orchestrator,
-                brief_name=name,
-                selected=selected,
-                include_enrichment_context=include_enrichment_context,
-                date=date,
-                story_groups=shared_story_groups,
-            )
-            selected = enrichment_result.selected
-            if _checkpoint_stage(
-                orchestrator,
-                brief_name=name,
-                stage="enrichment",
-                summary={
-                    "selected": len(selected),
-                    "enrichment_needed": enrichment_result.enrichment_needed,
-                    "context_sources": enrichment_result.context_sources,
-                    "story_threads_created": enrichment_result.story_threads_created,
-                    "story_threads_enriched": enrichment_result.story_threads_enriched,
-                    "story_threads_skipped": enrichment_result.story_threads_skipped,
-                    "story_enrichment": enrichment_result.artifact,
-                },
-                next_stage_input={
-                    "selected": selected,
-                    "topics": topics,
-                    "prior_reports": prior_reports,
-                    "brief_goal": brief_goal,
-                    "include_enrichment_context": include_enrichment_context,
-                    "evidence_config": evidence_config,
-                    "delta_config": delta_config,
-                    "analysis_rollout_meta": analysis_rollout_meta,
-                    "story_groups": story_groups,
-                    "shared_story_grouping_ran": shared_story_grouping_ran,
-                    "story_grouping": story_grouping_result.artifact,
-                },
-            ):
-                return None
-
             evidence_result = _run_evidence_stage(
                 orchestrator,
                 brief_name=name,
@@ -449,7 +408,6 @@ def run_brief(
             markdown_path = output_dir / f"{date}_{output_suffix}_brief.md"
             json_path = output_dir / f"{date}_{output_suffix}_brief.json"
             orchestrator.final_ai_client.unload()
-            extend_warnings(run_warnings, enrichment_result.warnings)
             extend_warnings(run_warnings, brief_generator.warnings)
             brief["metadata"] = brief_metadata(
                 date=date,
@@ -519,7 +477,7 @@ def run_brief(
             with orchestrator.debug.span(f"brief.{name}.write_output"):
                 write_markdown(markdown_path, brief)
                 write_json(json_path, brief)
-            _checkpoint_stage(
+            if _checkpoint_stage(
                 orchestrator,
                 brief_name=name,
                 stage="write_output",
@@ -535,6 +493,34 @@ def run_brief(
                     "markdown_path": str(markdown_path),
                     "json_path": str(json_path),
                 },
+            ):
+                return None
+            handoff_written_path = write_brief_handoff(
+                output_dir=output_dir,
+                date=date,
+                brief_name=name,
+                json_path=json_path,
+                markdown_path=markdown_path,
+                topics=topics,
+                prior_reports=prior_reports,
+                brief_goal=brief_goal,
+                filtering=filtering,
+                selected_articles=selected,
+            )
+            _checkpoint_stage(
+                orchestrator,
+                brief_name=name,
+                stage="write_handoff",
+                summary={
+                    "handoff_path": str(handoff_written_path),
+                    "selected_count": len(selected),
+                    "schema_version": "brief_handoff.v1",
+                },
+                next_stage_input={
+                    "handoff_path": str(handoff_written_path),
+                    "source_json_path": str(json_path),
+                    "selected": selected,
+                },
             )
             _promote_run_warnings()
             orchestrator.debug.set_metric(f"brief.{name}.warnings", len(run_warnings))
@@ -548,6 +534,7 @@ def run_brief(
                 candidate_count=len(unique_candidates),
                 selected_count=len(selected),
                 warnings=run_warnings,
+                handoff_path=str(handoff_written_path),
             )
         except Exception as exc:
             orchestrator.debug.set_metric(f"brief.{name}.status", "failed")

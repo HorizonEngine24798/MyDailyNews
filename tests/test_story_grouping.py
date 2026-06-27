@@ -141,7 +141,7 @@ class StoryGroupingStageResultTests(unittest.TestCase):
     def test_stage_order_includes_story_grouping_after_article_fetch(self) -> None:
         self.assertEqual(normalize_stage_name("story-grouping"), "story_grouping")
         self.assertEqual(next_stage_after("article_fetch"), "story_grouping")
-        self.assertEqual(next_stage_after("story_grouping"), "enrichment")
+        self.assertEqual(next_stage_after("story_grouping"), "evidence_distillation")
 
     def test_stage_runs_once_when_enrichment_and_evidence_enabled(self) -> None:
         selected = [
@@ -179,9 +179,25 @@ class StoryGroupingStageResultTests(unittest.TestCase):
         self.assertEqual([group.story_id for group in result.story_groups], ["story-001"])
         self.assertEqual(result.artifact["requests"][0]["status"], "ok")
 
-    def test_stage_skips_without_ai_call_when_only_evidence_enabled(self) -> None:
-        selected = [_selected("a", "Context-rich article")]
-        ai = FakeAIClient([])
+    def test_stage_runs_when_only_evidence_enabled(self) -> None:
+        selected = [
+            _selected("a", "Chip export scrutiny expands"),
+            _selected("b", "AI chip supply-chain pressure rises"),
+        ]
+        ai = FakeAIClient(
+            [
+                {
+                    "story_groups": [
+                        {
+                            "story_id": "story-001",
+                            "story_title": "Chip supply-chain scrutiny",
+                            "article_ids": ["a", "b"],
+                            "research_questions": [],
+                        }
+                    ]
+                }
+            ]
+        )
         config = AppConfig(enrichment=EnrichmentConfig(enabled=False))
 
         result = _story_grouping_stage(
@@ -192,9 +208,9 @@ class StoryGroupingStageResultTests(unittest.TestCase):
             evidence_config=EvidenceDistillationConfig(enabled=True),
         )
 
-        self.assertEqual(ai.calls, [])
-        self.assertEqual(result.artifact["status"], "skipped")
-        self.assertEqual(result.artifact["skipped_reason"], "enrichment_disabled")
+        self.assertEqual(len(ai.calls), 1)
+        self.assertEqual(result.artifact["status"], "ok")
+        self.assertEqual([group.story_id for group in result.story_groups], ["story-001"])
 
     def test_shared_normalizer_cleans_common_group_shape(self) -> None:
         selected = [

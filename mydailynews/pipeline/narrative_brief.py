@@ -7,6 +7,7 @@ from mydailynews.app.models import BriefOutput, NarrativeBriefOutput
 from mydailynews.briefing.narrative import (
     NarrativeBriefGenerator,
     NarrativeSourceBrief,
+    load_enrichment_payload,
     load_source_brief,
     write_narrative_outputs,
 )
@@ -16,14 +17,27 @@ from mydailynews.common.warnings import extend_warnings
 NARRATIVE_SOURCE_BRIEF_NAMES = ("general", "detailed")
 
 
-def run_narrative_brief(orchestrator, *, outputs: List[BriefOutput], date: str) -> NarrativeBriefOutput | None:
+def run_narrative_brief(
+    orchestrator,
+    *,
+    outputs: List[BriefOutput],
+    date: str,
+    enrichment_json_path: str = "",
+    allow_disk_fallback: bool = True,
+    use_enrichment: bool = True,
+) -> NarrativeBriefOutput | None:
     config = orchestrator.config.narrative_briefing
     if not config.enabled:
         return None
 
     run_warnings: List[str] = []
     try:
-        source_briefs = _collect_source_briefs(outputs, output_dir=Path(orchestrator.config.output_dir), date=date)
+        source_briefs = _collect_source_briefs(
+            outputs,
+            output_dir=Path(orchestrator.config.output_dir),
+            date=date,
+            allow_disk_fallback=allow_disk_fallback,
+        )
     except Exception as exc:
         warning = (
             f"narrative: source brief loading failed ({type(exc).__name__}): {exc}; "
@@ -39,9 +53,25 @@ def run_narrative_brief(orchestrator, *, outputs: List[BriefOutput], date: str) 
         return None
 
     source_names = [source.name for source in source_briefs]
+    if use_enrichment:
+        enrichment_payload, enrichment_json_path, enrichment_warnings = _load_enrichment_source(
+            output_dir=Path(orchestrator.config.output_dir),
+            date=date,
+            enrichment_json_path=enrichment_json_path,
+            allow_disk_fallback=allow_disk_fallback,
+        )
+    else:
+        enrichment_payload, enrichment_json_path, enrichment_warnings = None, "", []
+    extend_warnings(run_warnings, enrichment_warnings)
+    enrichment_used = bool(enrichment_payload)
     orchestrator.reporter.phase("Writing narrative Markdown brief...")
     orchestrator.debug.set_metric("brief.narrative.status", "running")
-    orchestrator.debug.log("narrative_brief.run", "starting", source_briefs=",".join(source_names))
+    orchestrator.debug.log(
+        "narrative_brief.run",
+        "starting",
+        source_briefs=",".join(source_names),
+        enrichment_used=enrichment_used,
+    )
 
     output: NarrativeBriefOutput | None = None
     generator: NarrativeBriefGenerator | None = None
@@ -59,6 +89,8 @@ def run_narrative_brief(orchestrator, *, outputs: List[BriefOutput], date: str) 
                 source_briefs,
                 orchestrator.config.user_memory,
                 date=date,
+                enrichment_payload=enrichment_payload,
+                enrichment_json_path=enrichment_json_path,
             )
         extend_warnings(run_warnings, generator.warnings)
 
@@ -74,6 +106,8 @@ def run_narrative_brief(orchestrator, *, outputs: List[BriefOutput], date: str) 
                 brief_name="pipeline",
                 summary={
                     "source_briefs": source_names,
+                    "enrichment_used": enrichment_used,
+                    "enrichment_json_path": enrichment_json_path if enrichment_used else "",
                     "markdown_path": str(markdown_path),
                     "json_path": str(json_path),
                     "segments": len(narrative_brief.get("segments", [])),
@@ -89,6 +123,7 @@ def run_narrative_brief(orchestrator, *, outputs: List[BriefOutput], date: str) 
                         }
                         for source in source_briefs
                     ],
+                    "enrichment_json_path": enrichment_json_path if enrichment_used else "",
                     "markdown_path": str(markdown_path),
                     "json_path": str(json_path),
                 },
@@ -135,19 +170,22 @@ def _collect_source_briefs(
     *,
     output_dir: Path,
     date: str,
+    allow_disk_fallback: bool = True,
 ) -> List[NarrativeSourceBrief]:
     by_name: dict[str, Path] = {}
     for output in outputs:
         name = str(output.name or "").strip().lower()
-        if name in NARRATIVE_SOURCE_BRIEF_NAMES:
-            by_name[name] = Path(output.json_path)
+        json_path = str(output.json_path or "").strip()
+        if name in NARRATIVE_SOURCE_BRIEF_NAMES and json_path:
+            by_name[name] = Path(json_path)
 
-    for name in NARRATIVE_SOURCE_BRIEF_NAMES:
-        if name in by_name:
-            continue
-        candidate_path = output_dir / f"{date}_{name}_brief.json"
-        if candidate_path.exists():
-            by_name[name] = candidate_path
+    if allow_disk_fallback:
+        for name in NARRATIVE_SOURCE_BRIEF_NAMES:
+            if name in by_name:
+                continue
+            candidate_path = output_dir / f"{date}_{name}_brief.json"
+            if candidate_path.exists():
+                by_name[name] = candidate_path
 
     source_briefs: List[NarrativeSourceBrief] = []
     for name in NARRATIVE_SOURCE_BRIEF_NAMES:
@@ -156,3 +194,27 @@ def _collect_source_briefs(
             continue
         source_briefs.append(load_source_brief(name, path))
     return source_briefs
+
+
+def _load_enrichment_source(
+    *,
+    output_dir: Path,
+    date: str,
+    enrichment_json_path: str = "",
+    allow_disk_fallback: bool = True,
+) -> tuple[dict | None, str, List[str]]:
+    explicit_path = str(enrichment_json_path or "").strip()
+    if explicit_path:
+        path = Path(explicit_path)
+    elif allow_disk_fallback:
+        path = output_dir / f"{date}_enrichment.json"
+    else:
+        return None, "", []
+    if not path.exists():
+        if explicit_path:
+            return None, str(path), [f"narrative: enrichment JSON does not exist: {path}."]
+        return None, "", []
+    try:
+        return load_enrichment_payload(path), str(path), []
+    except Exception as exc:
+        return None, str(path), [f"narrative: enrichment JSON could not be loaded ({type(exc).__name__}: {exc})."]

@@ -56,7 +56,8 @@
   },
   "general_filtering": {"time_window_hours": 36, "headline_score_cutoff": 7.0, "max_headlines_per_source": 16, "max_candidates_for_ai": 48, "max_headlines_per_ai_batch": 10, "headline_max_input_tokens": 10000, "headline_max_new_tokens": 1600, "headline_single_replay_max_new_tokens": 768, "max_selected_articles": 10, "fill_selected_articles": true, "article_text_max_chars": 4500},
   "filtering": {"time_window_hours": 36, "headline_score_cutoff": 7.0, "max_headlines_per_source": 16, "max_candidates_for_ai": 48, "max_headlines_per_ai_batch": 10, "headline_max_input_tokens": 10000, "headline_max_new_tokens": 1600, "headline_single_replay_max_new_tokens": 768, "max_selected_articles": 7, "fill_selected_articles": false, "article_text_max_chars": 4500},
-  "enrichment": {"enabled": false, "mode": "story_llm", "max_story_threads": 10, "planner_max_questions_per_story": 4, "search_results_per_query": 16, "max_fetched_research_pages_per_story": 8, "max_selected_article_excerpt_chars": 3600, "max_research_excerpt_chars": 2800, "cache_ttl_seconds": 604800, "max_context_chars_per_article": 3200},
+  "enrichment": {"enabled": true, "mode": "story_llm", "max_story_threads": 10, "planner_max_questions_per_story": 4, "search_results_per_query": 16, "max_fetched_research_pages_per_story": 8, "max_selected_article_excerpt_chars": 3600, "max_research_excerpt_chars": 2800, "cache_ttl_seconds": 604800, "max_context_chars_per_article": 3200},
+  "pipeline": {"default_series": ["briefs", "enrichment", "narrative_brief"]},
   "runtime": {"max_http_workers": 1, "max_article_workers": 1, "use_shared_snapshot": true},
   "analysis": {
     "rollout": {"enabled": true, "profile": "balanced_local", "general": {"evidence_enabled": true, "delta_enabled": false}, "detailed": {"evidence_enabled": true, "delta_enabled": true}},

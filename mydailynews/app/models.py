@@ -68,7 +68,7 @@ def default_general_filtering_config() -> FilteringConfig:
 
 @dataclass
 class EnrichmentConfig:
-    enabled: bool = False
+    enabled: bool = True
     mode: str = "story_llm"
     max_context_chars_per_article: int = 3200
     max_story_threads: int = 10
@@ -111,6 +111,11 @@ class NarrativeBriefingConfig:
         "labels. Do not address the reader as an operator. Use bullets sparingly, only for genuinely scannable "
         "watch items. Prefer 'what changed, why it matters, what remains uncertain' woven into prose."
     )
+
+
+@dataclass
+class PipelineConfig:
+    default_series: List[str] = field(default_factory=lambda: ["briefs", "enrichment", "narrative_brief"])
 
 
 @dataclass
@@ -331,6 +336,7 @@ class AppConfig:
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
     analysis: AnalysisConfig = field(default_factory=AnalysisConfig)
     narrative_briefing: NarrativeBriefingConfig = field(default_factory=NarrativeBriefingConfig)
+    pipeline: PipelineConfig = field(default_factory=PipelineConfig)
 
 
 @dataclass
@@ -448,6 +454,18 @@ class BriefOutput:
     candidate_count: int
     selected_count: int
     warnings: List[str] = field(default_factory=list)
+    handoff_path: str = ""
+
+
+@dataclass
+class EnrichmentOutput:
+    name: str
+    json_path: str
+    markdown_path: str = ""
+    source_briefs: List[str] = field(default_factory=list)
+    selected_count: int = 0
+    story_thread_count: int = 0
+    warnings: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -462,5 +480,6 @@ class NarrativeBriefOutput:
 @dataclass
 class PipelineResult:
     outputs: List[BriefOutput] = field(default_factory=list)
+    enrichment_outputs: List[EnrichmentOutput] = field(default_factory=list)
     narrative_outputs: List[NarrativeBriefOutput] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)

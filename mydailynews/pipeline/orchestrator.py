@@ -11,6 +11,7 @@ Retained notice: see project LICENSE.
 """
 
 import json
+from datetime import date as date_type
 from pathlib import Path
 from typing import Any, Dict, List
 from urllib.parse import urlparse
@@ -20,11 +21,13 @@ from mydailynews.ai.factory import create_ai_client
 from mydailynews.ai.headline_analyzer import HeadlineAnalyzer
 from mydailynews.common.cache import HTTPCache, JSONCache
 from mydailynews.pipeline.brief_execution import run_brief as run_brief_helper
+from mydailynews.pipeline.enrichment_module import run_enrichment as run_enrichment_helper
 from mydailynews.pipeline.narrative_brief import run_narrative_brief as run_narrative_brief_helper
 from mydailynews.diagnostics.debug import DebugLogger
 from mydailynews.app.models import (
     AppConfig,
     BriefOutput,
+    EnrichmentOutput,
     FilteringConfig,
     HeadlineDecision,
     NewsCandidate,
@@ -34,7 +37,7 @@ from mydailynews.app.models import (
     NarrativeBriefOutput,
     TopicConfig,
 )
-from mydailynews.pipeline.stages import PipelineRunOptions
+from mydailynews.pipeline.stages import PIPELINE_MODULES, PipelineRunOptions, validate_run_date_usage
 from mydailynews.diagnostics.reporting import CliReporter
 from mydailynews.retrieval.google_news import GoogleNewsQueryRetriever
 from mydailynews.retrieval.article_cache import ArticleTextCache
@@ -119,11 +122,66 @@ class NewsOrchestrator:
 
     def run(self, run_options: PipelineRunOptions | None = None) -> PipelineResult:
         self._prepare_run_options(run_options or PipelineRunOptions())
+        self.warnings = []
+        date = self._target_date()
+        module = str(self.run_options.module or "series").strip().lower()
+        if module == "series":
+            return self.run_series(date=date)
+        if module == "briefs":
+            return self.run_briefs(date=date)
+        if module == "enrichment":
+            return self.run_enrichment(date=date)
+        if module == "narrative_brief":
+            return self.run_narrative_brief(date=date)
+        raise ValueError(f"Unsupported pipeline module: {module}")
+
+    def run_series(self, *, date: str) -> PipelineResult:
+        outputs: List[BriefOutput] = []
+        enrichment_outputs: List[EnrichmentOutput] = []
+        narrative_outputs: List[NarrativeBriefOutput] = []
+        for module in self._runtime_series():
+            if module == "briefs":
+                result = self.run_briefs(date=date)
+                outputs.extend(result.outputs)
+                enrichment_outputs.extend(result.enrichment_outputs)
+                narrative_outputs.extend(result.narrative_outputs)
+            elif module == "enrichment":
+                if not self._module_enabled("enrichment"):
+                    self.warnings.append("enrichment: module is disabled by config; skipped.")
+                    continue
+                result = self.run_enrichment(date=date, source_outputs=outputs, allow_disk_fallback=False)
+                enrichment_outputs.extend(result.enrichment_outputs)
+            elif module == "narrative_brief":
+                if not self._module_enabled("narrative_brief"):
+                    self.warnings.append("narrative_brief: module is disabled by config; skipped.")
+                    continue
+                enrichment_json_path = enrichment_outputs[-1].json_path if enrichment_outputs else ""
+                result = self.run_narrative_brief(
+                    date=date,
+                    outputs=outputs,
+                    enrichment_json_path=enrichment_json_path,
+                    allow_disk_fallback=False,
+                    use_enrichment=bool(enrichment_json_path),
+                )
+                narrative_outputs.extend(result.narrative_outputs)
+            if self.stopped_after_stage:
+                return self._stopped_result(
+                    outputs=outputs,
+                    enrichment_outputs=enrichment_outputs,
+                    narrative_outputs=narrative_outputs,
+                )
+        return PipelineResult(
+            outputs=outputs,
+            enrichment_outputs=enrichment_outputs,
+            narrative_outputs=narrative_outputs,
+            warnings=self.warnings,
+        )
+
+    def run_briefs(self, *, date: str = "") -> PipelineResult:
         with self.debug.span("pipeline.total"):
             now = utc_now()
-            today = now.date()
+            today = self._date_object(date) if date else now.date()
             date = today.isoformat()
-            self.warnings = []
             general_topics = [topic for topic in self.config.general_topics if topic.enabled]
             detailed_topics = [topic for topic in self.config.topics_to_examine if topic.enabled]
             enabled_sources = len([source for source in self.config.rss_sources if source.enabled])
@@ -266,7 +324,6 @@ class NewsOrchestrator:
                     return self._stopped_result()
 
                 outputs: List[BriefOutput] = []
-                narrative_outputs: List[NarrativeBriefOutput] = []
                 if "general" in self.run_options.briefs:
                     general_output = self._run_brief(
                         name="general",
@@ -305,29 +362,24 @@ class NewsOrchestrator:
                     if self.stopped_after_stage:
                         return self._stopped_result(outputs=outputs)
 
-                narrative_output = self._run_narrative_brief(outputs=outputs, date=date)
-                if narrative_output is not None:
-                    narrative_outputs.append(narrative_output)
-                if self._stop_requested("narrative_brief"):
-                    return self._stopped_result(outputs=outputs, narrative_outputs=narrative_outputs)
-
                 self.debug.set_metric("pipeline.outputs", len(outputs))
-                self.debug.set_metric("pipeline.narrative_outputs", len(narrative_outputs))
+                self.debug.set_metric("pipeline.narrative_outputs", 0)
                 self.debug.set_metric("pipeline.status", "completed")
                 self.debug.log(
                     "pipeline",
                     "complete",
                     outputs=len(outputs),
-                    narrative_outputs=len(narrative_outputs),
+                    narrative_outputs=0,
                     warnings=len(self.warnings),
                 )
-                return PipelineResult(outputs=outputs, narrative_outputs=narrative_outputs, warnings=self.warnings)
+                return PipelineResult(outputs=outputs, warnings=self.warnings)
             except Exception as exc:
                 self.debug.set_metric("pipeline.status", "failed")
                 self.debug.set_metric("pipeline.error", f"{type(exc).__name__}: {exc}")
                 raise
 
     def _prepare_run_options(self, options: PipelineRunOptions) -> None:
+        validate_run_date_usage(options.module, options.date)
         self.run_options = options
         self.stopped_after_stage = ""
         self.stage_artifact_paths = []
@@ -338,12 +390,51 @@ class NewsOrchestrator:
         else:
             self._stage_artifact_root = Path(self.config.output_dir) / "diagnostics" / "stages"
 
+    def _target_date(self) -> str:
+        requested = str(getattr(self.run_options, "date", "") or "").strip()
+        if not requested:
+            return utc_now().date().isoformat()
+        self._date_object(requested)
+        return requested
+
+    @staticmethod
+    def _date_object(value: str) -> date_type:
+        try:
+            return date_type.fromisoformat(str(value or "").strip())
+        except ValueError as exc:
+            raise ValueError(f"Invalid --date value '{value}'. Expected YYYY-MM-DD.") from exc
+
+    def _runtime_series(self) -> List[str]:
+        configured = list(getattr(self.config.pipeline, "default_series", []) or ["briefs", "enrichment", "narrative_brief"])
+        skip = set(getattr(self.run_options, "skip_modules", ()) or ())
+        series: List[str] = []
+        for module in configured:
+            normalized = str(module or "").strip().lower().replace("-", "_")
+            if normalized not in PIPELINE_MODULES:
+                raise ValueError(f"Unsupported configured pipeline module: {module}")
+            if normalized in skip:
+                self.warnings.append(f"{normalized}: module skipped by run option.")
+                continue
+            if normalized not in series:
+                series.append(normalized)
+        return series
+
+    def _module_enabled(self, module: str) -> bool:
+        if module == "enrichment":
+            mode = str(getattr(self.config.enrichment, "mode", "story_llm") or "story_llm").strip().lower()
+            return bool(getattr(self.config.enrichment, "enabled", False)) and mode != "disabled"
+        if module == "narrative_brief":
+            return bool(getattr(self.config.narrative_briefing, "enabled", False))
+        return True
+
     def _stopped_result(
         self,
         outputs: List[BriefOutput] | None = None,
+        enrichment_outputs: List[EnrichmentOutput] | None = None,
         narrative_outputs: List[NarrativeBriefOutput] | None = None,
     ) -> PipelineResult:
         self.debug.set_metric("pipeline.outputs", len(outputs or []))
+        self.debug.set_metric("pipeline.enrichment_outputs", len(enrichment_outputs or []))
         self.debug.set_metric("pipeline.narrative_outputs", len(narrative_outputs or []))
         self.debug.set_metric("pipeline.status", "stopped")
         self.debug.log(
@@ -351,10 +442,12 @@ class NewsOrchestrator:
             "stopped",
             stage=self.stopped_after_stage or self.run_options.stop_after_stage,
             outputs=len(outputs or []),
+            enrichment_outputs=len(enrichment_outputs or []),
             narrative_outputs=len(narrative_outputs or []),
         )
         return PipelineResult(
             outputs=list(outputs or []),
+            enrichment_outputs=list(enrichment_outputs or []),
             narrative_outputs=list(narrative_outputs or []),
             warnings=self.warnings,
         )
@@ -416,6 +509,55 @@ class NewsOrchestrator:
             self.warnings.append(f"Stage artifact write failed ({brief_name}/{stage}): {type(exc).__name__}: {exc}")
             return ""
 
+    def run_enrichment(
+        self,
+        *,
+        date: str,
+        source_outputs: List[BriefOutput] | None = None,
+        allow_disk_fallback: bool = True,
+    ) -> PipelineResult:
+        output = run_enrichment_helper(
+            self,
+            date=date,
+            source_outputs=list(source_outputs or []),
+            allow_disk_fallback=allow_disk_fallback,
+        )
+        outputs = [output] if output is not None else []
+        if self._stop_requested("enrichment"):
+            return self._stopped_result(enrichment_outputs=outputs)
+        return PipelineResult(enrichment_outputs=outputs, warnings=self.warnings)
+
+    def run_narrative_brief(
+        self,
+        *,
+        date: str,
+        outputs: List[BriefOutput] | None = None,
+        enrichment_json_path: str = "",
+        allow_disk_fallback: bool = True,
+        use_enrichment: bool | None = None,
+    ) -> PipelineResult:
+        if not self._module_enabled("narrative_brief"):
+            self.warnings.append("narrative_brief: module is disabled by config; skipped.")
+            return PipelineResult(outputs=list(outputs or []), warnings=self.warnings)
+        if use_enrichment is None:
+            use_enrichment = self._module_enabled("enrichment") and "enrichment" not in set(
+                getattr(self.run_options, "skip_modules", ()) or ()
+            )
+        output = self._run_narrative_brief(
+            outputs=list(outputs or []),
+            date=date,
+            enrichment_json_path=enrichment_json_path,
+            allow_disk_fallback=allow_disk_fallback,
+            use_enrichment=bool(use_enrichment),
+        )
+        narrative_outputs = [output] if output is not None else []
+        if self._stop_requested("narrative_brief"):
+            return self._stopped_result(
+                outputs=list(outputs or []),
+                narrative_outputs=narrative_outputs,
+            )
+        return PipelineResult(outputs=list(outputs or []), narrative_outputs=narrative_outputs, warnings=self.warnings)
+
     def _run_brief(
         self,
         name: str,
@@ -445,8 +587,23 @@ class NewsOrchestrator:
             shared_decisions=shared_decisions,
         )
 
-    def _run_narrative_brief(self, *, outputs: List[BriefOutput], date: str) -> NarrativeBriefOutput | None:
-        return run_narrative_brief_helper(self, outputs=outputs, date=date)
+    def _run_narrative_brief(
+        self,
+        *,
+        outputs: List[BriefOutput],
+        date: str,
+        enrichment_json_path: str = "",
+        allow_disk_fallback: bool = True,
+        use_enrichment: bool = True,
+    ) -> NarrativeBriefOutput | None:
+        return run_narrative_brief_helper(
+            self,
+            outputs=outputs,
+            date=date,
+            enrichment_json_path=enrichment_json_path,
+            allow_disk_fallback=allow_disk_fallback,
+            use_enrichment=use_enrichment,
+        )
 
     def _close_ai_client(self, client, *, role: str) -> None:
         close_fn = getattr(client, "close", None)

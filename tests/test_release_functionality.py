@@ -52,9 +52,10 @@ class ReleaseSmokeTests(unittest.TestCase):
         self.assertEqual(config.cache.discovery_mode, "network_first")
         self.assertEqual(config.cache.article_text_retention_days, 3)
         self.assertEqual(config.cache.enrichment_retention_days, 30)
-        self.assertFalse(config.enrichment.enabled)
+        self.assertTrue(config.enrichment.enabled)
         self.assertTrue(config.narrative_briefing.enabled)
         self.assertEqual(config.narrative_briefing.target_words, 1800)
+        self.assertEqual(config.pipeline.default_series, ["briefs", "enrichment", "narrative_brief"])
 
         with self.subTest("summary and final share managed llama runtime"):
             shared_runtime_fields = (
@@ -119,6 +120,13 @@ class ReleaseSmokeTests(unittest.TestCase):
             old_cache_path = self._write_config_payload(TEMP_ROOT, old_cache_payload, "old_wikipedia_cache_key")
             with self.assertRaisesRegex(ValueError, r"Config section cache has unrecognized key\(s\): wikipedia_retention_days"):
                 load_config(old_cache_path)
+
+        with self.subTest("duplicate pipeline module"):
+            duplicate_pipeline_payload = deepcopy(payload)
+            duplicate_pipeline_payload["pipeline"] = {"default_series": ["briefs", "briefs"]}
+            duplicate_pipeline_path = self._write_config_payload(TEMP_ROOT, duplicate_pipeline_payload, "duplicate_pipeline")
+            with self.assertRaisesRegex(ValueError, "pipeline.default_series contains duplicate module"):
+                load_config(duplicate_pipeline_path)
 
         with self.subTest("unrecognized ai preset"):
             preset_payload = deepcopy(payload)
@@ -280,6 +288,8 @@ class ReleaseSmokeTests(unittest.TestCase):
         self.assertIn("Available pipeline stages:", result.stdout)
         self.assertIn("headline_select", result.stdout)
         self.assertIn("story_grouping", result.stdout)
+        self.assertIn("write_handoff", result.stdout)
+        self.assertIn("enrichment", result.stdout)
         self.assertIn("narrative_brief", result.stdout)
         self.assertNotIn("Config not found", result.stdout)
 
@@ -329,6 +339,21 @@ class ReleaseSmokeTests(unittest.TestCase):
         self.assertEqual(artifact["next_stage_input"]["selected"][0]["id"], "candidate-1")
         self.assertNotIn("payload", artifact)
         self.assertNotIn("intermediate", artifact)
+
+    def test_date_option_is_limited_to_standalone_disk_modules(self) -> None:
+        with self.assertRaisesRegex(ValueError, "--date can only be used with standalone modules"):
+            PipelineRunOptions.from_cli(brief="both", module="series", date="2026-06-14")
+        with self.assertRaisesRegex(ValueError, "--date can only be used with standalone modules"):
+            PipelineRunOptions.from_cli(brief="both", module="briefs", date="2026-06-14")
+        with self.assertRaisesRegex(ValueError, "Invalid --date value"):
+            PipelineRunOptions.from_cli(brief="both", module="enrichment", date="2026-99-99")
+        with self.assertRaisesRegex(ValueError, "Invalid --date value"):
+            PipelineRunOptions.from_cli(brief="both", module="enrichment", date="20260614")
+
+        options = PipelineRunOptions.from_cli(brief="both", module="narrative_brief", date="2026-06-14")
+
+        self.assertEqual(options.module, "narrative_brief")
+        self.assertEqual(options.date, "2026-06-14")
 
 
 if __name__ == "__main__":

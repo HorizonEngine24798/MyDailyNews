@@ -28,7 +28,12 @@ class CliReporter:
             return
         self._print("MyDailyNews run starting")
         self._print(f"Config: {config_path}")
+        self._print(f"Module: {run_options.module}")
+        if run_options.date:
+            self._print(f"Date: {run_options.date}")
         self._print(f"Briefs: {','.join(run_options.briefs)}")
+        if run_options.skip_modules:
+            self._print(f"Skipped modules: {','.join(run_options.skip_modules)}")
         self._print(f"AI: {self._ai_label(config.ai_summary)} -> {self._ai_label(config.ai_final)}")
         enrichment = "enabled" if bool(getattr(config.enrichment, "enabled", False)) else "disabled"
         self._print(f"Enrichment: {enrichment}")
@@ -41,7 +46,7 @@ class CliReporter:
         self._print(text)
 
     def outputs(self, result: PipelineResult) -> None:
-        if not self.enabled or not (result.outputs or result.narrative_outputs):
+        if not self.enabled or not (result.outputs or result.enrichment_outputs or result.narrative_outputs):
             return
         self._print("")
         for output in result.outputs:
@@ -52,6 +57,16 @@ class CliReporter:
                 f"{label} selected {output.selected_count} articles "
                 f"from {output.candidate_count} candidates."
             )
+            if output.handoff_path:
+                self._print(f"{label} handoff:        {output.handoff_path}")
+        for output in result.enrichment_outputs:
+            label = output.name.title()
+            source_label = ",".join(output.source_briefs) if output.source_briefs else "none"
+            if output.markdown_path:
+                self._print(f"{label} markdown:      {output.markdown_path}")
+            self._print(f"{label} JSON:          {output.json_path}")
+            self._print(f"{label} source briefs: {source_label}")
+            self._print(f"{label} story threads: {output.story_thread_count}")
         for output in result.narrative_outputs:
             label = output.name.title()
             source_label = ",".join(output.source_briefs) if output.source_briefs else "none"

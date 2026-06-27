@@ -20,6 +20,7 @@ from mydailynews.app.models import (
     FilteringConfig,
     GoogleNewsSourceConfig,
     NarrativeBriefingConfig,
+    PipelineConfig,
     PriorReportsSourceConfig,
     RSSSourceConfig,
     RuntimeConfig,
@@ -49,6 +50,7 @@ DEFAULT_ENRICHMENT = _defaults(EnrichmentConfig())
 DEFAULT_CACHE = _defaults(CacheConfig())
 DEFAULT_RUNTIME = _defaults(RuntimeConfig())
 DEFAULT_NARRATIVE_BRIEFING = _defaults(NarrativeBriefingConfig())
+DEFAULT_PIPELINE = _defaults(PipelineConfig())
 DEFAULT_ANALYSIS_EVIDENCE = _defaults(EvidenceDistillationConfig())
 DEFAULT_ANALYSIS_DELTA = _defaults(DeltaExtractionConfig())
 DEFAULT_ANALYSIS_ROLLOUT = _defaults(AnalysisRolloutConfig())
@@ -66,6 +68,7 @@ ROOT_CONFIG_KEYS = {
     "enrichment",
     "runtime",
     "narrative_briefing",
+    "pipeline",
     "analysis",
     "cache",
     "sources",
@@ -77,6 +80,8 @@ ENRICHMENT_CONFIG_KEYS = set(DEFAULT_ENRICHMENT.keys())
 CACHE_CONFIG_KEYS = set(DEFAULT_CACHE.keys())
 RUNTIME_CONFIG_KEYS = set(DEFAULT_RUNTIME.keys())
 NARRATIVE_BRIEFING_CONFIG_KEYS = set(DEFAULT_NARRATIVE_BRIEFING.keys())
+PIPELINE_CONFIG_KEYS = set(DEFAULT_PIPELINE.keys())
+PIPELINE_MODULE_NAMES = {"briefs", "enrichment", "narrative_brief"}
 ANALYSIS_CONFIG_KEYS = {"evidence_distillation", "delta_extraction", "rollout"}
 EVIDENCE_DISTILLATION_CONFIG_KEYS = set(DEFAULT_ANALYSIS_EVIDENCE.keys())
 DELTA_EXTRACTION_CONFIG_KEYS = set(DEFAULT_ANALYSIS_DELTA.keys())
@@ -268,6 +273,33 @@ def _normalize_enrichment_mode(value: Any) -> str:
     if mode not in allowed:
         raise ValueError("enrichment.mode must be one of: story_llm, disabled")
     return mode
+
+
+def _normalize_pipeline_module(value: Any) -> str:
+    module = str(value or "").strip().lower().replace("-", "_")
+    if module not in PIPELINE_MODULE_NAMES:
+        allowed = ", ".join(sorted(PIPELINE_MODULE_NAMES))
+        raise ValueError(f"pipeline.default_series contains unsupported module '{value}'. Supported modules: {allowed}")
+    return module
+
+
+def _load_pipeline(raw: Dict[str, Any]) -> PipelineConfig:
+    pipeline_raw = raw.get("pipeline", {})
+    if pipeline_raw is None:
+        pipeline_raw = {}
+    if not isinstance(pipeline_raw, dict):
+        raise ValueError("Config section pipeline must be an object")
+    _reject_unknown_keys(pipeline_raw, PIPELINE_CONFIG_KEYS, "pipeline")
+    raw_series = pipeline_raw.get("default_series", DEFAULT_PIPELINE["default_series"])
+    if not isinstance(raw_series, list):
+        raise ValueError("pipeline.default_series must be a list")
+    series = [_normalize_pipeline_module(item) for item in raw_series]
+    duplicates = sorted({item for item in series if series.count(item) > 1})
+    if duplicates:
+        raise ValueError(f"pipeline.default_series contains duplicate module(s): {', '.join(duplicates)}")
+    if not series:
+        raise ValueError("pipeline.default_series must contain at least one module")
+    return PipelineConfig(default_series=series)
 
 
 def _load_analysis_rollout_mode(value: Any, field_name: str) -> AnalysisRolloutModeConfig:
@@ -676,6 +708,7 @@ def load_config(path: Path) -> AppConfig:
     runtime_raw = raw.get("runtime", {})
     analysis = _load_analysis(raw)
     narrative_briefing = _load_narrative_briefing(raw)
+    pipeline = _load_pipeline(raw)
     if not isinstance(filtering_raw, dict):
         raise ValueError("Config section filtering must be an object")
     if not isinstance(general_filtering_raw, dict):
@@ -826,4 +859,5 @@ def load_config(path: Path) -> AppConfig:
         ),
         analysis=analysis,
         narrative_briefing=narrative_briefing,
+        pipeline=pipeline,
     )

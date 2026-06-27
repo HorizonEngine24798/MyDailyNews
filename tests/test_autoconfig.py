@@ -34,6 +34,11 @@ class FakeDownloadResponse:
         yield from self._chunks
 
 
+class FakeInteractiveStdin:
+    def isatty(self) -> bool:
+        return True
+
+
 class AutoconfigTests(unittest.TestCase):
     def _temp_dir(self) -> Path:
         path = TEMP_ROOT / self.id().rsplit(".", 1)[-1] / uuid.uuid4().hex
@@ -78,7 +83,7 @@ class AutoconfigTests(unittest.TestCase):
         self.assertEqual(recommended["ai_final"]["max_new_tokens"], 1024)
         self.assertEqual(recommended["general_filtering"]["max_headlines_per_ai_batch"], 6)
         self.assertEqual(recommended["filtering"]["max_selected_articles"], 5)
-        self.assertFalse(recommended["enrichment"]["enabled"])
+        self.assertTrue(recommended["enrichment"]["enabled"])
         self.assertEqual(recommended["enrichment"]["max_story_threads"], 8)
         self.assertEqual(recommended["enrichment"]["planner_max_questions_per_story"], 3)
         self.assertEqual(recommended["enrichment"]["max_fetched_research_pages_per_story"], 4)
@@ -86,6 +91,7 @@ class AutoconfigTests(unittest.TestCase):
         self.assertEqual(recommended["enrichment"]["max_context_chars_per_article"], 2400)
         self.assertTrue(recommended["narrative_briefing"]["enabled"])
         self.assertEqual(recommended["narrative_briefing"]["target_words"], 1800)
+        self.assertEqual(recommended["pipeline"]["default_series"], ["briefs", "enrichment", "narrative_brief"])
         self.assertEqual(recommended["analysis"]["evidence_distillation"]["max_input_tokens"], 5000)
 
     def test_recommended_config_rewrites_stale_enrichment_section(self) -> None:
@@ -102,7 +108,7 @@ class AutoconfigTests(unittest.TestCase):
 
         recommended = autoconfig.build_recommended_config(source, tier, model)
 
-        self.assertFalse(recommended["enrichment"]["enabled"])
+        self.assertTrue(recommended["enrichment"]["enabled"])
         self.assertEqual(recommended["enrichment"]["mode"], "story_llm")
         self.assertNotIn("max_entities", recommended["enrichment"])
         self.assertNotIn("max_enrichment_workers", recommended["runtime"])
@@ -128,6 +134,86 @@ class AutoconfigTests(unittest.TestCase):
         self.assertTrue(recommended["enrichment"]["enabled"])
         self.assertEqual(recommended["enrichment"]["mode"], "story_llm")
         self.assertEqual(recommended["enrichment"]["max_story_threads"], 8)
+
+    def test_recommended_config_preserves_explicit_enrichment_opt_out(self) -> None:
+        catalog = self._catalog()
+        source = self._example_config()
+        source["enrichment"]["enabled"] = False
+        source["enrichment"]["mode"] = "story_llm"
+        tier = next(item for item in catalog["tiers"] if item["id"] == "nvidia_8gb")
+        model = autoconfig.model_for_tier(catalog, tier)
+
+        recommended = autoconfig.build_recommended_config(source, tier, model)
+
+        self.assertFalse(recommended["enrichment"]["enabled"])
+        self.assertEqual(recommended["enrichment"]["mode"], "story_llm")
+        self.assertEqual(recommended["enrichment"]["max_story_threads"], 8)
+
+    def test_default_pipeline_preferences_preserve_generated_defaults(self) -> None:
+        catalog = self._catalog()
+        source = self._example_config()
+        tier = next(item for item in catalog["tiers"] if item["id"] == "nvidia_8gb")
+        model = autoconfig.model_for_tier(catalog, tier)
+        recommended = autoconfig.build_recommended_config(source, tier, model)
+        before = deepcopy(recommended)
+
+        autoconfig.apply_pipeline_preferences(recommended, autoconfig.PipelinePreferences())
+
+        self.assertEqual(recommended, before)
+
+    def test_apply_pipeline_preferences_rewrites_user_workflow_shape(self) -> None:
+        catalog = self._catalog()
+        source = self._example_config()
+        tier = next(item for item in catalog["tiers"] if item["id"] == "nvidia_8gb")
+        model = autoconfig.model_for_tier(catalog, tier)
+        recommended = autoconfig.build_recommended_config(source, tier, model)
+        original_selected = recommended["filtering"]["max_selected_articles"]
+        preferences = autoconfig.PipelinePreferences(
+            workflow="narrative",
+            brief_volume="compact",
+            analysis_depth="fast",
+            narrative_length="concise",
+            server_mode="external",
+            cache_mode="cache",
+        )
+
+        autoconfig.apply_pipeline_preferences(recommended, preferences)
+
+        self.assertEqual(recommended["pipeline"]["default_series"], ["briefs", "narrative_brief"])
+        self.assertFalse(recommended["enrichment"]["enabled"])
+        self.assertTrue(recommended["narrative_briefing"]["enabled"])
+        self.assertEqual(recommended["narrative_briefing"]["target_words"], 1000)
+        self.assertLess(recommended["filtering"]["max_selected_articles"], original_selected)
+        self.assertEqual(recommended["analysis"]["rollout"]["enabled"], False)
+        self.assertEqual(recommended["analysis"]["evidence_distillation"]["enabled"], False)
+        self.assertEqual(recommended["analysis"]["delta_extraction"]["enabled"], False)
+        self.assertFalse(recommended["ai_summary"]["manage_server"])
+        self.assertFalse(recommended["ai_summary"]["server_auto_stop"])
+        self.assertFalse(recommended["ai_final"]["manage_server"])
+        self.assertFalse(recommended["ai_final"]["server_auto_stop"])
+        self.assertEqual(recommended["cache"]["discovery_mode"], "cache_first")
+
+    def test_prompt_pipeline_preferences_accepts_names_and_numbers(self) -> None:
+        stdout = io.StringIO()
+        answers = ["research", "3", "deep", "long", "external", "cache"]
+
+        with patch("tools.autoconfig.sys.stdin", FakeInteractiveStdin()), patch(
+            "builtins.input",
+            side_effect=answers,
+        ), redirect_stdout(stdout):
+            preferences = autoconfig.maybe_prompt_pipeline_preferences()
+
+        self.assertEqual(
+            preferences,
+            autoconfig.PipelinePreferences(
+                workflow="research",
+                brief_volume="wide",
+                analysis_depth="deep",
+                narrative_length="long",
+                server_mode="external",
+                cache_mode="cache",
+            ),
+        )
 
     def test_existing_model_path_is_preserved_and_wired_to_both_ai_sections(self) -> None:
         temp_dir = self._temp_dir()
@@ -183,6 +269,7 @@ class AutoconfigTests(unittest.TestCase):
                     "--model-catalog",
                     str(REPO_ROOT / "profiles" / "model_catalog.json"),
                     "--no-download-prompt",
+                    "--no-preference-prompt",
                 ]
             )
 
@@ -191,10 +278,11 @@ class AutoconfigTests(unittest.TestCase):
         written = json.loads(target_path.read_text(encoding="utf-8"))
         self.assertEqual(written["ai_summary"]["server_model"], "Qwen3-30B-A3B-Q4_K_M")
         self.assertEqual(written["ai_summary"]["context_window_tokens"], 32768)
-        self.assertFalse(written["enrichment"]["enabled"])
+        self.assertTrue(written["enrichment"]["enabled"])
         self.assertEqual(written["enrichment"]["max_story_threads"], 16)
         self.assertEqual(written["enrichment"]["max_fetched_research_pages_per_story"], 10)
         self.assertEqual(written["enrichment"]["max_research_excerpt_chars"], 4000)
+        self.assertEqual(written["pipeline"]["default_series"], ["briefs", "enrichment", "narrative_brief"])
 
 
 if __name__ == "__main__":

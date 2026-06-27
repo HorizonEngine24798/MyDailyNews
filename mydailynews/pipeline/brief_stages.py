@@ -422,10 +422,6 @@ def _story_grouping_stage(
         return skipped("no_selected_articles")
     if not needs_enrichment_grouping and not needs_evidence_grouping:
         return skipped("both_consumers_not_enabled")
-    if not needs_enrichment_grouping:
-        return skipped("enrichment_disabled")
-    if not needs_evidence_grouping:
-        return skipped("evidence_disabled")
 
     ai_client = getattr(orchestrator, "summary_ai_client", None)
     if ai_client is None:

@@ -1,6 +1,6 @@
 # MyDailyNews
 
-MyDailyNews is a local-first news briefing pipeline. It collects headlines from RSS and Google News RSS, deduplicates them, asks a local llama.cpp model to score candidates, retrieves selected articles, optionally plans shared story groups for enrichment/evidence, then writes Markdown and JSON daily briefs.
+MyDailyNews is a local-first news briefing pipeline. It collects headlines from RSS and Google News RSS, deduplicates them, asks a local llama.cpp model to score candidates, retrieves selected articles, optionally plans shared story groups for evidence, then writes Markdown and JSON daily briefs. Enrichment and narrative briefing can run as standalone post-brief modules.
 
 The supported public runtime is llama.cpp through its OpenAI-compatible `llama-server`. MyDailyNews can spawn, probe, reuse, and stop that server when `manage_server=true`.
 
@@ -20,11 +20,16 @@ python tools/autoconfig.py --config config.local.json --write config.recommended
 python main.py --config config.recommended.json
 ```
 
+`autoconfig` detects your hardware, then asks how you want the default pipeline to behave: full report, structured briefs only, narrative-focused, or enrichment-focused, plus brief volume, analysis depth, narrative length, server management, and cache preference. Use `--no-preference-prompt` for unattended setup with the standard defaults.
+
 Useful run options:
 
 ```powershell
 python main.py --brief general
 python main.py --brief detailed
+python main.py --module briefs
+python main.py --module enrichment --date 2026-06-25
+python main.py --module narrative_brief --date 2026-06-25
 python main.py --debug
 python main.py --list-stages
 ```
@@ -89,13 +94,13 @@ config
 -> score candidates with local llama.cpp
 -> select articles deterministically
 -> fetch article text
--> optionally plan shared story groups
--> optionally enrich selected story threads
+-> optionally plan shared story groups for evidence
 -> optionally distill evidence
 -> optionally extract narrative deltas
 -> generate final brief JSON
--> optionally generate a narrative Markdown brief
 -> write Markdown and JSON
+-> write handoff JSON for post-brief modules
+-> optionally run standalone enrichment and narrative modules
 ```
 
 The model is not the pipeline controller. Python owns fetching, dedupe, candidate limits, deterministic selection, fallback scaffolds, output normalization, diagnostics, and cache behavior.
@@ -109,11 +114,17 @@ output/YYYY-MM-DD_general_brief.md
 output/YYYY-MM-DD_general_brief.json
 output/YYYY-MM-DD_detailed_brief.md
 output/YYYY-MM-DD_detailed_brief.json
+output/YYYY-MM-DD_enrichment.md
+output/YYYY-MM-DD_enrichment.json
 output/YYYY-MM-DD_narrative_brief.md
 output/YYYY-MM-DD_narrative_brief.json
+output/handoff/YYYY-MM-DD_general_handoff.json
+output/handoff/YYYY-MM-DD_detailed_handoff.json
 ```
 
-The narrative brief is enabled by default. `narrative_briefing` runs an extra final-model pass that combines same-day general and detailed JSON briefs when available, strips source links before prompting, and writes polished Markdown for human reading. If this post-output pass fails, the already written structured briefs are preserved and the failure is reported as a warning.
+The configured module series is controlled by `pipeline.default_series`. The default runs structured briefs, enrichment, then narrative briefing. In series mode, downstream modules use only artifacts produced earlier in the same run. Standalone modules consume same-day outputs from disk, so you can run `python main.py --module enrichment --date YYYY-MM-DD` or `python main.py --module narrative_brief --date YYYY-MM-DD` after a core brief run. `--date` is only for those standalone module reruns.
+
+The narrative brief is enabled by default. `narrative_briefing` runs a final-model pass that combines general and detailed JSON briefs, uses enrichment JSON when enrichment is enabled and available for the run, strips source links before prompting, and writes polished Markdown for human reading. If this post-output pass fails, the already written structured briefs are preserved and the failure is reported as a warning.
 
 Managed server logs are written under:
 
@@ -136,7 +147,8 @@ Main sections:
 - `sources`: RSS feeds, Google News RSS settings, and prior-report lookup.
 - `analysis`: evidence and delta stage settings.
 - `narrative_briefing`: optional final pass that rewrites saved JSON briefs into a polished narrative Markdown brief.
-- `enrichment`: optional heavy story-thread research context, disabled by default. Set `enabled=true` to run it inline.
+- `enrichment`: story-thread research context, enabled by default. Set `enabled=false`, `mode="disabled"`, or use `--skip-module enrichment` to skip it.
+- `pipeline`: default module series, such as `briefs -> enrichment -> narrative_brief`.
 - `runtime`: HTTP/article worker limits and shared-snapshot behavior. Story enrichment is sequential.
 - `cache`: HTTP, article text, enrichment, and AI cache settings.
 

@@ -60,6 +60,16 @@ class ProbeReport:
     warnings: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True)
+class PipelinePreferences:
+    workflow: str = "full"
+    brief_volume: str = "standard"
+    analysis_depth: str = "balanced"
+    narrative_length: str = "standard"
+    server_mode: str = "managed"
+    cache_mode: str = "fresh"
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Probe llama.cpp and write a local MyDailyNews config.")
     parser.add_argument("--config", default=str(DEFAULT_CONFIG), help="Input local config JSON.")
@@ -72,6 +82,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-server-probe", action="store_true", help="Do not launch or probe llama-server.")
     parser.add_argument("--no-json-probe", action="store_true", help="Do not run the JSON completion probe.")
     parser.add_argument("--no-download-prompt", action="store_true", help="Do not prompt to download a recommended GGUF model.")
+    parser.add_argument("--no-preference-prompt", action="store_true", help="Do not prompt for pipeline usage preferences.")
     return parser
 
 
@@ -97,6 +108,10 @@ def main(argv: list[str] | None = None) -> int:
     recommended = build_recommended_config(source_config, tier, model)
 
     print_detection(hardware, tier, model)
+    if not args.detect_only and not args.no_preference_prompt:
+        preferences = maybe_prompt_pipeline_preferences()
+        if preferences is not None:
+            apply_pipeline_preferences(recommended, preferences)
 
     download_dir = Path(args.download_dir) if args.download_dir else Path(catalog.get("download_dir", "models"))
     model_path = existing_model_path(source_config)
@@ -293,10 +308,221 @@ def build_recommended_config(config: dict[str, Any], tier: dict[str, Any], model
     _apply_filtering(updated.setdefault("filtering", {}), settings, general=False)
     _apply_narrative_briefing(updated.setdefault("narrative_briefing", {}))
     _apply_story_enrichment_budget(updated.setdefault("enrichment", {}), settings)
+    _apply_pipeline(updated.setdefault("pipeline", {}))
     _apply_analysis(updated.setdefault("analysis", {}), settings)
     _apply_runtime(updated.setdefault("runtime", {}))
     _apply_cache(updated.setdefault("cache", {}))
     return updated
+
+
+def maybe_prompt_pipeline_preferences() -> PipelinePreferences | None:
+    if not sys.stdin.isatty():
+        print("Non-interactive terminal detected; using default pipeline preferences.")
+        return None
+    print("")
+    print("Pipeline usage preferences")
+    print("Press Enter to accept the recommended option for each question.")
+    workflow = prompt_choice(
+        "Default run workflow",
+        [
+            ("full", "Full daily report", "briefs, enrichment, then narrative"),
+            ("narrative", "Briefs + narrative", "disable enrichment and write the narrative brief"),
+            ("structured", "Structured briefs only", "fastest default run"),
+            ("research", "Briefs + enrichment", "research context without narrative rewrite"),
+        ],
+        default="full",
+    )
+    brief_volume = prompt_choice(
+        "How many stories should the structured briefs carry?",
+        [
+            ("standard", "Standard", "balanced story count for daily reading"),
+            ("compact", "Compact", "fewer selected articles and faster runs"),
+            ("wide", "Wide scan", "more candidates and selected articles"),
+        ],
+        default="standard",
+    )
+    analysis_depth = prompt_choice(
+        "How much evidence/delta analysis do you want?",
+        [
+            ("balanced", "Balanced", "evidence for both briefs, deltas for detailed mode"),
+            ("fast", "Fast", "skip evidence and delta extraction"),
+            ("deep", "Deep", "evidence and deltas for both brief modes"),
+        ],
+        default="balanced",
+    )
+    narrative_length = prompt_choice(
+        "Narrative brief length",
+        [
+            ("standard", "Standard", "about 1800 words"),
+            ("concise", "Concise", "about 1000 words"),
+            ("long", "Long-form", "about 2600 words"),
+        ],
+        default="standard",
+    )
+    server_mode = prompt_choice(
+        "llama-server management",
+        [
+            ("managed", "Managed", "autostart and stop llama-server from MyDailyNews"),
+            ("external", "External", "reuse a server you manage yourself"),
+        ],
+        default="managed",
+    )
+    cache_mode = prompt_choice(
+        "Discovery cache preference",
+        [
+            ("fresh", "Fresh news", "network-first discovery"),
+            ("cache", "Cache-first", "prefer cached discovery responses when available"),
+        ],
+        default="fresh",
+    )
+    return PipelinePreferences(
+        workflow=workflow,
+        brief_volume=brief_volume,
+        analysis_depth=analysis_depth,
+        narrative_length=narrative_length,
+        server_mode=server_mode,
+        cache_mode=cache_mode,
+    )
+
+
+def prompt_choice(question: str, choices: list[tuple[str, str, str]], *, default: str) -> str:
+    key_to_choice = {key: key for key, _label, _desc in choices}
+    number_to_choice = {str(index): key for index, (key, _label, _desc) in enumerate(choices, start=1)}
+    default_index = next((index for index, (key, _label, _desc) in enumerate(choices, start=1) if key == default), 1)
+    while True:
+        print("")
+        print(f"{question}:")
+        for index, (key, label, description) in enumerate(choices, start=1):
+            suffix = " [recommended]" if key == default else ""
+            print(f"  {index}. {label}{suffix} - {description}")
+        answer = input(f"Choose 1-{len(choices)} or name [{default_index}]: ").strip().lower()
+        if not answer:
+            return default
+        if answer in number_to_choice:
+            return number_to_choice[answer]
+        if answer in key_to_choice:
+            return key_to_choice[answer]
+        print("Please choose one of the listed options.")
+
+
+def apply_pipeline_preferences(config: dict[str, Any], preferences: PipelinePreferences) -> None:
+    _apply_workflow_preference(config, preferences.workflow)
+    _apply_brief_volume_preference(config, preferences.brief_volume)
+    _apply_analysis_depth_preference(config, preferences.analysis_depth)
+    _apply_narrative_length_preference(config, preferences.narrative_length)
+    _apply_server_mode_preference(config, preferences.server_mode)
+    _apply_cache_mode_preference(config, preferences.cache_mode)
+
+
+def _apply_workflow_preference(config: dict[str, Any], workflow: str) -> None:
+    pipeline = config.setdefault("pipeline", {})
+    enrichment = config.setdefault("enrichment", {})
+    narrative = config.setdefault("narrative_briefing", {})
+    workflow = str(workflow or "full").strip().lower()
+    if workflow == "structured":
+        pipeline["default_series"] = ["briefs"]
+        enrichment["enabled"] = False
+        narrative["enabled"] = False
+    elif workflow == "narrative":
+        pipeline["default_series"] = ["briefs", "narrative_brief"]
+        enrichment["enabled"] = False
+        narrative["enabled"] = True
+    elif workflow == "research":
+        pipeline["default_series"] = ["briefs", "enrichment"]
+        enrichment["enabled"] = True
+        enrichment["mode"] = "story_llm"
+        narrative["enabled"] = False
+    else:
+        pipeline["default_series"] = ["briefs", "enrichment", "narrative_brief"]
+        enrichment["enabled"] = True
+        enrichment["mode"] = "story_llm"
+        narrative["enabled"] = True
+
+
+def _apply_brief_volume_preference(config: dict[str, Any], brief_volume: str) -> None:
+    brief_volume = str(brief_volume or "standard").strip().lower()
+    if brief_volume == "compact":
+        selected_multiplier = 0.65
+        candidate_multiplier = 0.75
+    elif brief_volume == "wide":
+        selected_multiplier = 1.25
+        candidate_multiplier = 1.25
+    else:
+        return
+    for section_name in ("general_filtering", "filtering"):
+        section = config.setdefault(section_name, {})
+        _scale_int_setting(section, "max_selected_articles", selected_multiplier, minimum=3)
+        _scale_int_setting(section, "max_candidates_for_ai", candidate_multiplier, minimum=16)
+
+
+def _apply_analysis_depth_preference(config: dict[str, Any], analysis_depth: str) -> None:
+    analysis = config.setdefault("analysis", {})
+    evidence = analysis.setdefault("evidence_distillation", {})
+    delta = analysis.setdefault("delta_extraction", {})
+    rollout = analysis.setdefault("rollout", {})
+    general = rollout.setdefault("general", {})
+    detailed = rollout.setdefault("detailed", {})
+    analysis_depth = str(analysis_depth or "balanced").strip().lower()
+    if analysis_depth == "fast":
+        rollout["enabled"] = False
+        rollout["profile"] = "safe_local"
+        evidence["enabled"] = False
+        delta["enabled"] = False
+        for mode_config in (general, detailed):
+            mode_config["evidence_enabled"] = False
+            mode_config["delta_enabled"] = False
+    elif analysis_depth == "deep":
+        rollout["enabled"] = True
+        rollout["profile"] = "quality_focused"
+        evidence["enabled"] = True
+        delta["enabled"] = True
+        for mode_config in (general, detailed):
+            mode_config["evidence_enabled"] = True
+            mode_config["delta_enabled"] = True
+    else:
+        rollout["enabled"] = True
+        rollout["profile"] = "balanced_local"
+        evidence["enabled"] = False
+        delta["enabled"] = False
+        general["evidence_enabled"] = True
+        general["delta_enabled"] = False
+        detailed["evidence_enabled"] = True
+        detailed["delta_enabled"] = True
+
+
+def _apply_narrative_length_preference(config: dict[str, Any], narrative_length: str) -> None:
+    narrative = config.setdefault("narrative_briefing", {})
+    narrative_length = str(narrative_length or "standard").strip().lower()
+    if narrative_length == "concise":
+        narrative["target_words"] = 1000
+    elif narrative_length == "long":
+        narrative["target_words"] = 2600
+    else:
+        narrative["target_words"] = 1800
+
+
+def _apply_server_mode_preference(config: dict[str, Any], server_mode: str) -> None:
+    managed = str(server_mode or "managed").strip().lower() != "external"
+    for section_name in ("ai_summary", "ai_final"):
+        ai = config.setdefault(section_name, {})
+        ai["manage_server"] = managed
+        ai["server_auto_stop"] = managed
+
+
+def _apply_cache_mode_preference(config: dict[str, Any], cache_mode: str) -> None:
+    cache = config.setdefault("cache", {})
+    cache["discovery_mode"] = "cache_first" if str(cache_mode or "fresh").strip().lower() == "cache" else "network_first"
+
+
+def _scale_int_setting(section: dict[str, Any], key: str, multiplier: float, *, minimum: int) -> None:
+    raw = section.get(key)
+    if raw is None:
+        return
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return
+    section[key] = max(minimum, int(round(value * multiplier)))
 
 
 def _apply_filtering(section: dict[str, Any], settings: dict[str, Any], *, general: bool) -> None:
@@ -327,6 +553,21 @@ def _apply_narrative_briefing(section: dict[str, Any]) -> None:
     )
 
 
+def _apply_pipeline(section: dict[str, Any]) -> None:
+    default_series = ["briefs", "enrichment", "narrative_brief"]
+    current = section.get("default_series")
+    if not isinstance(current, list) or not current:
+        section["default_series"] = default_series
+        return
+    normalized: list[str] = []
+    allowed = set(default_series)
+    for item in current:
+        module = str(item or "").strip().lower().replace("-", "_")
+        if module in allowed and module not in normalized:
+            normalized.append(module)
+    section["default_series"] = normalized or default_series
+
+
 def _apply_runtime(section: dict[str, Any]) -> None:
     section.pop("max_enrichment_workers", None)
     section.setdefault("max_http_workers", 1)
@@ -344,11 +585,11 @@ def _apply_story_enrichment_budget(section: dict[str, Any], settings: dict[str, 
     if not isinstance(budget, dict):
         raise ValueError("Catalog tier settings must include story_enrichment_budget.")
 
-    enabled = bool(section.get("enabled", False))
     mode = str(section.get("mode") or "story_llm").strip().lower()
     target_mode = "disabled" if mode == "disabled" else "story_llm"
+    explicit_enabled = bool(section.get("enabled", True))
     section.clear()
-    section["enabled"] = bool(enabled and target_mode != "disabled")
+    section["enabled"] = explicit_enabled and target_mode != "disabled"
     section["mode"] = target_mode
     for key in STORY_ENRICHMENT_BUDGET_KEYS:
         if key not in budget:

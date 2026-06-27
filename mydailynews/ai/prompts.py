@@ -259,15 +259,19 @@ Target length:
 Sanitized source briefs:
 {source_briefs}
 
+Optional enrichment context:
+{enrichment_context}
+
 Work to perform:
 1. Use the general brief for breadth and the detailed brief for deeper narrative context when both are present.
-2. Merge overlapping stories without repeating them; preserve all material developments from both briefs.
-3. Write a human-readable narrative report with clear section headings, graceful transitions, and selective bullets where they improve scanning.
-4. Preserve uncertainty. Unknowns, thin evidence, and watch signals should be explicit.
-5. Keep the story coherent from opening to closing, but do not flatten the Markdown into a plain audio script.
-6. Do not include URLs, markdown links, references sections, source-link housekeeping, SSML, pause markers, pronunciation tags, or provider-specific TTS tags.
-7. Mention source names only when they help attribution or uncertainty; do not write a bibliography.
-8. Avoid hype, jokes, dramatic teasing, and generic filler.
+2. Use enrichment context only as additional background when it is supplied; do not treat it as a replacement for the briefs.
+3. Merge overlapping stories without repeating them; preserve all material developments from both briefs.
+4. Write a human-readable narrative report with clear section headings, graceful transitions, and selective bullets where they improve scanning.
+5. Preserve uncertainty. Unknowns, thin evidence, and watch signals should be explicit.
+6. Keep the story coherent from opening to closing, but do not flatten the Markdown into a plain audio script.
+7. Do not include URLs, markdown links, references sections, source-link housekeeping, SSML, pause markers, pronunciation tags, or provider-specific TTS tags.
+8. Mention source names only when they help attribution or uncertainty; do not write a bibliography.
+9. Avoid hype, jokes, dramatic teasing, and generic filler.
 
 Return:
 {{

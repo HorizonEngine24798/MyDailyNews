@@ -73,14 +73,23 @@ class NarrativeBriefGenerator:
         memory: UserMemory,
         *,
         date: str,
+        enrichment_payload: Dict[str, Any] | None = None,
+        enrichment_json_path: str = "",
     ) -> Dict[str, Any]:
         self.warnings = []
-        prompt = self._render_prompt(source_briefs, memory, date=date)
+        prompt = self._render_prompt(
+            source_briefs,
+            memory,
+            date=date,
+            enrichment_payload=enrichment_payload,
+        )
         source_names = [brief.name for brief in source_briefs]
+        enrichment_used = isinstance(enrichment_payload, dict) and bool(enrichment_payload)
         self.debug.log(
             "narrative_brief.ai",
             "synthesizing",
             source_briefs=",".join(source_names),
+            enrichment_used=enrichment_used,
             prompt_chars=len(prompt),
         )
         try:
@@ -92,7 +101,13 @@ class NarrativeBriefGenerator:
                 input_token_limit=self.input_token_limit,
                 json_schema=NARRATIVE_BRIEF_JSON_SCHEMA,
             )
-            normalized = self._normalize_result(result, date=date, source_briefs=source_names)
+            normalized = self._normalize_result(
+                result,
+                date=date,
+                source_briefs=source_names,
+                enrichment_used=enrichment_used,
+                enrichment_json_path=enrichment_json_path,
+            )
         except AIJsonError as exc:
             markdown = str(exc.raw_response or "").strip()
             if not markdown:
@@ -107,6 +122,8 @@ class NarrativeBriefGenerator:
                     "generated_at": datetime.now().astimezone().isoformat(),
                     "date": date,
                     "source_briefs": source_names,
+                    "enrichment_used": enrichment_used,
+                    "enrichment_json_path": enrichment_json_path if enrichment_used else "",
                 },
             }
             self.debug.log(
@@ -127,6 +144,7 @@ class NarrativeBriefGenerator:
         memory: UserMemory,
         *,
         date: str,
+        enrichment_payload: Dict[str, Any] | None = None,
     ) -> str:
         payload = [
             {
@@ -135,6 +153,9 @@ class NarrativeBriefGenerator:
             }
             for source in source_briefs
         ]
+        enrichment_context = "none"
+        if isinstance(enrichment_payload, dict) and enrichment_payload:
+            enrichment_context = compact_json(strip_source_links(_compact_enrichment_payload(enrichment_payload)))
         return NARRATIVE_BRIEF_USER.format(
             memory=memory.to_prompt(),
             date=date,
@@ -150,10 +171,18 @@ class NarrativeBriefGenerator:
                 "preserve material developments rather than forcing brevity."
             ),
             source_briefs=compact_json(payload),
+            enrichment_context=enrichment_context,
         )
 
     @staticmethod
-    def _normalize_result(result: Dict[str, Any], *, date: str, source_briefs: List[str]) -> Dict[str, Any]:
+    def _normalize_result(
+        result: Dict[str, Any],
+        *,
+        date: str,
+        source_briefs: List[str],
+        enrichment_used: bool = False,
+        enrichment_json_path: str = "",
+    ) -> Dict[str, Any]:
         normalized = dict(result or {})
         normalized["title"] = _clean_text(normalized.get("title")) or f"Narrative Daily Brief - {date}"
         normalized["lede"] = _clean_markdownish_text(normalized.get("lede"))
@@ -166,6 +195,8 @@ class NarrativeBriefGenerator:
             "generated_at": datetime.now().astimezone().isoformat(),
             "date": date,
             "source_briefs": source_briefs,
+            "enrichment_used": bool(enrichment_used),
+            "enrichment_json_path": enrichment_json_path if enrichment_used else "",
         }
         return normalized
 
@@ -175,6 +206,13 @@ def load_source_brief(name: str, path: Path) -> NarrativeSourceBrief:
     if not isinstance(payload, dict):
         raise ValueError(f"Narrative source brief is not a JSON object: {path}")
     return NarrativeSourceBrief(name=name, json_path=str(path), brief=payload)
+
+
+def load_enrichment_payload(path: Path) -> Dict[str, Any]:
+    payload = json.loads(path.read_text(encoding="utf-8-sig"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"Narrative enrichment source is not a JSON object: {path}")
+    return payload
 
 
 def strip_source_links(value: Any, *, parent_key: str = "") -> Any:
@@ -194,6 +232,60 @@ def write_narrative_outputs(output_dir: Path, date: str, narrative_brief: Dict[s
     markdown_path.write_text(render_narrative_markdown(narrative_brief), encoding="utf-8")
     write_json(json_path, narrative_brief)
     return markdown_path, json_path
+
+
+def _compact_enrichment_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    story_threads = []
+    raw_threads = payload.get("story_threads", [])
+    if isinstance(raw_threads, list):
+        for raw in raw_threads[:10]:
+            if not isinstance(raw, dict):
+                continue
+            internal_articles = []
+            for item in raw.get("internal_articles", [])[:3]:
+                if not isinstance(item, dict):
+                    continue
+                internal_articles.append(
+                    {
+                        "title": _clean_text(item.get("title"))[:160],
+                        "summary": _clean_text(item.get("summary"))[:420],
+                        "what_it_adds": _clean_text(item.get("what_it_adds"))[:240],
+                        "confidence": _clean_text(item.get("confidence"))[:24],
+                    }
+                )
+            story_threads.append(
+                {
+                    "story_id": _clean_text(raw.get("story_id"))[:80],
+                    "story_title": _clean_text(raw.get("story_title"))[:180],
+                    "article_ids": [str(item)[:80] for item in raw.get("article_ids", [])[:8]],
+                    "status": _clean_text(raw.get("status"))[:40],
+                    "internal_articles": internal_articles,
+                }
+            )
+    context_notes = []
+    context_by_article = payload.get("context_sources_by_article", {})
+    if isinstance(context_by_article, dict):
+        for article_id, sources in list(context_by_article.items())[:12]:
+            if not isinstance(sources, list):
+                continue
+            for source in sources[:2]:
+                if not isinstance(source, dict):
+                    continue
+                context_notes.append(
+                    {
+                        "article_id": str(article_id)[:80],
+                        "title": _clean_text(source.get("title"))[:160],
+                        "source": _clean_text(source.get("source"))[:80],
+                        "summary": _clean_text(source.get("summary"))[:420],
+                    }
+                )
+    return {
+        "schema_version": payload.get("schema_version", ""),
+        "date": payload.get("date", ""),
+        "source_briefs": payload.get("source_briefs", []),
+        "story_threads": story_threads,
+        "context_notes": context_notes[:16],
+    }
 
 
 def render_narrative_markdown(narrative_brief: Dict[str, Any]) -> str:

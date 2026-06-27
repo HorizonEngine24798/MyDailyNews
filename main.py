@@ -3,7 +3,7 @@ from pathlib import Path
 
 from mydailynews.app.config import load_config
 from mydailynews.app.runtime_config import find_runtime_config_issues, format_runtime_config_issues
-from mydailynews.pipeline.stages import ALL_STAGE_ORDER, PipelineRunOptions
+from mydailynews.pipeline.stages import ALL_STAGE_ORDER, PIPELINE_MODULE_CHOICES, PIPELINE_MODULES, PipelineRunOptions
 from mydailynews.diagnostics.reporting import CliReporter
 
 
@@ -11,6 +11,24 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Generate a local-first topic-focused news brief.")
     parser.add_argument("--config", default="config.local.json", help="Path to the JSON config file.")
     parser.add_argument("--no-enrichment", action="store_true", help="Force-skip story-thread/context enrichment.")
+    parser.add_argument(
+        "--module",
+        default="series",
+        choices=PIPELINE_MODULE_CHOICES,
+        help="Run the configured series or one standalone module.",
+    )
+    parser.add_argument(
+        "--date",
+        default="",
+        help="Target date for standalone modules, formatted YYYY-MM-DD. Defaults to today.",
+    )
+    parser.add_argument(
+        "--skip-module",
+        action="append",
+        choices=PIPELINE_MODULES,
+        default=[],
+        help="Skip a module in the configured series. May be repeated.",
+    )
     parser.add_argument("--debug", action="store_true", help="Print safe progress diagnostics while the pipeline runs.")
     parser.add_argument(
         "--brief",
@@ -78,9 +96,15 @@ def main() -> int:
         return 1
     if args.no_enrichment:
         config.enrichment.enabled = False
+    skip_modules = list(args.skip_module or [])
+    if args.no_enrichment and "enrichment" not in skip_modules:
+        skip_modules.append("enrichment")
     try:
         run_options = PipelineRunOptions.from_cli(
             brief=args.brief,
+            module=args.module,
+            date=args.date,
+            skip_modules=skip_modules,
             stop_after_stage=args.stop_after_stage,
             save_intermediate=args.save_intermediate,
             no_save_intermediate=args.no_save_intermediate,

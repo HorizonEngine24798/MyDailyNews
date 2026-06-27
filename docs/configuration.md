@@ -10,6 +10,8 @@ python tools/autoconfig.py --config config.local.json --write config.recommended
 python main.py --config config.recommended.json
 ```
 
+In an interactive terminal, `autoconfig` also asks usage-preference questions after hardware detection. Those answers adjust the default module series, brief volume, evidence/delta depth, narrative length, managed-server behavior, and discovery cache mode. Add `--no-preference-prompt` for scripted runs that should keep the standard defaults.
+
 ## Files
 
 - `config.example.json`: committed portable sample with placeholder paths.
@@ -52,16 +54,16 @@ Autoconfig writes these as a coupled profile.
 
 ## Narrative Briefing
 
-`narrative_briefing` controls the optional final pass that turns saved brief JSON into polished narrative Markdown.
+`narrative_briefing` controls the optional module that turns saved brief JSON into polished narrative Markdown.
 
 Important fields:
 
-- `enabled`: run the narrative pass after the regular brief outputs. This is `true` in generated configs by default.
+- `enabled`: allow the narrative module to run. This is `true` in generated configs by default.
 - `max_input_tokens` and `max_new_tokens`: optional overrides for this pass. Leave `null` to reuse `ai_final` limits.
 - `target_words`: soft length target for the Markdown brief; the prompt still asks the model not to compress away material developments.
 - `editorial_style`: natural-language guidance for the human-readable narrative pass.
 
-When enabled, the pass loads same-day general and detailed JSON briefs when they exist, removes URL/link fields before prompting to reduce context load, and writes:
+When run as a standalone module, narrative briefing loads same-day general and detailed JSON briefs when they exist and uses same-day enrichment JSON when enrichment is enabled. Inside the default module series, it consumes only the structured briefs and enrichment JSON produced earlier in the same run. It removes URL/link fields before prompting to reduce context load, and writes:
 
 ```text
 output/YYYY-MM-DD_narrative_brief.md
@@ -70,20 +72,43 @@ output/YYYY-MM-DD_narrative_brief.json
 
 This stage deliberately avoids SSML, pause markers, pronunciation tags, and provider-specific TTS markup. A future TTS-prep stage should consume the narrative Markdown and adapt it to the selected TTS backend.
 
-Narrative generation is a post-output pass. If it fails, the structured general/detailed briefs remain written and the pipeline records a warning instead of failing the whole run.
+Narrative generation is a post-brief module. If it fails, the structured general/detailed briefs remain written and the pipeline records a warning instead of failing the whole run.
 
 ## Enrichment
 
-`enrichment.enabled` defaults to `false`. `enrichment.mode` controls the optional post-fetch context stage when enrichment is explicitly enabled:
+`enrichment.enabled` defaults to `true`. `enrichment.mode` controls the post-brief enrichment module:
 
-- `story_llm`: selected articles are grouped into LLM-planned story threads, searched with cached DDG HTML retrieval, synthesized into compact internal context articles, and attached as `story_llm_research_context` sources.
+- `story_llm`: selected articles are loaded from same-day handoff/brief files, grouped into LLM-planned story threads, searched with cached DDG HTML retrieval, synthesized into compact internal context articles, and written to `output/YYYY-MM-DD_enrichment.json`.
 - `disabled`: skip enrichment, equivalent to `enabled=false`.
 
-The main story-thread budget knobs are `max_story_threads`, `planner_max_questions_per_story`, `search_results_per_query`, `max_fetched_research_pages_per_story`, `max_selected_article_excerpt_chars`, `max_research_excerpt_chars`, and `cache_ttl_seconds`. Autoconfig rewrites the `enrichment` block from `profiles/model_catalog.json` `story_enrichment_budget` recommendations and keeps enrichment disabled unless the source config explicitly opts in. Local configs can still override the generated values manually. Runtime enrichment uses these values directly and skips over-budget planner/synthesis work instead of applying hidden excerpt or fetch-count fallback tiers.
+The main story-thread budget knobs are `max_story_threads`, `planner_max_questions_per_story`, `search_results_per_query`, `max_fetched_research_pages_per_story`, `max_selected_article_excerpt_chars`, `max_research_excerpt_chars`, and `cache_ttl_seconds`. Autoconfig rewrites the `enrichment` block from `profiles/model_catalog.json` `story_enrichment_budget` recommendations while preserving explicit local opt-outs such as `enabled=false` or `mode="disabled"`. Local configs can still override the generated values manually. Runtime enrichment uses these values directly and skips over-budget planner/synthesis work instead of applying hidden excerpt or fetch-count fallback tiers.
 
 The previous Wikipedia/related-news enrichment mode has been removed. `load_config` now rejects unrecognized keys consistently across config sections, so stale enrichment keys such as `past_news_days`, `max_past_news_results`, `max_wikipedia_results`, and `max_entities` fail as ordinary unknown keys. `enrichment.mode` must be `story_llm` or `disabled`.
 
-When both enrichment and evidence are enabled, the pipeline runs a shared `story_grouping` stage after article fetch so both consumers receive the same story boundaries. See [shared story grouping](shared_story_grouping_plan.md).
+When evidence is enabled, the structured brief pipeline can run `story_grouping` after article fetch to provide shared story boundaries for evidence. Standalone enrichment plans its own story threads from the saved handoff/brief inputs.
+
+## Module Series
+
+`pipeline.default_series` controls the default top-level module order when `--module` is omitted:
+
+```json
+{
+  "pipeline": {
+    "default_series": ["briefs", "enrichment", "narrative_brief"]
+  }
+}
+```
+
+Allowed module names are `briefs`, `enrichment`, and `narrative_brief`. Unknown or duplicate module names fail config parsing. Disabled optional modules listed in the series are skipped with a warning. In series mode, downstream modules consume only artifacts created earlier in the same run; standalone module commands are the disk-rerun path. `--date` is accepted only for standalone `enrichment` and `narrative_brief` runs.
+
+CLI examples:
+
+```powershell
+python main.py --module briefs
+python main.py --module enrichment --date 2026-06-25
+python main.py --module narrative_brief --date 2026-06-25
+python main.py --module series --skip-module enrichment
+```
 
 ## Runtime
 
