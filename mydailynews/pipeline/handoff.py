@@ -11,6 +11,7 @@ from mydailynews.app.models import (
     ContextSource,
     FilteringConfig,
     HeadlineDecision,
+    MemoryAnnotation,
     NewsCandidate,
     PriorReport,
     ProfileMatchAnnotation,
@@ -276,9 +277,11 @@ def _annotations_from_payload(value: Any) -> CandidateAnnotations:
         return CandidateAnnotations()
     profile = value.get("profile_match")
     selection = value.get("selection")
+    memory = value.get("memory")
     return CandidateAnnotations(
         profile_match=_profile_match_from_payload(profile) if isinstance(profile, dict) else None,
         selection=_selection_annotation_from_payload(selection) if isinstance(selection, dict) else None,
+        memory=_memory_annotation_from_payload(memory) if isinstance(memory, dict) else None,
     )
 
 
@@ -303,6 +306,23 @@ def _selection_annotation_from_payload(value: Dict[str, Any]) -> SelectionAnnota
         skip_reason=str(value.get("skip_reason", "") or ""),
         rank_score=_float(value.get("rank_score"), 0.0),
         rank_mode=str(value.get("rank_mode", "") or "score"),
+    )
+
+
+def _memory_annotation_from_payload(value: Dict[str, Any]) -> MemoryAnnotation:
+    return MemoryAnnotation(
+        story_key=str(value.get("story_key", "") or ""),
+        story_family_key=str(value.get("story_family_key", "") or ""),
+        story_title=str(value.get("story_title", "") or ""),
+        match_confidence=_float(value.get("match_confidence"), 0.0),
+        recent_coverage_count=int(value.get("recent_coverage_count", 0) or 0),
+        recent_lead_count=int(value.get("recent_lead_count", 0) or 0),
+        covered_yesterday=bool(value.get("covered_yesterday", False)),
+        change_type=str(value.get("change_type", "") or ""),
+        materiality=_float(value.get("materiality"), 0.0),
+        score_adjustment=_float(value.get("score_adjustment"), 0.0),
+        today_policy=str(value.get("today_policy", "") or "normal"),
+        reason=str(value.get("reason", "") or ""),
     )
 
 

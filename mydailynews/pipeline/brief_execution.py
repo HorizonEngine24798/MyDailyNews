@@ -22,6 +22,11 @@ from mydailynews.domain.headline_selection import selection_rationale_rows
 from mydailynews.app.models import BriefOutput, HeadlineDecision, NewsCandidate, PriorReport, RunSourceSnapshot, TopicConfig
 from mydailynews.briefing.output import write_json, write_markdown
 from mydailynews.common.warnings import extend_warnings
+from mydailynews.memory.config import memory_enabled, memory_state_dir
+from mydailynews.memory.coverage import CoverageMemoryStore
+from mydailynews.memory.learned_preferences import LearnedPreferencesStore
+from mydailynews.memory.recall import apply_delta_signals_to_selected, build_recall_packet, save_recall_packet
+from mydailynews.memory.story_index import StoryIndexStore
 
 
 def run_brief(
@@ -43,6 +48,21 @@ def run_brief(
         since = now - timedelta(hours=filtering.time_window_hours)
         run_warnings: List[str] = []
         run_warnings_promoted = False
+        memory_config = getattr(orchestrator.config, "memory", None)
+        memory_is_enabled = memory_enabled(memory_config)
+        recall_prompt_enabled = memory_is_enabled and bool(getattr(memory_config, "recall_prompt_enabled", True))
+        save_recall_packets = memory_is_enabled and bool(getattr(memory_config, "save_recall_packets", True))
+        memory_dir = memory_state_dir(orchestrator.config) if memory_is_enabled else None
+        coverage_store = CoverageMemoryStore.from_state_dir(memory_dir) if memory_dir is not None else None
+        story_index_store = StoryIndexStore.from_state_dir(memory_dir) if memory_dir is not None else None
+        learned_preferences = (
+            LearnedPreferencesStore.from_state_dir(memory_dir).read()
+            if memory_dir is not None
+            else None
+        )
+        recall_packet: dict = {}
+        prompt_recall_packet: dict = {}
+        recall_packet_path = ""
 
         def _promote_run_warnings() -> None:
             nonlocal run_warnings_promoted
@@ -179,6 +199,9 @@ def run_brief(
                 brief_goal=brief_goal,
                 date=date,
                 include_enrichment_context=include_enrichment_context,
+                coverage_store=coverage_store,
+                story_index_store=story_index_store,
+                learned_preferences=learned_preferences,
             )
             extend_warnings(run_warnings, selection_result.warnings)
             selected = selection_result.selected
@@ -196,6 +219,7 @@ def run_brief(
                     "selected_reason_codes": selected_reason_counts,
                     "skipped_reason_codes": skipped_reason_counts,
                     "composite_ranking_enabled": bool(getattr(filtering, "use_multifactor_composite_ranking", False)),
+                    "memory": selection_result.memory_summary,
                 },
                 next_stage_input={
                     "selected": selected,
@@ -351,6 +375,30 @@ def run_brief(
             )
             extend_warnings(run_warnings, delta_result.warnings)
             delta_packet = delta_result.delta_packet
+            if memory_is_enabled:
+                apply_delta_signals_to_selected(selected=selected, delta_packet=delta_packet)
+                if recall_prompt_enabled or save_recall_packets:
+                    recall_packet = build_recall_packet(
+                        date=date,
+                        brief_name=name,
+                        candidates=limited_candidates,
+                        decisions=decisions,
+                    )
+                prompt_recall_packet = recall_packet if recall_prompt_enabled else {}
+                if save_recall_packets and recall_packet and memory_dir is not None:
+                    try:
+                        recall_packet_path = str(
+                            save_recall_packet(
+                                state_dir=memory_dir,
+                                date=date,
+                                brief_name=name,
+                                recall_packet=recall_packet,
+                            )
+                        )
+                    except Exception as exc:
+                        run_warnings.append(
+                            f"{name}: memory recall packet write failed ({type(exc).__name__}: {exc})."
+                        )
             if _checkpoint_stage(
                 orchestrator,
                 brief_name=name,
@@ -364,6 +412,8 @@ def run_brief(
                     "reframed_items": len(delta_packet.get("reframed", [])) if delta_packet else 0,
                     "evidence_gaps": len(delta_packet.get("evidence_gaps", [])) if delta_packet else 0,
                     "deterministic_scaffold": bool(delta_packet.get("deterministic_scaffold")) if delta_packet else False,
+                    "recall_guidance": len(prompt_recall_packet.get("coverage_guidance", [])) if prompt_recall_packet else 0,
+                    "recall_packet_saved": bool(recall_packet_path),
                 },
                 next_stage_input={
                     "selected": selected,
@@ -376,6 +426,8 @@ def run_brief(
                     "evidence_config": evidence_config,
                     "delta_config": delta_config,
                     "analysis_rollout_meta": analysis_rollout_meta,
+                    "recall_packet": recall_packet,
+                    "prompt_recall_packet": prompt_recall_packet,
                 },
             ):
                 return None
@@ -402,6 +454,7 @@ def run_brief(
                     date,
                     evidence_packet=evidence_packet,
                     delta_packet=delta_packet,
+                    recall_packet=prompt_recall_packet,
                     brief_name=name,
                 )
             output_dir = Path(orchestrator.config.output_dir)
@@ -424,6 +477,15 @@ def run_brief(
             brief["metadata"]["composite_ranking_enabled"] = bool(
                 getattr(filtering, "use_multifactor_composite_ranking", False)
             )
+            brief["metadata"]["memory"] = {
+                "enabled": memory_is_enabled,
+                "recall_prompt_enabled": recall_prompt_enabled,
+                "save_recall_packets": save_recall_packets,
+                "coverage_guidance_used": bool(prompt_recall_packet.get("coverage_guidance", [])),
+                "recall_packet_path": recall_packet_path,
+                "recall_packet": recall_packet if memory_is_enabled else {},
+                **(selection_result.memory_summary if memory_is_enabled else {}),
+            }
             brief["metadata"]["analysis_rollout"] = {
                 "enabled": bool(analysis_rollout_meta.get("rollout_enabled", False)),
                 "profile": str(analysis_rollout_meta.get("rollout_profile", "")),
@@ -468,6 +530,7 @@ def run_brief(
                     "delta_packet": delta_packet,
                     "brief_goal": brief_goal,
                     "brief_name": name,
+                    "recall_packet": recall_packet,
                     "markdown_path": str(markdown_path),
                     "json_path": str(json_path),
                 },
@@ -477,6 +540,50 @@ def run_brief(
             with orchestrator.debug.span(f"brief.{name}.write_output"):
                 write_markdown(markdown_path, brief)
                 write_json(json_path, brief)
+            memory_write_summary = {}
+            if memory_is_enabled and coverage_store is not None and story_index_store is not None:
+                try:
+                    story_records = story_index_store.update_selected(
+                        selected=selected,
+                        date=date,
+                        story_groups=story_groups,
+                        stale_after_days=int(getattr(memory_config, "story_stale_after_days", 7)),
+                        retention_days=int(getattr(memory_config, "story_retention_days", 30)),
+                    )
+                    coverage_records = coverage_store.write_selected(
+                        date=date,
+                        brief_name=name,
+                        selected=selected,
+                    )
+                    coverage_rows_pruned = coverage_store.prune(
+                        as_of_date=date,
+                        retention_days=int(getattr(memory_config, "coverage_retention_days", 30)),
+                    )
+                    memory_write_summary = {
+                        "coverage_rows_written": len(coverage_records),
+                        "coverage_rows_pruned": coverage_rows_pruned,
+                        "story_index_records": len(story_records),
+                        "story_index_stale_records": sum(1 for record in story_records if record.status == "stale"),
+                    }
+                    orchestrator.debug.set_metric(
+                        f"brief.{name}.memory.coverage_rows_written",
+                        len(coverage_records),
+                    )
+                    orchestrator.debug.set_metric(
+                        f"brief.{name}.memory.coverage_rows_pruned",
+                        coverage_rows_pruned,
+                    )
+                    orchestrator.debug.set_metric(
+                        f"brief.{name}.memory.story_index_records",
+                        len(story_records),
+                    )
+                    orchestrator.debug.set_metric(
+                        f"brief.{name}.memory.story_index_stale_records",
+                        memory_write_summary["story_index_stale_records"],
+                    )
+                except Exception as exc:
+                    memory_write_summary = {"write_error": f"{type(exc).__name__}: {exc}"}
+                    run_warnings.append(f"{name}: memory writeback failed ({type(exc).__name__}: {exc}).")
             if _checkpoint_stage(
                 orchestrator,
                 brief_name=name,
@@ -486,10 +593,12 @@ def run_brief(
                     "json_path": str(json_path),
                     "candidate_count": len(unique_candidates),
                     "selected_count": len(selected),
+                    "memory": memory_write_summary,
                 },
                 next_stage_input={
                     "brief": brief,
                     "selected": selected,
+                    "memory": memory_write_summary,
                     "markdown_path": str(markdown_path),
                     "json_path": str(json_path),
                 },

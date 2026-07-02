@@ -17,6 +17,7 @@ from mydailynews.story_grouping.models import (
 )
 from mydailynews.story_grouping.normalization import normalize_story_groups
 from mydailynews.story_grouping.payloads import (
+    article_disposition_artifacts,
     clean_text,
     planner_article_payload,
     story_group_artifact,
@@ -54,6 +55,7 @@ class PlannerRequest:
     excerpt_chars: int
     estimated_tokens: int
     budget_tokens: int
+    max_new_tokens: int
     payload: list[dict[str, Any]]
 
 
@@ -97,6 +99,7 @@ class StoryGroupingPlanner:
                 "excerpt_chars": request.excerpt_chars,
                 "estimated_tokens": request.estimated_tokens,
                 "budget_tokens": request.budget_tokens,
+                "max_new_tokens": request.max_new_tokens,
                 "status": "pending",
             }
             request_artifacts.append(request_artifact)
@@ -109,15 +112,22 @@ class StoryGroupingPlanner:
             response_groups = self._raw_story_groups(result)
             request_artifact["story_groups"] = response_groups
             request_artifact["story_threads"] = response_groups
+            if isinstance(result.get("article_dispositions"), list):
+                request_artifact["article_dispositions"] = result["article_dispositions"]
             for raw in response_groups:
                 if isinstance(raw, dict):
                     raw_groups.append(raw)
 
-        groups = self._validate_story_groups(
+        normalization = self._validate_story_groups(
             raw_groups,
             articles,
-            allow_singleton_fallback=successful_requests > 0,
+            allow_singleton_fallback=(
+                successful_requests > 0
+                and self.config.enrichment.omitted_article_policy == "fallback_singleton"
+            ),
+            warn_when_empty_input=successful_requests > 0,
         )
+        groups = normalization.groups
         artifacts = [story_group_artifact(story) for story in groups]
         return StoryGroupingResult(
             story_groups=groups,
@@ -127,18 +137,24 @@ class StoryGroupingPlanner:
                 "split_requests": len(request_artifacts) > 1,
                 "story_groups": artifacts,
                 "story_threads": artifacts,
+                "omitted_article_ids": normalization.omitted_article_ids,
+                "misc_article_ids": normalization.misc_article_ids,
+                "article_dispositions": article_disposition_artifacts(groups, normalization.omitted_article_ids),
+                "fallback_group_count": normalization.fallback_groups,
             },
         )
 
     def fit_request(self, articles: list[SelectedArticle]) -> PlannerRequest | None:
         if not articles:
             return None
-        budget_tokens = max(0, int(getattr(self.ai_client, "max_input_tokens", 0) or 0))
+        budget_tokens = self._stage_input_budget()
+        max_new_tokens = self._stage_max_new_tokens()
         excerpt_chars = max(0, int(self.config.enrichment.max_selected_article_excerpt_chars))
         payload = [planner_article_payload(article, excerpt_chars) for article in articles]
         prompt = STORY_GROUPING_USER.format(
             articles=compact_json(payload),
             max_questions_per_story=max(0, int(self.config.enrichment.planner_max_questions_per_story)),
+            article_disposition_instruction=self._article_disposition_instruction(),
         )
         estimated_tokens = self._estimate_chat_tokens(STORY_GROUPING_SYSTEM, prompt)
         self.debug.log(
@@ -148,6 +164,7 @@ class StoryGroupingPlanner:
             excerpt_chars=excerpt_chars,
             estimated_tokens=estimated_tokens,
             budget_tokens=budget_tokens,
+            max_new_tokens=max_new_tokens,
         )
         if budget_tokens > 0 and estimated_tokens <= budget_tokens:
             return PlannerRequest(
@@ -156,6 +173,7 @@ class StoryGroupingPlanner:
                 excerpt_chars=excerpt_chars,
                 estimated_tokens=estimated_tokens,
                 budget_tokens=budget_tokens,
+                max_new_tokens=max_new_tokens,
                 payload=payload,
             )
         return None
@@ -172,7 +190,15 @@ class StoryGroupingPlanner:
             "schema": "story_grouping",
             "config": {
                 "planner_max_questions_per_story": self.config.enrichment.planner_max_questions_per_story,
+                "planner_require_article_disposition": self.config.enrichment.planner_require_article_disposition,
+                "planner_allow_misc_group": self.config.enrichment.planner_allow_misc_group,
+                "planner_misc_story_id": self.config.enrichment.planner_misc_story_id,
+                "omitted_article_policy": self.config.enrichment.omitted_article_policy,
+                "planner_max_input_tokens": self.config.enrichment.planner_max_input_tokens,
+                "planner_max_new_tokens": self.config.enrichment.planner_max_new_tokens,
                 "max_selected_article_excerpt_chars": self.config.enrichment.max_selected_article_excerpt_chars,
+                "effective_input_budget_tokens": request.budget_tokens,
+                "effective_max_new_tokens": request.max_new_tokens,
             },
             "articles": request.payload,
         }
@@ -232,7 +258,7 @@ class StoryGroupingPlanner:
                 STORY_GROUPING_SYSTEM,
                 request.prompt,
                 label=label,
-                max_new_tokens=int(getattr(self.ai_client, "max_new_tokens", 0) or 0) or None,
+                max_new_tokens=request.max_new_tokens,
                 input_token_limit=request.budget_tokens,
                 json_schema=STORY_GROUPING_JSON_SCHEMA,
             )
@@ -256,19 +282,45 @@ class StoryGroupingPlanner:
         articles: list[SelectedArticle],
         *,
         allow_singleton_fallback: bool,
-    ) -> list[StoryGroup]:
+        warn_when_empty_input: bool,
+    ):
         result = normalize_story_groups(
             selected=articles,
             raw_groups=raw_groups,
             caller="story grouping",
             allow_singleton_fallback=allow_singleton_fallback,
+            allow_misc_group=self.config.enrichment.planner_allow_misc_group,
+            misc_story_id=self.config.enrichment.planner_misc_story_id,
             fallback_questions=self._fallback_questions,
             question_parser=self._parse_research_questions,
-            fallback_when_empty_input=allow_singleton_fallback,
+            fallback_when_empty_input=warn_when_empty_input,
         )
         for warning in result.warnings:
             self.warning_sink(warning)
-        return result.groups
+        return result
+
+    def _article_disposition_instruction(self) -> str:
+        if not self.config.enrichment.planner_require_article_disposition:
+            return "Assign each article to at most one story group."
+        misc_id = clean_text(self.config.enrichment.planner_misc_story_id, 80) or "misc"
+        misc_line = (
+            f"- misc: use story_id {misc_id!r} for lower-priority or unrelated leftovers. MISC will not be enriched."
+            if self.config.enrichment.planner_allow_misc_group
+            else "- misc: do not use; choose group or singleton only."
+        )
+        singleton_note = (
+            "If an article is interesting but not worth standalone enrichment, put it in misc."
+            if self.config.enrichment.planner_allow_misc_group
+            else "Leave no article unclassified."
+        )
+        return (
+            "Assign every selected article to exactly one disposition:\n"
+            "- group: use for articles that belong to a meaningful multi-article story.\n"
+            "- singleton: use only when one article is important enough to deserve standalone research and full enrichment.\n"
+            f"{misc_line}\n"
+            "Do not create singleton stories merely because an article does not fit another group. "
+            f"{singleton_note}"
+        )
 
     def _parse_research_questions(self, value: Any, story_title: str) -> list[ResearchQuestion]:
         max_questions = max(0, int(self.config.enrichment.planner_max_questions_per_story))
@@ -307,6 +359,18 @@ class StoryGroupingPlanner:
 
     def _estimate_chat_tokens(self, system: str, user: str) -> int:
         return self.ai_client.estimate_tokens(f"System:\n{system}\n\nUser:\n{user}\n\nAssistant:\n")
+
+    def _stage_input_budget(self) -> int:
+        requested = getattr(self.config.enrichment, "planner_max_input_tokens", None)
+        if requested is not None:
+            return max(0, int(requested))
+        return max(0, int(getattr(self.ai_client, "max_input_tokens", 0) or 0))
+
+    def _stage_max_new_tokens(self) -> int:
+        requested = getattr(self.config.enrichment, "planner_max_new_tokens", None)
+        if requested is not None:
+            return max(64, int(requested))
+        return max(64, int(getattr(self.ai_client, "max_new_tokens", 0) or 0))
 
 
 StoryThreadPlanner = StoryGroupingPlanner

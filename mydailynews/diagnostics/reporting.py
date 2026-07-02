@@ -66,6 +66,7 @@ class CliReporter:
                 self._print(f"{label} markdown:      {output.markdown_path}")
             self._print(f"{label} JSON:          {output.json_path}")
             self._print(f"{label} source briefs: {source_label}")
+            self._print(f"{label} selected:      {output.selected_count}")
             self._print(f"{label} story threads: {output.story_thread_count}")
         for output in result.narrative_outputs:
             label = output.name.title()

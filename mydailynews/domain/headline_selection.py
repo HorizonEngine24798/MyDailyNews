@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 
 from mydailynews.ai.headline_analyzer import HeadlineAnalyzer
 from mydailynews.domain.candidate_annotations import (
+    candidate_memory_annotation,
     candidate_profile_match_annotation,
     reset_selection_annotation,
     set_profile_match_annotation,
@@ -15,11 +16,23 @@ from mydailynews.domain.candidate_annotations import (
 from mydailynews.app.models import (
     FilteringConfig,
     HeadlineDecision,
+    MemoryConfig,
     NewsCandidate,
     SelectedArticle,
     TopicConfig,
     UserMemory,
 )
+from mydailynews.memory.coverage import CoverageMemoryStore
+from mydailynews.memory.learned_preferences import LearnedPreferences
+from mydailynews.memory.preference_learning import (
+    clear_learned_preference_effect,
+    learned_preference_effect_from_candidate,
+    learned_preference_effect_payload,
+    ranking_adjustment_for_candidate,
+    write_learned_preference_effect,
+)
+from mydailynews.memory.ranking import annotate_candidates_with_memory
+from mydailynews.memory.story_index import StoryIndexStore
 from mydailynews.common.utils import utc_now
 
 PROFILE_GEO_MATCH_BONUS = 0.7
@@ -564,6 +577,8 @@ def ranking_score_for_candidate(
     candidate: NewsCandidate,
     filtering: FilteringConfig,
     user_memory: UserMemory | None = None,
+    memory_enabled: bool = False,
+    learned_preferences: LearnedPreferences | None = None,
 ) -> tuple[float, str]:
     use_composite = bool(getattr(filtering, "use_multifactor_composite_ranking", False))
     if use_composite and _decision_has_multifactor_signal(decision):
@@ -595,6 +610,27 @@ def ranking_score_for_candidate(
         adjusted += wants_bonus
         if avoid_match_count:
             adjusted -= min(1.6, PROFILE_RANK_AVOID_PENALTY * avoid_match_count)
+
+    if memory_enabled:
+        memory_annotation = candidate_memory_annotation(candidate)
+        if memory_annotation is not None:
+            memory_adjustment = float(memory_annotation.score_adjustment or 0.0)
+            if abs(memory_adjustment) > 1e-6:
+                adjusted += memory_adjustment
+                rank_mode = f"{rank_mode}_memory"
+
+    if learned_preferences is not None:
+        learned_effect = ranking_adjustment_for_candidate(
+            candidate,
+            learned_preferences,
+            decision=decision,
+        )
+        write_learned_preference_effect(candidate, learned_effect)
+        if learned_effect.changed:
+            adjusted += float(learned_effect.score_adjustment)
+            rank_mode = f"{rank_mode}_learned"
+    else:
+        clear_learned_preference_effect(candidate)
 
     return round(adjusted, 4), rank_mode
 
@@ -628,6 +664,25 @@ def selection_rationale_rows(
         if decision is None:
             continue
         code = str(decision.selection_reason_code or "").strip()
+        memory_annotation = candidate_memory_annotation(candidate)
+        memory_payload = None
+        if memory_annotation is not None and memory_annotation.story_key:
+            memory_payload = {
+                "story_key": memory_annotation.story_key,
+                "story_family_key": memory_annotation.story_family_key,
+                "recent_coverage_count": memory_annotation.recent_coverage_count,
+                "recent_lead_count": memory_annotation.recent_lead_count,
+                "covered_yesterday": memory_annotation.covered_yesterday,
+                "score_adjustment": round(float(memory_annotation.score_adjustment), 4),
+                "today_policy": memory_annotation.today_policy,
+                "reason": memory_annotation.reason,
+            }
+        learned_effect = learned_preference_effect_from_candidate(candidate)
+        learned_payload = (
+            learned_preference_effect_payload(learned_effect)
+            if learned_effect and learned_effect.changed
+            else None
+        )
         rows.append(
             {
                 "candidate_id": candidate.id,
@@ -645,6 +700,8 @@ def selection_rationale_rows(
                     "urgency": round(float(decision.urgency), 4),
                     "confidence": round(float(decision.confidence), 4),
                 },
+                "memory": memory_payload,
+                "learned_preferences": learned_payload,
             }
         )
     rows.sort(
@@ -663,8 +720,23 @@ def select_articles(
     topics: List[TopicConfig],
     filtering: FilteringConfig,
     user_memory: UserMemory | None = None,
+    memory_config: MemoryConfig | None = None,
+    coverage_store: CoverageMemoryStore | None = None,
+    story_index_store: StoryIndexStore | None = None,
+    learned_preferences: LearnedPreferences | None = None,
+    date: str = "",
 ) -> List[SelectedArticle]:
     selected: List[SelectedArticle] = []
+    memory_enabled = bool(getattr(memory_config, "enabled", False))
+    if memory_enabled:
+        annotate_candidates_with_memory(
+            candidates=candidates,
+            decisions=decisions,
+            memory_config=memory_config,
+            coverage_store=coverage_store,
+            story_index_store=story_index_store,
+            date=date,
+        )
     max_selected = filtering.max_selected_articles
     if max_selected is not None:
         max_selected = int(max_selected)
@@ -679,7 +751,11 @@ def select_articles(
     }
     topic_counts: Dict[str, int] = {}
     source_counts: Dict[str, int] = {}
+    story_counts: Dict[str, int] = {}
+    story_family_counts: Dict[str, int] = {}
     source_cap = max(0, int(getattr(filtering, "max_selected_per_source", 0)))
+    story_cap = max(0, int(getattr(memory_config, "max_selected_per_story", 0) if memory_enabled else 0))
+    family_cap = max(0, int(getattr(memory_config, "max_selected_per_story_family", 0) if memory_enabled else 0))
     novelty_floor = max(0.0, min(10.0, float(getattr(filtering, "min_novelty_for_selection", 0.0))))
 
     for candidate in candidates:
@@ -691,6 +767,8 @@ def select_articles(
             candidate,
             filtering,
             user_memory=user_memory,
+            memory_enabled=memory_enabled,
+            learned_preferences=learned_preferences,
         )
         decision.selection_rank_score = rank_score
         decision.selection_rank_mode = rank_mode
@@ -729,7 +807,15 @@ def select_articles(
         if not decision:
             return False
         if max_selected is not None and len(selected) >= max_selected:
-            mark_skip(candidate, decision, "skipped_capacity")
+            memory_annotation = candidate_memory_annotation(candidate) if memory_enabled else None
+            if (
+                memory_annotation is not None
+                and memory_annotation.recent_coverage_count > 0
+                and memory_annotation.score_adjustment < 0
+            ):
+                mark_skip(candidate, decision, "skipped_recent_coverage")
+            else:
+                mark_skip(candidate, decision, "skipped_capacity")
             return False
         if require_cutoff and decision.score < filtering.headline_score_cutoff:
             mark_skip(candidate, decision, "skipped_below_cutoff")
@@ -755,7 +841,26 @@ def select_articles(
         if enforce_source_cap and source_cap > 0 and source_key and source_counts.get(source_key, 0) >= source_cap:
             mark_skip(candidate, decision, "skipped_source_cap")
             return False
-        reason_code = "selected_high_composite" if decision.selection_rank_mode == "composite" else "selected_high_score"
+        memory_annotation = candidate_memory_annotation(candidate) if memory_enabled else None
+        story_key = str(getattr(memory_annotation, "story_key", "") or "")
+        story_family_key = str(getattr(memory_annotation, "story_family_key", "") or "")
+        if story_cap > 0 and story_key and story_counts.get(story_key, 0) >= story_cap:
+            mark_skip(candidate, decision, "skipped_story_cap")
+            return False
+        if family_cap > 0 and story_family_key and story_family_counts.get(story_family_key, 0) >= family_cap:
+            mark_skip(candidate, decision, "skipped_story_family_cap")
+            return False
+        rank_mode = str(decision.selection_rank_mode or "score")
+        reason_code = "selected_high_composite" if rank_mode.startswith("composite") else "selected_high_score"
+        if memory_annotation is not None and abs(float(memory_annotation.score_adjustment or 0.0)) > 1e-6:
+            if memory_annotation.recent_coverage_count > 0 and memory_annotation.score_adjustment > 0:
+                reason_code = "selected_material_update_override"
+            else:
+                reason_code = f"{reason_code}_memory_adjusted"
+        else:
+            learned_effect = learned_preference_effect_from_candidate(candidate)
+            if learned_effect is not None and learned_effect.changed:
+                reason_code = f"{reason_code}_learned_adjusted"
         mark_selected(candidate, decision, reason_code)
 
         seen_duplicate_targets.add(candidate.id)
@@ -773,6 +878,10 @@ def select_articles(
             topic_counts[topic] = topic_counts.get(topic, 0) + 1
         if source_key:
             source_counts[source_key] = source_counts.get(source_key, 0) + 1
+        if story_key:
+            story_counts[story_key] = story_counts.get(story_key, 0) + 1
+        if story_family_key:
+            story_family_counts[story_family_key] = story_family_counts.get(story_family_key, 0) + 1
         return True
 
     def select_from_ranked(
@@ -820,6 +929,15 @@ def select_articles(
             and decision.score < max(float(filtering.headline_score_cutoff), 7.0)
         ):
             mark_skip(candidate, decision, "skipped_low_novelty")
+            continue
+        memory_annotation = candidate_memory_annotation(candidate) if memory_enabled else None
+        if (
+            max_selected is not None
+            and memory_annotation is not None
+            and memory_annotation.recent_coverage_count > 0
+            and memory_annotation.score_adjustment < 0
+        ):
+            mark_skip(candidate, decision, "skipped_recent_coverage")
             continue
         mark_skip(candidate, decision, "skipped_capacity" if max_selected is not None else "skipped_not_selected")
 

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections import Counter
 from threading import Lock
-from typing import Any
+from typing import Any, Callable
 
 from mydailynews.ai.base import AIClient
 from mydailynews.common.cache import HTTPCache, JSONCache
@@ -18,6 +19,7 @@ from mydailynews.enrichment.payloads import (
     selected_article_artifact,
     story_thread_artifact,
 )
+from mydailynews.story_grouping.payloads import article_disposition_artifacts
 from mydailynews.enrichment.research import StoryResearchCollector
 from mydailynews.enrichment.synthesis import StorySynthesizer
 from mydailynews.story_grouping.models import StoryGroup as StoryThread
@@ -38,6 +40,7 @@ class StoryThreadEnricher:
         cache: JSONCache | None = None,
         brief_name: str = "",
         date: str = "",
+        progress_sink: Callable[[str], None] | None = None,
     ) -> None:
         self.config = config
         self.debug = debug or DebugLogger(False)
@@ -45,6 +48,7 @@ class StoryThreadEnricher:
         self.cache = cache
         self.brief_name = brief_name
         self.date = date
+        self.progress_sink = progress_sink
         self.warnings: list[str] = []
         self.artifact: dict[str, Any] = {}
         self.story_threads_created = 0
@@ -153,51 +157,78 @@ class StoryThreadEnricher:
             self.debug.log("enrichment", "skipped_no_ai_client", articles=len(articles))
             return
 
+        article_by_id = {article.candidate.id: article for article in articles}
         if story_groups is not None:
-            story_threads = self._story_threads_from_shared_groups(story_groups, articles)
+            self._progress(f"Using shared story grouping for {len(articles)} selected articles...")
+            normalization = self._normalize_shared_story_groups(story_groups, articles)
+            story_threads = normalization.groups
             self.artifact["planner"] = {
                 "status": "shared_story_grouping",
                 "story_groups": [story_thread_artifact(story) for story in story_threads],
+                "omitted_article_ids": normalization.omitted_article_ids,
+                "misc_article_ids": normalization.misc_article_ids,
+                "article_dispositions": article_disposition_artifacts(
+                    story_threads,
+                    normalization.omitted_article_ids,
+                ),
+                "fallback_group_count": normalization.fallback_groups,
             }
         elif self.planner is None:
             self.artifact["planner"] = {"status": "skipped_no_ai_client"}
             return
         else:
+            self._progress(f"Planning story threads for {len(articles)} selected articles...")
             planning = self.planner.plan(articles)
             self.artifact["planner"] = planning.artifact
             story_threads = planning.story_threads
         self.story_threads_created = len(story_threads)
+        self._mark_omitted_articles(article_by_id, self.artifact["planner"].get("omitted_article_ids", []))
         if not story_threads:
             self.artifact["planner"].setdefault("status", "no_story_threads")
             self._push_warning("story LLM enrichment skipped: planner produced no story threads")
             for article in articles:
                 article.enrichment_needed = False
-                article.enrichment_reason = "Story-thread enrichment found no usable story threads."
+                if article.enrichment_reason == "Story-thread enrichment did not attach context.":
+                    article.enrichment_reason = "Story-thread enrichment found no usable story threads."
             return
 
-        article_by_id = {article.candidate.id: article for article in articles}
-        ranked_threads = self._rank_story_threads(story_threads, article_by_id)
+        skipped_by_policy = [story for story in story_threads if not _story_should_be_enriched(story, self.config)]
+        enrichable_threads = [story for story in story_threads if _story_should_be_enriched(story, self.config)]
+        self.story_threads_skipped += len(skipped_by_policy)
+        for story in skipped_by_policy:
+            status = _skipped_story_status(story)
+            self.artifact["story_threads"].append(_skipped_story_entry(story, status))
+            self._mark_story_articles(story, article_by_id, _skip_reason_for_story_status(status))
+
+        ranked_threads = self._rank_story_threads(enrichable_threads, article_by_id)
         max_threads = max(1, int(self.config.enrichment.max_story_threads))
         skipped_for_cap = ranked_threads[max_threads:]
+        threads_to_enrich = ranked_threads[:max_threads]
+        self._progress(
+            f"Story enrichment planned {len(story_threads)} thread(s); "
+            f"enriching {len(threads_to_enrich)}, "
+            f"skipping {len(skipped_by_policy)} by policy and {len(skipped_for_cap)} over cap."
+        )
         self.story_threads_skipped += len(skipped_for_cap)
         for story in skipped_for_cap:
-            self.artifact["story_threads"].append(
-                {
-                    "story_id": story.story_id,
-                    "story_title": story.story_title,
-                    "article_ids": story.article_ids,
-                    "status": "skipped_thread_cap",
-                }
-            )
+            self.artifact["story_threads"].append(_skipped_story_entry(story, "skipped_thread_cap"))
             self._mark_story_articles(
                 story,
                 article_by_id,
                 "Skipped story-thread enrichment: thread cap.",
             )
 
-        for story in ranked_threads[:max_threads]:
-            enrichment, entry = self._enrich_story(story, article_by_id)
+        for index, story in enumerate(threads_to_enrich, start=1):
+            label = f"Story {index}/{len(threads_to_enrich)}"
+            title = clean_text(story.story_title, 90) or story.story_id
+            queries = self._queries_for_story(story)
+            self._progress(
+                f"{label}: enriching {title} "
+                f"(articles={len(story.article_ids)}, queries={len(queries)})"
+            )
+            enrichment, entry = self._enrich_story(story, article_by_id, queries=queries, progress_label=label)
             self.artifact["story_threads"].append(entry)
+            self._progress(self._story_complete_message(label, entry))
             if enrichment and enrichment.internal_articles:
                 self._attach_story_context(story, enrichment, article_by_id, entry.get("fetched_urls", []))
                 self.story_threads_enriched += 1
@@ -236,48 +267,60 @@ class StoryThreadEnricher:
 
         return sorted(story_threads, key=key, reverse=True)
 
-    def _story_threads_from_shared_groups(
+    def _normalize_shared_story_groups(
         self,
         story_groups: list[StoryThread],
         articles: list[SelectedArticle],
-    ) -> list[StoryThread]:
+    ):
         result = normalize_story_groups(
             selected=articles,
             raw_groups=story_groups,
             caller="shared story grouping",
-            allow_singleton_fallback=True,
+            allow_singleton_fallback=self.config.enrichment.omitted_article_policy == "fallback_singleton",
+            allow_misc_group=self.config.enrichment.planner_allow_misc_group,
+            misc_story_id=self.config.enrichment.planner_misc_story_id,
             fallback_questions=_fallback_questions,
             fallback_when_empty_input=False,
         )
         for warning in result.warnings:
             self._push_warning(warning)
-        return result.groups
+        return result
 
     def _enrich_story(
         self,
         story: StoryThread,
         article_by_id: dict[str, SelectedArticle],
+        *,
+        queries: list[str],
+        progress_label: str = "",
     ) -> tuple[StoryEnrichment | None, dict[str, Any]]:
         story_articles = [article_by_id[article_id] for article_id in story.article_ids if article_id in article_by_id]
+        uncapped_queries = queries_for_story(story)
         entry: dict[str, Any] = {
             "story_id": story.story_id,
             "story_title": story.story_title,
             "article_ids": list(story.article_ids),
             "fallback": story.fallback,
+            "disposition": story.disposition,
             "research_questions": [
                 {"question": question.question, "queries": question.queries}
                 for question in story.research_questions
             ],
-            "queries": queries_for_story(story),
+            "queries": list(queries),
+            "query_count_before_cap": len(uncapped_queries),
+            "query_count_after_cap": len(queries),
+            "excerpt_strategy": self.config.enrichment.excerpt_strategy,
             "retrieved_urls": [],
             "fetched_urls": [],
+            "fetched_status_counts": {},
             "synthesis": {},
             "internal_articles": [],
             "warnings": [],
             "status": "pending",
         }
         try:
-            results = self._retrieve_research_results(story, story_articles)
+            results = self._retrieve_research_results(story, story_articles, queries)
+            entry["fetched_status_counts"] = dict(Counter(result.status for result in results))
             entry["retrieved_urls"] = [
                 {
                     "id": result.id,
@@ -300,6 +343,11 @@ class StoryThreadEnricher:
                 for result in results
                 if result.status != "search_result"
             ]
+            if progress_label:
+                self._progress(
+                    f"{progress_label}: retrieved {len(results)} result(s), "
+                    f"fetched {len(entry['fetched_urls'])} page(s); synthesizing."
+                )
             enrichment, synthesis_artifact = self._synthesize_story(story, story_articles, results)
             entry["synthesis"] = synthesis_artifact
             if enrichment is None:
@@ -320,14 +368,22 @@ class StoryThreadEnricher:
         self,
         story: StoryThread,
         story_articles: list[SelectedArticle],
+        queries: list[str],
     ) -> list[ResearchResult]:
         return self.research_collector.collect(
-            queries=queries_for_story(story),
+            queries=queries,
             story_title=story.story_title,
             story_articles=story_articles,
             search_results_per_query=self.config.enrichment.search_results_per_query,
             max_fetched_research_pages_per_story=self.config.enrichment.max_fetched_research_pages_per_story,
         )
+
+    def _queries_for_story(self, story: StoryThread) -> list[str]:
+        queries = queries_for_story(story)
+        cap = self.config.enrichment.max_queries_per_story
+        if cap is None:
+            return queries
+        return queries[: max(0, int(cap))]
 
     def _synthesize_story(
         self,
@@ -400,14 +456,86 @@ class StoryThreadEnricher:
                 continue
             article.enrichment_reason = reason
 
+    def _mark_omitted_articles(
+        self,
+        article_by_id: dict[str, SelectedArticle],
+        omitted_article_ids: Any,
+    ) -> None:
+        if not isinstance(omitted_article_ids, list):
+            return
+        for article_id in omitted_article_ids:
+            article = article_by_id.get(str(article_id))
+            if article is None or article.enrichment_needed:
+                continue
+            article.enrichment_reason = "Skipped story-thread enrichment: planner omitted article and omitted_article_policy=skip."
+
     def _push_warning(self, warning: str) -> None:
         if not warning:
             return
         with self._warning_lock:
             self.warnings.append(warning)
 
+    def _progress(self, message: str) -> None:
+        if self.progress_sink is None:
+            return
+        text = str(message or "").strip()
+        if not text:
+            return
+        self.progress_sink(text)
+
+    @staticmethod
+    def _story_complete_message(label: str, entry: dict[str, Any]) -> str:
+        status = str(entry.get("status", "") or "unknown")
+        fetched = len(entry.get("fetched_urls", []) if isinstance(entry.get("fetched_urls"), list) else [])
+        internal = len(entry.get("internal_articles", []) if isinstance(entry.get("internal_articles"), list) else [])
+        synthesis = entry.get("synthesis", {})
+        estimated = "n/a"
+        budget = "n/a"
+        max_new = "n/a"
+        if isinstance(synthesis, dict):
+            estimated = str(synthesis.get("estimated_tokens", "n/a"))
+            budget = str(synthesis.get("budget_tokens", "n/a"))
+            max_new = str(synthesis.get("max_new_tokens", "n/a"))
+        return (
+            f"{label}: finished status={status}, fetched={fetched}, "
+            f"synthesis_tokens={estimated}/{budget}, max_new={max_new}, "
+            f"internal_articles={internal}"
+        )
+
+
+def _story_should_be_enriched(story: StoryThread, config: AppConfig) -> bool:
+    disposition = str(getattr(story, "disposition", "") or "").strip().lower()
+    if disposition == "misc":
+        return bool(config.enrichment.enrich_misc_story)
+    if bool(getattr(story, "fallback", False)):
+        return config.enrichment.omitted_article_policy == "fallback_singleton"
+    return True
+
+
+def _skipped_story_status(story: StoryThread) -> str:
+    if str(getattr(story, "disposition", "") or "").strip().lower() == "misc":
+        return "skipped_misc"
+    if bool(getattr(story, "fallback", False)):
+        return "skipped_omitted_policy"
+    return "skipped_policy"
+
+
+def _skipped_story_entry(story: StoryThread, status: str) -> dict[str, Any]:
+    return {
+        "story_id": story.story_id,
+        "story_title": story.story_title,
+        "article_ids": list(story.article_ids),
+        "fallback": story.fallback,
+        "disposition": story.disposition,
+        "status": status,
+    }
+
 
 def _skip_reason_for_story_status(status: str) -> str:
+    if status == "skipped_misc":
+        return "Skipped story-thread enrichment: planner assigned article to MISC."
+    if status == "skipped_omitted_policy":
+        return "Skipped story-thread enrichment: planner omitted article and omitted_article_policy=skip."
     if status == "no_internal_articles":
         return "Skipped story-thread enrichment: no internal articles."
     if status == "failed":

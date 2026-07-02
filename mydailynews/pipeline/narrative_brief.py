@@ -12,6 +12,8 @@ from mydailynews.briefing.narrative import (
     write_narrative_outputs,
 )
 from mydailynews.common.warnings import extend_warnings
+from mydailynews.memory.config import memory_enabled
+from mydailynews.memory.recall import combined_recall_packet_for_narrative
 
 
 NARRATIVE_SOURCE_BRIEF_NAMES = ("general", "detailed")
@@ -64,6 +66,11 @@ def run_narrative_brief(
         enrichment_payload, enrichment_json_path, enrichment_warnings = None, "", []
     extend_warnings(run_warnings, enrichment_warnings)
     enrichment_used = bool(enrichment_payload)
+    memory_config = getattr(orchestrator.config, "memory", None)
+    recall_prompt_enabled = memory_enabled(memory_config) and bool(
+        getattr(memory_config, "recall_prompt_enabled", True)
+    )
+    recall_packet = combined_recall_packet_for_narrative(source_briefs) if recall_prompt_enabled else {}
     orchestrator.reporter.phase("Writing narrative Markdown brief...")
     orchestrator.debug.set_metric("brief.narrative.status", "running")
     orchestrator.debug.log(
@@ -71,6 +78,7 @@ def run_narrative_brief(
         "starting",
         source_briefs=",".join(source_names),
         enrichment_used=enrichment_used,
+        recall_guidance=bool(recall_packet.get("coverage_guidance")),
     )
 
     output: NarrativeBriefOutput | None = None
@@ -91,6 +99,7 @@ def run_narrative_brief(
                 date=date,
                 enrichment_payload=enrichment_payload,
                 enrichment_json_path=enrichment_json_path,
+                recall_packet=recall_packet,
             )
         extend_warnings(run_warnings, generator.warnings)
 
@@ -108,6 +117,7 @@ def run_narrative_brief(
                     "source_briefs": source_names,
                     "enrichment_used": enrichment_used,
                     "enrichment_json_path": enrichment_json_path if enrichment_used else "",
+                    "recall_guidance_used": bool(recall_packet.get("coverage_guidance")),
                     "markdown_path": str(markdown_path),
                     "json_path": str(json_path),
                     "segments": len(narrative_brief.get("segments", [])),

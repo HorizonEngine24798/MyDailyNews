@@ -6,14 +6,14 @@
 
 Create one:
 
-```powershell
-copy config.example.json config.local.json
+```bash
+cp config.example.json config.local.json
 python tools/autoconfig.py --config config.local.json --write config.recommended.json
 ```
 
 Then run:
 
-```powershell
+```bash
 python main.py --config config.recommended.json
 ```
 
@@ -23,7 +23,7 @@ If the CLI reports `server_executable` or `server_model_path`, edit your local c
 
 Verify llama.cpp:
 
-```powershell
+```bash
 llama-server --version
 ```
 

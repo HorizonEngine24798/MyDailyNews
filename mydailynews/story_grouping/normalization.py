@@ -16,6 +16,8 @@ FallbackQuestions = Callable[[str], list[ResearchQuestion]]
 class StoryGroupNormalizationResult:
     groups: list[StoryGroup]
     warnings: list[str] = field(default_factory=list)
+    omitted_article_ids: list[str] = field(default_factory=list)
+    misc_article_ids: list[str] = field(default_factory=list)
     unknown_article_ids: int = 0
     duplicate_article_ids: int = 0
     duplicate_story_ids: int = 0
@@ -28,6 +30,8 @@ def normalize_story_groups(
     raw_groups: Iterable[StoryGroup | dict[str, Any]],
     caller: str,
     allow_singleton_fallback: bool,
+    allow_misc_group: bool = True,
+    misc_story_id: str = "misc",
     fallback_questions: FallbackQuestions | None = None,
     question_parser: QuestionParser | None = None,
     fallback_when_empty_input: bool = True,
@@ -79,14 +83,23 @@ def normalize_story_groups(
             article_ids,
         )
         research_questions = _research_questions(raw, story_title, question_parser)
+        fallback = bool(_raw_value(raw, "fallback", False))
+        disposition = _normalize_disposition(
+            raw,
+            article_ids=article_ids,
+            story_id=story_id,
+            allow_misc_group=allow_misc_group,
+            misc_story_id=misc_story_id,
+        )
         groups.append(
             StoryGroup(
                 story_id=story_id,
                 story_title=story_title,
                 article_ids=article_ids,
                 research_questions=research_questions,
-                fallback=bool(_raw_value(raw, "fallback", False)),
+                fallback=fallback,
                 topic=clean_text(_raw_value(raw, "topic", ""), 120),
+                disposition=disposition,
             )
         )
 
@@ -110,13 +123,26 @@ def normalize_story_groups(
                     research_questions=fallback_questions(story_title) if fallback_questions else [],
                     fallback=True,
                     topic=clean_text(article.decision.topic or article.candidate.metadata.get("topic_name", ""), 120),
+                    disposition="singleton",
                 )
             )
             fallback_groups += 1
+    elif omitted and (raw_items or fallback_when_empty_input):
+        warnings.append(
+            f"{caller} omitted selected article(s); skipped enrichment for: "
+            + ", ".join(article.candidate.id for article in omitted)
+        )
 
     return StoryGroupNormalizationResult(
         groups=groups,
         warnings=warnings,
+        omitted_article_ids=[article.candidate.id for article in omitted] if not should_add_fallback else [],
+        misc_article_ids=[
+            article_id
+            for group in groups
+            if _clean_disposition(group.disposition) == "misc"
+            for article_id in group.article_ids
+        ],
         unknown_article_ids=unknown_article_ids,
         duplicate_article_ids=duplicate_article_ids,
         duplicate_story_ids=duplicate_story_ids,
@@ -128,6 +154,32 @@ def _raw_value(raw: StoryGroup | dict[str, Any], key: str, default: Any) -> Any:
     if isinstance(raw, StoryGroup):
         return getattr(raw, key, default)
     return raw.get(key, default)
+
+
+def _clean_disposition(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    return text if text in {"group", "singleton", "misc"} else ""
+
+
+def _normalize_disposition(
+    raw: StoryGroup | dict[str, Any],
+    *,
+    article_ids: list[str],
+    story_id: str,
+    allow_misc_group: bool,
+    misc_story_id: str,
+) -> str:
+    raw_disposition = _clean_disposition(_raw_value(raw, "disposition", ""))
+    misc_id = clean_text(misc_story_id or "misc", 80)
+    if allow_misc_group and story_id == misc_id:
+        return "misc"
+    if raw_disposition == "misc" and not allow_misc_group:
+        raw_disposition = ""
+    if raw_disposition:
+        return raw_disposition
+    if len(article_ids) == 1:
+        return "singleton"
+    return "group"
 
 
 def _research_questions(

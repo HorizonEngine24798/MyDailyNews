@@ -6,7 +6,7 @@ MyDailyNews expects a local `llama-server` binary and a local GGUF model file.
 
 Windows:
 
-```powershell
+```bash
 winget install llama.cpp
 ```
 
@@ -29,7 +29,7 @@ Prebuilt binaries are also available from the llama.cpp releases page.
 
 ## Verify The Binary
 
-```powershell
+```bash
 llama-server --version
 ```
 
@@ -47,7 +47,7 @@ llama-server -m PATH/TO/model.gguf --host 127.0.0.1 --port 8080 --no-webui --rea
 
 Run autoconfig to print the exact command for your config:
 
-```powershell
+```bash
 python tools/autoconfig.py --config config.local.json --write config.recommended.json --print-launch-command
 ```
 

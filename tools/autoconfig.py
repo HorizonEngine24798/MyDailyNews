@@ -26,12 +26,46 @@ STORY_ENRICHMENT_BUDGET_KEYS = (
     "max_context_chars_per_article",
     "max_story_threads",
     "planner_max_questions_per_story",
+    "planner_require_article_disposition",
+    "planner_allow_misc_group",
+    "planner_misc_story_id",
+    "enrich_misc_story",
+    "omitted_article_policy",
+    "max_queries_per_story",
+    "excerpt_strategy",
+    "selected_excerpt_lead_chars",
+    "selected_excerpt_window_chars",
+    "selected_excerpt_max_windows",
+    "research_excerpt_lead_chars",
+    "research_excerpt_window_chars",
+    "research_excerpt_max_windows",
+    "planner_max_input_tokens",
+    "planner_max_new_tokens",
     "search_results_per_query",
     "max_fetched_research_pages_per_story",
     "max_selected_article_excerpt_chars",
     "max_research_excerpt_chars",
+    "synthesis_max_input_tokens",
+    "synthesis_max_new_tokens",
     "cache_ttl_seconds",
 )
+DEFAULT_MEMORY_CONFIG = {
+    "enabled": True,
+    "state_dir": "state/memory",
+    "coverage_window_days": 10,
+    "coverage_retention_days": 30,
+    "story_stale_after_days": 7,
+    "story_retention_days": 30,
+    "recent_story_penalty": 0.6,
+    "recent_lead_penalty": 1.1,
+    "material_update_boost": 0.9,
+    "max_selected_per_story": 1,
+    "max_selected_per_story_family": 2,
+    "recall_prompt_enabled": True,
+    "save_recall_packets": True,
+    "feedback_enabled": True,
+}
+REMOVED_MEMORY_KEYS = ("recall_packet_enabled",)
 REMOVED_FILTERING_KEYS = (
     "max_selected_per_event_cluster",
     "prefer_multi_source_clusters",
@@ -312,6 +346,11 @@ def build_recommended_config(config: dict[str, Any], tier: dict[str, Any], model
     _apply_analysis(updated.setdefault("analysis", {}), settings)
     _apply_runtime(updated.setdefault("runtime", {}))
     _apply_cache(updated.setdefault("cache", {}))
+    memory = updated.get("memory")
+    if not isinstance(memory, dict):
+        memory = {}
+    _apply_memory(memory)
+    updated["memory"] = memory
     return updated
 
 
@@ -578,6 +617,13 @@ def _apply_runtime(section: dict[str, Any]) -> None:
 def _apply_cache(section: dict[str, Any]) -> None:
     for key in REMOVED_CACHE_KEYS:
         section.pop(key, None)
+
+
+def _apply_memory(section: dict[str, Any]) -> None:
+    for key in REMOVED_MEMORY_KEYS:
+        section.pop(key, None)
+    for key, value in DEFAULT_MEMORY_CONFIG.items():
+        section.setdefault(key, value)
 
 
 def _apply_story_enrichment_budget(section: dict[str, Any], settings: dict[str, Any]) -> None:

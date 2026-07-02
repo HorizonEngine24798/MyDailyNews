@@ -36,6 +36,7 @@ class SynthesisPrompt:
     fetched_pages: int
     estimated_tokens: int
     budget_tokens: int
+    max_new_tokens: int
     selected_sources: list[dict[str, Any]]
     research_sources: list[dict[str, Any]]
 
@@ -78,8 +79,10 @@ class StorySynthesizer:
             "budget_tokens": fitted.budget_tokens,
             "selected_excerpt_chars": fitted.selected_excerpt_chars,
             "research_excerpt_chars": fitted.research_excerpt_chars,
+            "excerpt_strategy": self.config.enrichment.excerpt_strategy,
             "fetched_pages": fitted.fetched_pages,
             "research_source_count": len(fitted.research_sources),
+            "max_new_tokens": fitted.max_new_tokens,
         }
         cache_key = self.cache_key(story, fitted)
         if self.cache:
@@ -98,7 +101,7 @@ class StorySynthesizer:
                 STORY_ENRICHMENT_SYSTEM,
                 fitted.prompt,
                 label=label,
-                max_new_tokens=int(getattr(self.ai_client, "max_new_tokens", 0) or 0) or None,
+                max_new_tokens=fitted.max_new_tokens,
                 input_token_limit=fitted.budget_tokens,
                 json_schema=STORY_ENRICHMENT_JSON_SCHEMA,
             )
@@ -123,7 +126,8 @@ class StorySynthesizer:
         story_articles: list[SelectedArticle],
         research_results: list[ResearchResult],
     ) -> SynthesisPrompt | None:
-        budget_tokens = max(0, int(getattr(self.ai_client, "max_input_tokens", 0) or 0))
+        budget_tokens = self._stage_input_budget()
+        max_new_tokens = self._stage_max_new_tokens()
         fetched_results = [result for result in research_results if result.text]
         fetched_count = min(
             len(fetched_results),
@@ -131,8 +135,17 @@ class StorySynthesizer:
         )
         selected_excerpt_chars = max(0, int(self.config.enrichment.max_selected_article_excerpt_chars))
         research_excerpt_chars = max(0, int(self.config.enrichment.max_research_excerpt_chars))
+        story_terms = _story_terms(story, story_articles)
         selected_sources = [
-            selected_source_payload(article, selected_excerpt_chars)
+            selected_source_payload(
+                article,
+                selected_excerpt_chars,
+                excerpt_strategy=self.config.enrichment.excerpt_strategy,
+                terms_text=f"{story_terms} {article.candidate.title} {article.candidate.snippet}",
+                lead_chars=self.config.enrichment.selected_excerpt_lead_chars,
+                window_chars=self.config.enrichment.selected_excerpt_window_chars,
+                max_windows=self.config.enrichment.selected_excerpt_max_windows,
+            )
             for article in story_articles
         ]
         research_sources = research_sources_payload(
@@ -140,6 +153,11 @@ class StorySynthesizer:
             fetched_count=fetched_count,
             excerpt_chars=research_excerpt_chars,
             search_results_per_query=self.config.enrichment.search_results_per_query,
+            excerpt_strategy=self.config.enrichment.excerpt_strategy,
+            terms_text=story_terms,
+            lead_chars=self.config.enrichment.research_excerpt_lead_chars,
+            window_chars=self.config.enrichment.research_excerpt_window_chars,
+            max_windows=self.config.enrichment.research_excerpt_max_windows,
         )
         prompt = self._render_prompt(
             story,
@@ -156,6 +174,7 @@ class StorySynthesizer:
             fetched_pages=fetched_count,
             estimated_tokens=estimated_tokens,
             budget_tokens=budget_tokens,
+            max_new_tokens=max_new_tokens,
         )
         if budget_tokens > 0 and estimated_tokens <= budget_tokens:
             return SynthesisPrompt(
@@ -165,6 +184,7 @@ class StorySynthesizer:
                 fetched_pages=fetched_count,
                 estimated_tokens=estimated_tokens,
                 budget_tokens=budget_tokens,
+                max_new_tokens=max_new_tokens,
                 selected_sources=selected_sources,
                 research_sources=research_sources,
             )
@@ -179,6 +199,22 @@ class StorySynthesizer:
             "backend": getattr(self.ai_client.config, "backend", ""),
             "model": getattr(self.ai_client.config, "effective_model_label", ""),
             "response_format": getattr(self.ai_client.config, "response_format", ""),
+            "config": {
+                "synthesis_max_input_tokens": self.config.enrichment.synthesis_max_input_tokens,
+                "synthesis_max_new_tokens": self.config.enrichment.synthesis_max_new_tokens,
+                "max_selected_article_excerpt_chars": self.config.enrichment.max_selected_article_excerpt_chars,
+                "max_research_excerpt_chars": self.config.enrichment.max_research_excerpt_chars,
+                "excerpt_strategy": self.config.enrichment.excerpt_strategy,
+                "selected_excerpt_lead_chars": self.config.enrichment.selected_excerpt_lead_chars,
+                "selected_excerpt_window_chars": self.config.enrichment.selected_excerpt_window_chars,
+                "selected_excerpt_max_windows": self.config.enrichment.selected_excerpt_max_windows,
+                "research_excerpt_lead_chars": self.config.enrichment.research_excerpt_lead_chars,
+                "research_excerpt_window_chars": self.config.enrichment.research_excerpt_window_chars,
+                "research_excerpt_max_windows": self.config.enrichment.research_excerpt_max_windows,
+                "max_fetched_research_pages_per_story": self.config.enrichment.max_fetched_research_pages_per_story,
+                "effective_input_budget_tokens": fitted.budget_tokens,
+                "effective_max_new_tokens": fitted.max_new_tokens,
+            },
             "story": story_thread_artifact(story),
             "selected_sources": fitted.selected_sources,
             "research_sources": fitted.research_sources,
@@ -242,3 +278,29 @@ class StorySynthesizer:
 
     def _estimate_chat_tokens(self, system: str, user: str) -> int:
         return self.ai_client.estimate_tokens(f"System:\n{system}\n\nUser:\n{user}\n\nAssistant:\n")
+
+    def _stage_input_budget(self) -> int:
+        requested = getattr(self.config.enrichment, "synthesis_max_input_tokens", None)
+        if requested is not None:
+            return max(0, int(requested))
+        return max(0, int(getattr(self.ai_client, "max_input_tokens", 0) or 0))
+
+    def _stage_max_new_tokens(self) -> int:
+        requested = getattr(self.config.enrichment, "synthesis_max_new_tokens", None)
+        if requested is not None:
+            return max(64, int(requested))
+        return max(64, int(getattr(self.ai_client, "max_new_tokens", 0) or 0))
+
+
+def _story_terms(story: StoryThread, story_articles: list[SelectedArticle]) -> str:
+    question_terms = [
+        text
+        for question in story.research_questions
+        for text in [question.question, *question.queries]
+    ]
+    return " ".join(
+        [story.story_title]
+        + [article.candidate.title for article in story_articles]
+        + [article.candidate.snippet for article in story_articles]
+        + question_terms
+    )

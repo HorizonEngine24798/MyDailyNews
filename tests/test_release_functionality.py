@@ -25,6 +25,8 @@ TEMP_ROOT = REPO_ROOT / ".codex_tmp_test" / "release_tests"
 
 
 class ReleaseSmokeTests(unittest.TestCase):
+    # Do not add tests that require Markdown guide files to exist. Those docs are
+    # user-guide material, not release-contract surface for automated tests.
     def _config_payload(self) -> dict:
         return json.loads((REPO_ROOT / "config.example.json").read_text(encoding="utf-8-sig"))
 
@@ -53,9 +55,19 @@ class ReleaseSmokeTests(unittest.TestCase):
         self.assertEqual(config.cache.article_text_retention_days, 3)
         self.assertEqual(config.cache.enrichment_retention_days, 30)
         self.assertTrue(config.enrichment.enabled)
+        self.assertEqual(config.enrichment.omitted_article_policy, "skip")
+        self.assertEqual(config.enrichment.excerpt_strategy, "relevant_windows")
+        self.assertFalse(config.enrichment.enrich_misc_story)
         self.assertTrue(config.narrative_briefing.enabled)
         self.assertEqual(config.narrative_briefing.target_words, 1800)
         self.assertEqual(config.pipeline.default_series, ["briefs", "enrichment", "narrative_brief"])
+        self.assertTrue(config.memory.enabled)
+        self.assertEqual(config.memory.coverage_retention_days, 30)
+        self.assertEqual(config.memory.story_stale_after_days, 7)
+        self.assertEqual(config.memory.story_retention_days, 30)
+        self.assertTrue(config.memory.recall_prompt_enabled)
+        self.assertTrue(config.memory.save_recall_packets)
+        self.assertTrue(config.memory.feedback_enabled)
 
         with self.subTest("summary and final share managed llama runtime"):
             shared_runtime_fields = (
@@ -77,20 +89,20 @@ class ReleaseSmokeTests(unittest.TestCase):
                 create_ai_client(AIConfig(backend="auto"))
 
         payload = self._config_payload()
-        with self.subTest("legacy cache defaults"):
-            legacy_cache_payload = deepcopy(payload)
+        with self.subTest("cache defaults"):
+            cache_defaults_payload = deepcopy(payload)
             for key in (
                 "discovery_mode",
                 "article_text_retention_days",
                 "enrichment_retention_days",
             ):
-                legacy_cache_payload["cache"].pop(key, None)
-            legacy_cache_payload["cache"]["http_retention_days"] = 7
-            legacy_cache_path = self._write_config_payload(TEMP_ROOT, legacy_cache_payload, "legacy_cache")
-            legacy_config = load_config(legacy_cache_path)
-            self.assertEqual(legacy_config.cache.discovery_mode, "network_first")
-            self.assertEqual(legacy_config.cache.article_text_retention_days, 3)
-            self.assertEqual(legacy_config.cache.enrichment_retention_days, 30)
+                cache_defaults_payload["cache"].pop(key, None)
+            cache_defaults_payload["cache"]["http_retention_days"] = 7
+            cache_defaults_path = self._write_config_payload(TEMP_ROOT, cache_defaults_payload, "cache_defaults")
+            defaults_config = load_config(cache_defaults_path)
+            self.assertEqual(defaults_config.cache.discovery_mode, "network_first")
+            self.assertEqual(defaults_config.cache.article_text_retention_days, 3)
+            self.assertEqual(defaults_config.cache.enrichment_retention_days, 30)
 
         with self.subTest("removed simple enrichment config"):
             simple_enrichment_payload = deepcopy(payload)
@@ -114,12 +126,43 @@ class ReleaseSmokeTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, r"Config section enrichment has unrecognized key\(s\): past_news_days"):
                 load_config(old_enrichment_path)
 
+        with self.subTest("invalid omitted article policy"):
+            invalid_policy_payload = deepcopy(payload)
+            invalid_policy_payload["enrichment"]["omitted_article_policy"] = "always"
+            invalid_policy_path = self._write_config_payload(TEMP_ROOT, invalid_policy_payload, "bad_omitted_policy")
+            with self.assertRaisesRegex(ValueError, "enrichment.omitted_article_policy"):
+                load_config(invalid_policy_path)
+
+        with self.subTest("invalid excerpt strategy"):
+            invalid_excerpt_payload = deepcopy(payload)
+            invalid_excerpt_payload["enrichment"]["excerpt_strategy"] = "middle"
+            invalid_excerpt_path = self._write_config_payload(TEMP_ROOT, invalid_excerpt_payload, "bad_excerpt_strategy")
+            with self.assertRaisesRegex(ValueError, "enrichment.excerpt_strategy"):
+                load_config(invalid_excerpt_path)
+
         with self.subTest("unrecognized cache key"):
             old_cache_payload = deepcopy(payload)
             old_cache_payload["cache"]["wikipedia_retention_days"] = 30
             old_cache_path = self._write_config_payload(TEMP_ROOT, old_cache_payload, "old_wikipedia_cache_key")
             with self.assertRaisesRegex(ValueError, r"Config section cache has unrecognized key\(s\): wikipedia_retention_days"):
                 load_config(old_cache_path)
+
+        with self.subTest("missing memory config"):
+            missing_memory_payload = deepcopy(payload)
+            missing_memory_payload.pop("memory", None)
+            missing_memory_path = self._write_config_payload(TEMP_ROOT, missing_memory_payload, "missing_memory")
+            with self.assertRaisesRegex(ValueError, r"Config missing required section\(s\): memory"):
+                load_config(missing_memory_path)
+
+        with self.subTest("old recall config key"):
+            old_memory_payload = deepcopy(payload)
+            old_memory_payload["memory"]["recall_packet_enabled"] = True
+            old_memory_path = self._write_config_payload(TEMP_ROOT, old_memory_payload, "old_recall_memory_key")
+            with self.assertRaisesRegex(
+                ValueError,
+                r"Config section memory has unrecognized key\(s\): recall_packet_enabled",
+            ):
+                load_config(old_memory_path)
 
         with self.subTest("duplicate pipeline module"):
             duplicate_pipeline_payload = deepcopy(payload)
@@ -185,11 +228,6 @@ class ReleaseSmokeTests(unittest.TestCase):
             with self.subTest(path=str(path.relative_to(REPO_ROOT))):
                 for term in forbidden:
                     self.assertNotIn(term, text)
-
-    def test_release_docs_do_not_reference_missing_revamp_files(self) -> None:
-        self.assertTrue((REPO_ROOT / "docs" / "shared_story_grouping_plan.md").exists())
-        readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
-        self.assertNotIn("docs/tts_integration_plan.md", readme)
 
     def test_committed_example_profiles_parse(self) -> None:
         paths = [REPO_ROOT / "config.example.json"]
@@ -293,6 +331,20 @@ class ReleaseSmokeTests(unittest.TestCase):
         self.assertIn("narrative_brief", result.stdout)
         self.assertNotIn("Config not found", result.stdout)
 
+    def test_cli_memory_inspect_skips_runtime_readiness(self) -> None:
+        result = subprocess.run(
+            [sys.executable, "-B", "main.py", "--config", "config.example.json", "--memory", "inspect"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Memory state:", result.stdout)
+        self.assertIn("coverage 30 day(s)", result.stdout)
+        self.assertNotIn("Config is not ready to run", result.stdout)
+
     def test_cli_missing_config_points_to_public_setup_flow(self) -> None:
         result = subprocess.run(
             [sys.executable, "-B", "main.py", "--config", "missing-for-test.json"],
@@ -303,7 +355,7 @@ class ReleaseSmokeTests(unittest.TestCase):
         )
 
         self.assertEqual(result.returncode, 1)
-        self.assertIn("copy config.example.json config.local.json", result.stdout)
+        self.assertIn("cp config.example.json config.local.json", result.stdout)
         self.assertIn("tools/autoconfig.py", result.stdout)
 
     def test_stage_options_and_artifacts_are_replay_ready(self) -> None:

@@ -10,6 +10,7 @@ from mydailynews.analysis.shared import story_thread_payloads
 from mydailynews.diagnostics.debug import DebugLogger
 from mydailynews.app.models import PriorReport, SelectedArticle, TopicConfig, UserMemory
 from mydailynews.common.utils import compact_json, datetime_to_iso
+from mydailynews.domain.candidate_annotations import candidate_memory_annotation
 
 FINAL_PROMPT_BUDGET_SAFETY_RATIO = 0.95
 
@@ -42,6 +43,7 @@ class BriefGenerator:
         date: str,
         evidence_packet: Dict[str, Any] | None = None,
         delta_packet: Dict[str, Any] | None = None,
+        recall_packet: Dict[str, Any] | None = None,
         brief_name: str = "",
     ) -> Dict[str, Any]:
         self.warnings = []
@@ -54,6 +56,7 @@ class BriefGenerator:
             date,
             evidence_packet=evidence_packet or {},
             delta_packet=delta_packet or {},
+            recall_packet=recall_packet or {},
         )
         self.debug.log("brief.ai", "synthesizing", articles=len(used_articles), prompt_chars=len(prompt))
         label = "final brief generation"
@@ -97,6 +100,7 @@ class BriefGenerator:
         date: str,
         evidence_packet: Dict[str, Any],
         delta_packet: Dict[str, Any],
+        recall_packet: Dict[str, Any] | None = None,
     ) -> tuple[str, List[SelectedArticle]]:
         target_input_tokens = max(1024, int(self.input_token_limit or self.client.max_input_tokens))
         prompt_budget_tokens = max(512, int(target_input_tokens * FINAL_PROMPT_BUDGET_SAFETY_RATIO))
@@ -130,6 +134,7 @@ class BriefGenerator:
                     date,
                     evidence_packet=evidence_payload,
                     delta_packet=delta_payload,
+                    recall_packet=recall_packet or {},
                 )
                 estimated_tokens = self._estimate_final_input_tokens(prompt)
                 self.debug.log(
@@ -182,6 +187,7 @@ class BriefGenerator:
                 date,
                 evidence_packet=fallback_evidence,
                 delta_packet=fallback_delta,
+                recall_packet=recall_packet or {},
             ),
             [],
         )
@@ -197,6 +203,7 @@ class BriefGenerator:
         date: str,
         evidence_packet: Dict[str, Any],
         delta_packet: Dict[str, Any],
+        recall_packet: Dict[str, Any] | None = None,
     ) -> str:
         payload = [self._article_payload(article, excerpt_chars) for article in articles]
         return BRIEF_USER.format(
@@ -205,6 +212,7 @@ class BriefGenerator:
             brief_goal=brief_goal,
             topics=compact_json(self._topics_payload(topics)),
             prior_reports=compact_json(self._prior_reports_payload(prior_reports)),
+            recall_packet=compact_json(recall_packet or {}),
             evidence_packet=compact_json(evidence_packet),
             delta_packet=compact_json(delta_packet),
             articles=compact_json(payload),
@@ -252,6 +260,15 @@ class BriefGenerator:
             "extraction_status": article.extraction_status,
             "story_threads": story_thread_payloads(article, max_items=2),
         }
+        memory_annotation = candidate_memory_annotation(article.candidate)
+        if memory_annotation is not None and memory_annotation.story_key:
+            payload["memory"] = {
+                "story_key": memory_annotation.story_key,
+                "story_family_key": memory_annotation.story_family_key,
+                "today_policy": memory_annotation.today_policy,
+                "recent_coverage_count": memory_annotation.recent_coverage_count,
+                "score_adjustment": round(float(memory_annotation.score_adjustment), 4),
+            }
         if self.include_enrichment_context:
             payload["context_note"] = article.enrichment_reason
             payload["context_sources"] = [
@@ -294,33 +311,42 @@ class BriefGenerator:
 
     @staticmethod
     def _major_headlines_payload(articles: List[SelectedArticle]) -> List[dict]:
-        return [
-            {
-                "headline": article.candidate.title,
-                "source": article.candidate.source,
-                "url": article.candidate.url,
-                "score": article.decision.score,
-                "topic": article.decision.topic or article.candidate.metadata.get("topic_name", ""),
-                "story_threads": story_thread_payloads(article, max_items=2),
-            }
-            for article in articles
-        ]
+        rows: List[dict] = []
+        for article in articles:
+            memory_annotation = candidate_memory_annotation(article.candidate)
+            rows.append(
+                {
+                    "headline": article.candidate.title,
+                    "source": article.candidate.source,
+                    "url": article.candidate.url,
+                    "score": article.decision.score,
+                    "topic": article.decision.topic or article.candidate.metadata.get("topic_name", ""),
+                    "story_threads": story_thread_payloads(article, max_items=2),
+                    "story_key": memory_annotation.story_key if memory_annotation is not None else "",
+                }
+            )
+        return rows
 
     @staticmethod
     def _selected_articles_payload(articles: List[SelectedArticle]) -> List[dict]:
-        return [
-            {
-                "id": article.candidate.id,
-                "headline": article.candidate.title,
-                "source": article.candidate.source,
-                "url": article.candidate.url,
-                "score": article.decision.score,
-                "topic": article.decision.topic or article.candidate.metadata.get("topic_name", ""),
-                "snippet": (article.candidate.snippet or "")[:180],
-                "story_threads": story_thread_payloads(article, max_items=2),
-            }
-            for article in articles
-        ]
+        rows: List[dict] = []
+        for article in articles:
+            memory_annotation = candidate_memory_annotation(article.candidate)
+            rows.append(
+                {
+                    "id": article.candidate.id,
+                    "headline": article.candidate.title,
+                    "source": article.candidate.source,
+                    "url": article.candidate.url,
+                    "score": article.decision.score,
+                    "topic": article.decision.topic or article.candidate.metadata.get("topic_name", ""),
+                    "snippet": (article.candidate.snippet or "")[:180],
+                    "story_threads": story_thread_payloads(article, max_items=2),
+                    "story_key": memory_annotation.story_key if memory_annotation is not None else "",
+                    "story_family_key": memory_annotation.story_family_key if memory_annotation is not None else "",
+                }
+            )
+        return rows
 
     @staticmethod
     def _references_payload(articles: List[SelectedArticle]) -> List[dict]:

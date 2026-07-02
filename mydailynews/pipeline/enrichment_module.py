@@ -66,6 +66,12 @@ def run_enrichment(
     _refetch_degraded_article_texts(orchestrator, inputs.selected_articles, run_warnings)
 
     orchestrator.reporter.phase("Running standalone story enrichment...")
+    source_label = ",".join(inputs.source_briefs) if inputs.source_briefs else "none"
+    mode_label = ", ".join(f"{name}={mode}" for name, mode in sorted(inputs.input_mode.items()))
+    orchestrator.reporter.phase(
+        f"Enrichment inputs: {len(inputs.selected_articles)} selected article(s) "
+        f"from {source_label}; input modes: {mode_label or 'none'}."
+    )
     orchestrator.debug.set_metric("module.enrichment.status", "running")
     orchestrator.debug.log(
         "enrichment.module",
@@ -83,6 +89,7 @@ def run_enrichment(
         cache=getattr(orchestrator, "synth_cache", None),
         brief_name="module",
         date=date,
+        progress_sink=orchestrator.reporter.phase,
     )
     with orchestrator.debug.span("module.enrichment"):
         enricher.enrich_many(inputs.selected_articles)

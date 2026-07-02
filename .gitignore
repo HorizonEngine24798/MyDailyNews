@@ -6,6 +6,7 @@ config.local*.json
 config.recommended.json
 !config.example.json
 output/
+state/
 .venv/
 .env
 .cache

@@ -8,14 +8,14 @@ The supported public runtime is llama.cpp through its OpenAI-compatible `llama-s
 
 Install Python dependencies:
 
-```powershell
+```bash
 python -m pip install -r requirements.txt
 ```
 
 Install or build llama.cpp, then create a local config:
 
-```powershell
-copy config.example.json config.local.json
+```bash
+cp config.example.json config.local.json
 python tools/autoconfig.py --config config.local.json --write config.recommended.json
 python main.py --config config.recommended.json
 ```
@@ -24,7 +24,7 @@ python main.py --config config.recommended.json
 
 Useful run options:
 
-```powershell
+```bash
 python main.py --brief general
 python main.py --brief detailed
 python main.py --module briefs
@@ -32,9 +32,52 @@ python main.py --module enrichment --date 2026-06-25
 python main.py --module narrative_brief --date 2026-06-25
 python main.py --debug
 python main.py --list-stages
+python main.py --memory inspect
+python main.py --memory prune
+python gui.py
 ```
 
 `python main.py` looks for `config.local.json` by default. Local configs, recommended configs, downloaded models, output, logs, and caches are intentionally ignored by git.
+`python gui.py` starts the local web GUI at `http://127.0.0.1:8765` and skips llama.cpp runtime readiness checks.
+
+## Manual Backend And GUI Testing
+
+Use Git Bash for these commands.
+
+Start the GUI in one terminal:
+
+```bash
+cd /d/Project/MyDailyNews
+python -B gui.py --config config.local.json --host 127.0.0.1 --port 8765
+```
+
+Then open `http://127.0.0.1:8765`.
+
+To test the backend pipeline alongside the GUI, use either the GUI Runs tab or a second Git Bash terminal.
+
+From the GUI:
+
+```text
+Runs -> Default series -> Start
+```
+
+From a second Git Bash terminal:
+
+```bash
+cd /d/Project/MyDailyNews
+python -B main.py --config config.local.json --module series
+```
+
+If your local config uses `manage_server=true`, the backend pipeline run starts and stops the configured llama.cpp backend for the run. If you manage the model backend yourself, start `llama-server` in its own Git Bash terminal first, adapting the paths and arguments to your machine:
+
+```bash
+cd /d/Project/MyDailyNews
+"/c/path/to/llama-server.exe" -m "/d/path/to/model.gguf" --host 127.0.0.1 --port 8080 --no-webui --reasoning off -ngl 999 -c 16384 -np 1
+```
+
+The GUI `Runs` tab launches only approved `main.py` modes: default series, briefs, enrichment, narrative brief, and memory inspect/prune/export. It shows status, return code, stdout/stderr tails, and links to newly detected output files. Feedback recorded in the GUI updates `state/memory/learned_preferences.json`; the next backend pipeline run uses those Learned Preferences as bounded rank adjustments when memory is enabled. Memory repair actions in the GUI create timestamped backups under `state/memory/backups/` before rewriting state files.
+
+See [GUI, Settings, Memory, Profile, And Runs Status](docs/gui_memory_profile_status.md) for what the GUI currently implements, how feedback and memory state flow through the app, the Runs workflow, the manual smoke checklist, and the remaining work.
 
 ## llama.cpp Runtime
 
@@ -92,7 +135,7 @@ config
 -> merge duplicate URLs
 -> dedupe similar titles
 -> score candidates with local llama.cpp
--> select articles deterministically
+-> apply coverage memory and learned preferences, then select articles deterministically
 -> fetch article text
 -> optionally plan shared story groups for evidence
 -> optionally distill evidence
@@ -144,6 +187,7 @@ Main sections:
 - `topics_to_examine`: focused-topic query definitions.
 - `general_filtering` and `filtering`: candidate limits, selection caps, and prompt budgets.
 - `user_memory`: reader preferences and briefing style.
+- `memory`: lightweight story keys, recent-coverage penalties, story caps, recall packets, feedback events, learned preferences, and memory retention under `state/memory/`.
 - `sources`: RSS feeds, Google News RSS settings, and prior-report lookup.
 - `analysis`: evidence and delta stage settings.
 - `narrative_briefing`: optional final pass that rewrites saved JSON briefs into a polished narrative Markdown brief.
@@ -158,7 +202,7 @@ See [configuration](docs/configuration.md) for details.
 
 Run the maintained no-GPU/no-network suite:
 
-```powershell
+```bash
 python -B -m unittest discover -s tests
 python -B main.py --list-stages
 ```

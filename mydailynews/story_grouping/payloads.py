@@ -26,6 +26,7 @@ def story_group_artifact(story: StoryGroup) -> dict[str, Any]:
         "story_title": story.story_title,
         "article_ids": story.article_ids,
         "fallback": story.fallback,
+        "disposition": story.disposition,
         "research_questions": [
             {"question": question.question, "queries": question.queries}
             for question in story.research_questions
@@ -38,6 +39,22 @@ def story_group_artifact(story: StoryGroup) -> dict[str, Any]:
 
 def story_thread_artifact(story: StoryGroup) -> dict[str, Any]:
     return story_group_artifact(story)
+
+
+def article_disposition_artifacts(
+    story_groups: list[StoryGroup],
+    omitted_article_ids: list[str] | None = None,
+) -> list[dict[str, str]]:
+    dispositions = [
+        {"article_id": article_id, "story_id": group.story_id, "disposition": group.disposition}
+        for group in story_groups
+        for article_id in group.article_ids
+    ]
+    dispositions.extend(
+        {"article_id": article_id, "story_id": "", "disposition": "omitted"}
+        for article_id in (omitted_article_ids or [])
+    )
+    return dispositions
 
 
 def queries_for_story(story: StoryGroup) -> list[str]:

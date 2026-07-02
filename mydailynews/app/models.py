@@ -55,6 +55,24 @@ class FilteringConfig:
     source_avoid_penalty: float = 1.25
 
 
+@dataclass
+class MemoryConfig:
+    enabled: bool = True
+    state_dir: str = "state/memory"
+    coverage_window_days: int = 10
+    coverage_retention_days: int = 30
+    story_stale_after_days: int = 7
+    story_retention_days: int = 30
+    recent_story_penalty: float = 0.6
+    recent_lead_penalty: float = 1.1
+    material_update_boost: float = 0.9
+    max_selected_per_story: int = 1
+    max_selected_per_story_family: int = 2
+    recall_prompt_enabled: bool = True
+    save_recall_packets: bool = True
+    feedback_enabled: bool = True
+
+
 def default_general_filtering_config() -> FilteringConfig:
     return FilteringConfig(
         headline_score_cutoff=5.5,
@@ -73,10 +91,27 @@ class EnrichmentConfig:
     max_context_chars_per_article: int = 3200
     max_story_threads: int = 10
     planner_max_questions_per_story: int = 4
+    planner_require_article_disposition: bool = True
+    planner_allow_misc_group: bool = True
+    planner_misc_story_id: str = "misc"
+    enrich_misc_story: bool = False
+    omitted_article_policy: str = "skip"
+    max_queries_per_story: Optional[int] = None
+    excerpt_strategy: str = "relevant_windows"
+    selected_excerpt_lead_chars: int = 900
+    selected_excerpt_window_chars: int = 900
+    selected_excerpt_max_windows: int = 3
+    research_excerpt_lead_chars: int = 500
+    research_excerpt_window_chars: int = 700
+    research_excerpt_max_windows: int = 2
+    planner_max_input_tokens: Optional[int] = None
+    planner_max_new_tokens: Optional[int] = None
     search_results_per_query: int = 16
     max_fetched_research_pages_per_story: int = 8
     max_selected_article_excerpt_chars: int = 3600
     max_research_excerpt_chars: int = 2800
+    synthesis_max_input_tokens: Optional[int] = None
+    synthesis_max_new_tokens: Optional[int] = None
     cache_ttl_seconds: int = 604800
 
 
@@ -324,6 +359,7 @@ class AppConfig:
     ai_summary: AIConfig = field(default_factory=AIConfig)
     ai_final: AIConfig = field(default_factory=AIConfig)
     filtering: FilteringConfig = field(default_factory=FilteringConfig)
+    memory: MemoryConfig = field(default_factory=MemoryConfig)
     enrichment: EnrichmentConfig = field(default_factory=EnrichmentConfig)
     user_memory: UserMemory = field(default_factory=UserMemory)
     general_topics: List[TopicConfig] = field(default_factory=list)
@@ -376,9 +412,26 @@ class SelectionAnnotation:
 
 
 @dataclass
+class MemoryAnnotation:
+    story_key: str = ""
+    story_family_key: str = ""
+    story_title: str = ""
+    match_confidence: float = 0.0
+    recent_coverage_count: int = 0
+    recent_lead_count: int = 0
+    covered_yesterday: bool = False
+    change_type: str = ""
+    materiality: float = 0.0
+    score_adjustment: float = 0.0
+    today_policy: str = "normal"
+    reason: str = ""
+
+
+@dataclass
 class CandidateAnnotations:
     profile_match: Optional[ProfileMatchAnnotation] = None
     selection: Optional[SelectionAnnotation] = None
+    memory: Optional[MemoryAnnotation] = None
 
 
 @dataclass

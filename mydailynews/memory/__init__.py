@@ -1,0 +1,2 @@
+"""Lightweight coverage memory helpers."""
+

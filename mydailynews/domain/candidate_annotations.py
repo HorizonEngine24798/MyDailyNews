@@ -6,6 +6,7 @@ from typing import Any
 from mydailynews.common.booleans import parse_bool
 from mydailynews.app.models import (
     CandidateAnnotations,
+    MemoryAnnotation,
     NewsCandidate,
     ProfileMatchAnnotation,
     SelectionAnnotation,
@@ -29,6 +30,20 @@ SELECTION_METADATA_KEYS = (
     "selection_rank_score",
     "selection_rank_mode",
 )
+MEMORY_METADATA_KEYS = (
+    "memory_story_key",
+    "memory_story_family_key",
+    "memory_story_title",
+    "memory_match_confidence",
+    "memory_recent_coverage_count",
+    "memory_recent_lead_count",
+    "memory_covered_yesterday",
+    "memory_change_type",
+    "memory_materiality",
+    "memory_score_adjustment",
+    "memory_today_policy",
+    "memory_reason",
+)
 
 
 def candidate_annotations(candidate: NewsCandidate) -> CandidateAnnotations:
@@ -39,6 +54,7 @@ def candidate_annotations(candidate: NewsCandidate) -> CandidateAnnotations:
     if isinstance(annotations, Mapping):
         normalized.profile_match = _profile_match_annotation_from_raw(annotations.get("profile_match"))
         normalized.selection = _selection_annotation_from_raw(annotations.get("selection"))
+        normalized.memory = _memory_annotation_from_raw(annotations.get("memory"))
     setattr(candidate, "annotations", normalized)
     return normalized
 
@@ -168,6 +184,50 @@ def set_selection_selected_annotation(candidate: NewsCandidate, code: str) -> Se
     return annotation
 
 
+def candidate_memory_annotation(candidate: NewsCandidate) -> MemoryAnnotation | None:
+    typed = candidate_annotations(candidate).memory
+    if typed is not None:
+        return _normalize_memory_annotation(typed)
+    return memory_annotation_from_metadata(candidate.metadata)
+
+
+def memory_annotation_from_metadata(metadata: Mapping[str, Any]) -> MemoryAnnotation | None:
+    if not any(key in metadata for key in MEMORY_METADATA_KEYS):
+        return None
+    return MemoryAnnotation(
+        story_key=str(metadata.get("memory_story_key", "") or "").strip(),
+        story_family_key=str(metadata.get("memory_story_family_key", "") or "").strip(),
+        story_title=str(metadata.get("memory_story_title", "") or "").strip(),
+        match_confidence=round(_to_float(metadata.get("memory_match_confidence", 0.0), 0.0), 4),
+        recent_coverage_count=max(0, _to_int(metadata.get("memory_recent_coverage_count", 0), 0)),
+        recent_lead_count=max(0, _to_int(metadata.get("memory_recent_lead_count", 0), 0)),
+        covered_yesterday=_to_bool(metadata.get("memory_covered_yesterday", False)),
+        change_type=str(metadata.get("memory_change_type", "") or "").strip(),
+        materiality=round(_to_float(metadata.get("memory_materiality", 0.0), 0.0), 4),
+        score_adjustment=round(_to_float(metadata.get("memory_score_adjustment", 0.0), 0.0), 4),
+        today_policy=str(metadata.get("memory_today_policy", "normal") or "normal").strip() or "normal",
+        reason=str(metadata.get("memory_reason", "") or "").strip(),
+    )
+
+
+def set_memory_annotation(candidate: NewsCandidate, annotation: MemoryAnnotation) -> MemoryAnnotation:
+    normalized = _normalize_memory_annotation(annotation)
+    candidate_annotations(candidate).memory = normalized
+    candidate.metadata["memory_story_key"] = normalized.story_key
+    candidate.metadata["memory_story_family_key"] = normalized.story_family_key
+    candidate.metadata["memory_story_title"] = normalized.story_title
+    candidate.metadata["memory_match_confidence"] = normalized.match_confidence
+    candidate.metadata["memory_recent_coverage_count"] = normalized.recent_coverage_count
+    candidate.metadata["memory_recent_lead_count"] = normalized.recent_lead_count
+    candidate.metadata["memory_covered_yesterday"] = normalized.covered_yesterday
+    candidate.metadata["memory_change_type"] = normalized.change_type
+    candidate.metadata["memory_materiality"] = normalized.materiality
+    candidate.metadata["memory_score_adjustment"] = normalized.score_adjustment
+    candidate.metadata["memory_today_policy"] = normalized.today_policy
+    candidate.metadata["memory_reason"] = normalized.reason
+    return normalized
+
+
 def _normalize_profile_match_annotation(annotation: ProfileMatchAnnotation) -> ProfileMatchAnnotation:
     return ProfileMatchAnnotation(
         source_preferred=parse_bool(annotation.source_preferred, default=False, field_name="profile_match.source_preferred"),
@@ -189,6 +249,27 @@ def _normalize_selection_annotation(annotation: SelectionAnnotation) -> Selectio
         skip_reason=str(annotation.skip_reason or "").strip(),
         rank_score=_to_float(annotation.rank_score, 0.0),
         rank_mode=str(annotation.rank_mode or "score").strip() or "score",
+    )
+
+
+def _normalize_memory_annotation(annotation: MemoryAnnotation) -> MemoryAnnotation:
+    return MemoryAnnotation(
+        story_key=str(annotation.story_key or "").strip(),
+        story_family_key=str(annotation.story_family_key or "").strip(),
+        story_title=str(annotation.story_title or "").strip(),
+        match_confidence=round(max(0.0, min(1.0, _to_float(annotation.match_confidence, 0.0))), 4),
+        recent_coverage_count=max(0, _to_int(annotation.recent_coverage_count, 0)),
+        recent_lead_count=max(0, _to_int(annotation.recent_lead_count, 0)),
+        covered_yesterday=parse_bool(
+            annotation.covered_yesterday,
+            default=False,
+            field_name="memory.covered_yesterday",
+        ),
+        change_type=str(annotation.change_type or "").strip(),
+        materiality=round(max(0.0, min(1.0, _to_float(annotation.materiality, 0.0))), 4),
+        score_adjustment=round(_to_float(annotation.score_adjustment, 0.0), 4),
+        today_policy=str(annotation.today_policy or "normal").strip() or "normal",
+        reason=str(annotation.reason or "").strip(),
     )
 
 
@@ -221,6 +302,27 @@ def _selection_annotation_from_raw(value: Any) -> SelectionAnnotation | None:
         skip_reason=str(value.get("skip_reason", "") or "").strip(),
         rank_score=_to_float(value.get("rank_score", 0.0), 0.0),
         rank_mode=str(value.get("rank_mode", "score") or "score").strip() or "score",
+    )
+
+
+def _memory_annotation_from_raw(value: Any) -> MemoryAnnotation | None:
+    if isinstance(value, MemoryAnnotation):
+        return _normalize_memory_annotation(value)
+    if not isinstance(value, Mapping):
+        return None
+    return MemoryAnnotation(
+        story_key=str(value.get("story_key", "") or "").strip(),
+        story_family_key=str(value.get("story_family_key", "") or "").strip(),
+        story_title=str(value.get("story_title", "") or "").strip(),
+        match_confidence=_to_float(value.get("match_confidence", 0.0), 0.0),
+        recent_coverage_count=max(0, _to_int(value.get("recent_coverage_count", 0), 0)),
+        recent_lead_count=max(0, _to_int(value.get("recent_lead_count", 0), 0)),
+        covered_yesterday=_to_bool(value.get("covered_yesterday", False)),
+        change_type=str(value.get("change_type", "") or "").strip(),
+        materiality=_to_float(value.get("materiality", 0.0), 0.0),
+        score_adjustment=_to_float(value.get("score_adjustment", 0.0), 0.0),
+        today_policy=str(value.get("today_policy", "normal") or "normal").strip() or "normal",
+        reason=str(value.get("reason", "") or "").strip(),
     )
 
 

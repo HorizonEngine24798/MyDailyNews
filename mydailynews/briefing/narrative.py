@@ -33,6 +33,7 @@ _NOISY_METADATA_KEYS = {
     "analysis_rollout",
     "candidate_count",
     "composite_ranking_enabled",
+    "memory",
     "model",
     "prior_reports_count",
     "selected_count",
@@ -75,6 +76,7 @@ class NarrativeBriefGenerator:
         date: str,
         enrichment_payload: Dict[str, Any] | None = None,
         enrichment_json_path: str = "",
+        recall_packet: Dict[str, Any] | None = None,
     ) -> Dict[str, Any]:
         self.warnings = []
         prompt = self._render_prompt(
@@ -82,6 +84,7 @@ class NarrativeBriefGenerator:
             memory,
             date=date,
             enrichment_payload=enrichment_payload,
+            recall_packet=recall_packet or {},
         )
         source_names = [brief.name for brief in source_briefs]
         enrichment_used = isinstance(enrichment_payload, dict) and bool(enrichment_payload)
@@ -107,6 +110,7 @@ class NarrativeBriefGenerator:
                 source_briefs=source_names,
                 enrichment_used=enrichment_used,
                 enrichment_json_path=enrichment_json_path,
+                recall_guidance_used=bool((recall_packet or {}).get("coverage_guidance")),
             )
         except AIJsonError as exc:
             markdown = str(exc.raw_response or "").strip()
@@ -124,6 +128,7 @@ class NarrativeBriefGenerator:
                     "source_briefs": source_names,
                     "enrichment_used": enrichment_used,
                     "enrichment_json_path": enrichment_json_path if enrichment_used else "",
+                    "recall_guidance_used": bool((recall_packet or {}).get("coverage_guidance")),
                 },
             }
             self.debug.log(
@@ -145,6 +150,7 @@ class NarrativeBriefGenerator:
         *,
         date: str,
         enrichment_payload: Dict[str, Any] | None = None,
+        recall_packet: Dict[str, Any] | None = None,
     ) -> str:
         payload = [
             {
@@ -172,6 +178,7 @@ class NarrativeBriefGenerator:
             ),
             source_briefs=compact_json(payload),
             enrichment_context=enrichment_context,
+            recall_packet=compact_json(recall_packet or {}),
         )
 
     @staticmethod
@@ -182,6 +189,7 @@ class NarrativeBriefGenerator:
         source_briefs: List[str],
         enrichment_used: bool = False,
         enrichment_json_path: str = "",
+        recall_guidance_used: bool = False,
     ) -> Dict[str, Any]:
         normalized = dict(result or {})
         normalized["title"] = _clean_text(normalized.get("title")) or f"Narrative Daily Brief - {date}"
@@ -197,6 +205,7 @@ class NarrativeBriefGenerator:
             "source_briefs": source_briefs,
             "enrichment_used": bool(enrichment_used),
             "enrichment_json_path": enrichment_json_path if enrichment_used else "",
+            "recall_guidance_used": bool(recall_guidance_used),
         }
         return normalized
 

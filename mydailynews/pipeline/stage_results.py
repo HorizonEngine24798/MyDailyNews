@@ -43,6 +43,7 @@ class SelectionResult:
     selection_counts: Dict[str, Dict[str, int]]
     warnings: List[str] = field(default_factory=list)
     selected_sources: int = 0
+    memory_summary: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -165,10 +166,17 @@ def _story_grouping_artifact(
         "selected_article_ids": [article["id"] for article in selected_articles],
         "story_groups": group_artifacts,
         "fallback_groups": fallback_groups,
+        "misc_article_ids": [],
+        "omitted_article_ids": [],
+        "article_dispositions": [],
         "cache_hit": cache_hit,
         "requests": requests,
         "split_requests": len(requests) > 1,
     }
     if planner_artifact:
         artifact["planner"] = planner_artifact
+        for key in ("misc_article_ids", "omitted_article_ids", "article_dispositions"):
+            value = planner_artifact.get(key)
+            if isinstance(value, list):
+                artifact[key] = value
     return artifact

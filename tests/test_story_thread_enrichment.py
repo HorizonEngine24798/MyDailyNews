@@ -146,7 +146,37 @@ class StoryThreadEnrichmentTests(unittest.TestCase):
             self.assertEqual(source.kind, "story_llm_research_context")
             self.assertEqual(source.items[0]["story_id"], "story-001")
 
-    def test_omitted_article_gets_singleton_fallback_thread(self) -> None:
+    def test_omitted_article_skip_policy_does_not_create_fallback_thread(self) -> None:
+        articles = [
+            _selected("a", "Chip export scrutiny expands"),
+            _selected("b", "Separate antitrust case advances"),
+        ]
+        ai = FakeAIClient(
+            [
+                {
+                    "story_threads": [
+                        {
+                            "story_id": "story-001",
+                            "story_title": "Chip supply-chain scrutiny",
+                            "article_ids": ["a"],
+                            "research_questions": [],
+                        }
+                    ]
+                },
+                _synthesis_response("story-001"),
+            ]
+        )
+        enricher = StoryThreadEnricher(_config(max_story_threads=3), ai_client=ai)
+
+        enricher.enrich_many(articles)
+
+        self.assertEqual(enricher.story_threads_created, 1)
+        self.assertTrue(any("skipped enrichment" in warning for warning in enricher.warnings))
+        self.assertEqual(enricher.artifact["planner"]["omitted_article_ids"], ["b"])
+        self.assertFalse(articles[1].context_sources)
+        self.assertIn("omitted_article_policy=skip", articles[1].enrichment_reason)
+
+    def test_omitted_article_fallback_policy_still_enriches_singleton(self) -> None:
         articles = [
             _selected("a", "Chip export scrutiny expands"),
             _selected("b", "Separate antitrust case advances"),
@@ -167,14 +197,41 @@ class StoryThreadEnrichmentTests(unittest.TestCase):
                 _synthesis_response("story-002"),
             ]
         )
-        enricher = StoryThreadEnricher(_config(max_story_threads=3), ai_client=ai)
+        enricher = StoryThreadEnricher(
+            _config(max_story_threads=3, omitted_article_policy="fallback_singleton"),
+            ai_client=ai,
+        )
 
         enricher.enrich_many(articles)
 
         self.assertEqual(enricher.story_threads_created, 2)
-        self.assertTrue(any("omitted selected article" in warning for warning in enricher.warnings))
         self.assertTrue(articles[1].context_sources)
         self.assertEqual(articles[1].context_sources[0].items[0]["story_id"], "story-002")
+
+    def test_misc_story_is_artifact_only_by_default(self) -> None:
+        article = _selected("a", "Minor unrelated policy mention")
+        shared_groups = [StoryGroup("misc", "Miscellaneous", ["a"], [], disposition="misc")]
+        ai = FakeAIClient([])
+        enricher = StoryThreadEnricher(_config(), ai_client=ai)
+
+        enricher.enrich_many([article], story_groups=shared_groups)
+
+        self.assertEqual(ai.calls, [])
+        self.assertEqual(enricher.artifact["story_threads"][0]["status"], "skipped_misc")
+        self.assertFalse(article.context_sources)
+        self.assertIn("MISC", article.enrichment_reason)
+
+    def test_planner_chosen_singleton_gets_full_enrichment(self) -> None:
+        article = _selected("a", "Standalone antitrust case advances")
+        shared_groups = [StoryGroup("story-001", "Standalone antitrust case", ["a"], [], disposition="singleton")]
+        ai = FakeAIClient([_synthesis_response("story-001")])
+        enricher = StoryThreadEnricher(_config(), ai_client=ai)
+
+        enricher.enrich_many([article], story_groups=shared_groups)
+
+        self.assertEqual(len(ai.calls), 1)
+        self.assertTrue(article.context_sources)
+        self.assertEqual(enricher.artifact["story_threads"][0]["status"], "enriched")
 
     def test_precomputed_story_groups_skip_planner_and_attach_context(self) -> None:
         articles = [
@@ -206,6 +263,49 @@ class StoryThreadEnrichmentTests(unittest.TestCase):
         self.assertEqual([len(article.context_sources) for article in articles], [1, 1])
         self.assertEqual(articles[0].context_sources[0].items[0]["story_id"], "shared-001")
 
+    def test_progress_sink_reports_story_enrichment_steps(self) -> None:
+        article = _selected("a", "Chip export scrutiny expands", source="Source A")
+        ai = FakeAIClient([_synthesis_response("shared-001")])
+        shared_groups = [StoryGroup("shared-001", "Shared chip grouping", ["a"], [])]
+        progress: list[str] = []
+        enricher = StoryThreadEnricher(_config(), ai_client=ai, progress_sink=progress.append)
+
+        enricher.enrich_many([article], story_groups=shared_groups)
+
+        joined = "\n".join(progress)
+        self.assertIn("Using shared story grouping", joined)
+        self.assertIn("Story enrichment planned 1 thread", joined)
+        self.assertIn("Story 1/1: enriching", joined)
+        self.assertIn("retrieved", joined)
+        self.assertIn("finished status=enriched", joined)
+
+    def test_max_queries_per_story_caps_progress_and_retrieval_query_count(self) -> None:
+        article = _selected("a", "Chip export scrutiny expands", source="Source A")
+        ai = FakeAIClient([_synthesis_response("story-001")])
+        shared_groups = [
+            StoryGroup(
+                "story-001",
+                "Chip supply-chain scrutiny",
+                ["a"],
+                [
+                    ResearchQuestion(
+                        "What changed?",
+                        ["query one", "query two", "query three"],
+                    )
+                ],
+            )
+        ]
+        progress: list[str] = []
+        enricher = StoryThreadEnricher(_config(max_queries_per_story=2), ai_client=ai, progress_sink=progress.append)
+
+        enricher.enrich_many([article], story_groups=shared_groups)
+
+        entry = enricher.artifact["story_threads"][0]
+        self.assertEqual(entry["queries"], ["query one", "query two"])
+        self.assertEqual(entry["query_count_before_cap"], 3)
+        self.assertEqual(entry["query_count_after_cap"], 2)
+        self.assertIn("queries=2", "\n".join(progress))
+
     def test_empty_precomputed_story_groups_do_not_replan(self) -> None:
         articles = [
             _selected("a", "Chip export scrutiny expands", source="Source A"),
@@ -220,7 +320,8 @@ class StoryThreadEnrichmentTests(unittest.TestCase):
         self.assertEqual(enricher.artifact["planner"]["status"], "shared_story_grouping")
         self.assertEqual(enricher.story_threads_created, 0)
         self.assertEqual([article.enrichment_needed for article in articles], [False, False])
-        self.assertTrue(all("no usable story threads" in article.enrichment_reason for article in articles))
+        self.assertEqual(enricher.artifact["planner"]["omitted_article_ids"], ["a", "b"])
+        self.assertTrue(all("omitted_article_policy=skip" in article.enrichment_reason for article in articles))
 
     def test_capped_story_threads_mark_skipped_articles(self) -> None:
         articles = [
@@ -286,6 +387,55 @@ class StoryThreadEnrichmentTests(unittest.TestCase):
         request = enricher.planner.fit_request([article])
 
         self.assertIsNone(request)
+
+    def test_planner_budget_uses_stage_limit_when_configured(self) -> None:
+        article = _selected("a", "Very long story", text="Long context. " * 2000)
+        ai = FakeAIClient([], max_input_tokens=12000, max_new_tokens=8192)
+        config = _config(max_selected_article_excerpt_chars=2000, planner_max_input_tokens=300)
+        enricher = StoryThreadEnricher(config, ai_client=ai)
+        self.assertIsNotNone(enricher.planner)
+
+        request = enricher.planner.fit_request([article])
+
+        self.assertIsNone(request)
+
+    def test_planner_request_uses_stage_output_limit_when_configured(self) -> None:
+        article = _selected("a", "Chip export scrutiny expands")
+        ai = FakeAIClient(
+            [
+                {
+                    "story_threads": [
+                        {
+                            "story_id": "story-001",
+                            "story_title": "Chip supply-chain scrutiny",
+                            "article_ids": ["a"],
+                            "research_questions": [],
+                        }
+                    ]
+                },
+                _synthesis_response("story-001"),
+            ],
+            max_new_tokens=8192,
+        )
+        config = _config(planner_max_new_tokens=256, synthesis_max_new_tokens=512)
+        enricher = StoryThreadEnricher(config, ai_client=ai)
+
+        enricher.enrich_many([article])
+
+        self.assertEqual(ai.calls[0]["kwargs"]["max_new_tokens"], 256)
+        self.assertEqual(ai.calls[1]["kwargs"]["max_new_tokens"], 512)
+
+    def test_synthesis_budget_uses_stage_limit_when_configured(self) -> None:
+        article = _selected("a", "Very long story", text="Long context. " * 2000)
+        ai = FakeAIClient([_synthesis_response("story-001")], max_input_tokens=12000, max_new_tokens=8192)
+        config = _config(max_selected_article_excerpt_chars=2000, synthesis_max_input_tokens=300)
+        shared_groups = [StoryGroup("story-001", "Very long story", ["a"], [])]
+        enricher = StoryThreadEnricher(config, ai_client=ai)
+
+        enricher.enrich_many([article], story_groups=shared_groups)
+
+        self.assertEqual(ai.calls, [])
+        self.assertEqual(enricher.artifact["story_threads"][0]["status"], "skipped_synthesis")
 
     def test_disabled_mode_skips_without_story_ai(self) -> None:
         article = _selected("a", "Context-rich article", text=("Full sentence. " * 120))

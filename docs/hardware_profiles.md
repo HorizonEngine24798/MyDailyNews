@@ -4,7 +4,7 @@ MyDailyNews is model-agnostic at the pipeline boundary, but it is not automatica
 
 Use:
 
-```powershell
+```bash
 python tools/autoconfig.py --config config.local.json --write config.recommended.json
 ```
 
@@ -26,8 +26,8 @@ Autoconfig detects hardware best-effort, recommends a Qwen-family GGUF model fro
 - startup hangs or times out
 - CUDA, Vulkan, Metal, or ROCm memory errors
 - very slow partial CPU offload
-- request timeouts on large prompts
+- request timeouts on large prompts or high per-call output caps
 - malformed JSON from overloaded prompts
 - final brief pruning many selected articles
 
-Reduce the model class, context window, selected article caps, and batch sizes together.
+Reduce the model class, context window, AI prompt/output budgets, selected article caps, enrichment fetch/excerpt limits, and batch sizes together.

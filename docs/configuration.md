@@ -4,8 +4,8 @@ Public users should not edit tracked project defaults directly.
 
 Recommended flow:
 
-```powershell
-copy config.example.json config.local.json
+```bash
+cp config.example.json config.local.json
 python tools/autoconfig.py --config config.local.json --write config.recommended.json
 python main.py --config config.recommended.json
 ```
@@ -74,6 +74,51 @@ This stage deliberately avoids SSML, pause markers, pronunciation tags, and prov
 
 Narrative generation is a post-brief module. If it fails, the structured general/detailed briefs remain written and the pipeline records a warning instead of failing the whole run.
 
+## Memory
+
+`memory` controls the lightweight coverage-memory layer used during article selection and final/narrative prompting.
+
+Important fields:
+
+- `enabled`: turn story keys, recent-coverage rank adjustments, story caps, coverage writeback, and recall packets on or off. Set this to `false` to preserve the old selection behavior.
+- `state_dir`: durable memory directory. The default is `state/memory`, separate from `output/` so ordinary output cleanup does not reset ranking memory.
+- `coverage_window_days`: recent-history lookback for repeat penalties.
+- `coverage_retention_days`: coverage-log retention; the default is 30 days.
+- `story_stale_after_days`: mark story-index records `stale` when they have not been updated for more than this many days; the default is 7.
+- `story_retention_days`: prune story-index records older than this many days; the default is 30.
+- `recent_story_penalty` and `recent_lead_penalty`: bounded deterministic rank penalties for repeated stories and recent leads.
+- `material_update_boost`: offset for recent-coverage penalties when headline/delta signals indicate a material new phase.
+- `max_selected_per_story` and `max_selected_per_story_family`: same-run diversity caps.
+- `recall_prompt_enabled`: pass compact coverage guidance into final and narrative prompts.
+- `save_recall_packets`: save compact per-brief recall packets for debugging and inspection.
+- `feedback_enabled`: enable the file-backed feedback event surface for `too_repetitive`, `not_relevant`, `not_interested_in_topic`, and `more_like_this`.
+
+Memory writes inspectable JSON files:
+
+```text
+state/memory/coverage_log.jsonl
+state/memory/coverage_log.archive.jsonl
+state/memory/story_index.json
+state/memory/feedback_events.jsonl
+state/memory/learned_preferences.json
+state/memory/backups/
+state/memory/recall_packets/YYYY-MM-DD_general.json
+state/memory/recall_packets/YYYY-MM-DD_detailed.json
+```
+
+The `memory` section is required in current configs. The memory layer does not add LLM calls and does not mutate `user_memory` preferences. Learned preferences live in `state/memory/learned_preferences.json`, are visible/editable in the GUI, are updated by supported feedback events, and are applied as bounded deterministic rank adjustments in later article selection. GUI repair tools create timestamped backups in `state/memory/backups/` before rewriting Story Index, Coverage Memory, or Feedback Events. The GUI Runs tab can also launch safe CLI-owned memory inspect, prune, and export commands.
+
+See [GUI, Settings, Memory, Profile, And Runs Status](gui_memory_profile_status.md) for the implemented GUI surfaces, feedback loop, health checks, Runs workflow, manual smoke checklist, and remaining work.
+
+Useful memory maintenance commands:
+
+```bash
+python main.py --config config.local.json --memory inspect
+python main.py --config config.local.json --memory prune
+python main.py --config config.local.json --memory export --memory-export memory-export.json
+python main.py --config config.local.json --memory reset --confirm-memory-reset
+```
+
 ## Enrichment
 
 `enrichment.enabled` defaults to `true`. `enrichment.mode` controls the post-brief enrichment module:
@@ -81,11 +126,11 @@ Narrative generation is a post-brief module. If it fails, the structured general
 - `story_llm`: selected articles are loaded from same-day handoff/brief files, grouped into LLM-planned story threads, searched with cached DDG HTML retrieval, synthesized into compact internal context articles, and written to `output/YYYY-MM-DD_enrichment.json`.
 - `disabled`: skip enrichment, equivalent to `enabled=false`.
 
-The main story-thread budget knobs are `max_story_threads`, `planner_max_questions_per_story`, `search_results_per_query`, `max_fetched_research_pages_per_story`, `max_selected_article_excerpt_chars`, `max_research_excerpt_chars`, and `cache_ttl_seconds`. Autoconfig rewrites the `enrichment` block from `profiles/model_catalog.json` `story_enrichment_budget` recommendations while preserving explicit local opt-outs such as `enabled=false` or `mode="disabled"`. Local configs can still override the generated values manually. Runtime enrichment uses these values directly and skips over-budget planner/synthesis work instead of applying hidden excerpt or fetch-count fallback tiers.
+The main story-thread budget knobs are `max_story_threads`, `planner_max_questions_per_story`, `planner_max_input_tokens`, `planner_max_new_tokens`, `search_results_per_query`, `max_queries_per_story`, `max_fetched_research_pages_per_story`, `max_selected_article_excerpt_chars`, `max_research_excerpt_chars`, `synthesis_max_input_tokens`, `synthesis_max_new_tokens`, and `cache_ttl_seconds`. `omitted_article_policy` defaults to `skip`, so planner omissions are recorded instead of becoming automatic singleton enrichment work; set it to `fallback_singleton` to restore the older behavior. `planner_allow_misc_group=true` lets the planner classify low-value leftovers as `misc`, and `enrich_misc_story=false` keeps those groups in artifacts without searching, fetching, synthesizing, or attaching context. `excerpt_strategy` defaults to `relevant_windows`, which keeps a lead plus story-relevant body windows; set it to `prefix` for old prefix truncation. Planner and synthesis token settings are interpreted as stage budgets, but they do not shrink requests below the active AI client's `max_input_tokens` or `max_new_tokens`; by default enrichment has at least the same prompt and output room as the main pipeline. Autoconfig rewrites the `enrichment` block from `profiles/model_catalog.json` `story_enrichment_budget` recommendations while preserving explicit local opt-outs such as `enabled=false` or `mode="disabled"`. Local configs can still override the generated values manually. Runtime enrichment uses these values directly and skips over-budget planner/synthesis work instead of applying hidden excerpt or fetch-count fallback tiers.
 
 The previous Wikipedia/related-news enrichment mode has been removed. `load_config` now rejects unrecognized keys consistently across config sections, so stale enrichment keys such as `past_news_days`, `max_past_news_results`, `max_wikipedia_results`, and `max_entities` fail as ordinary unknown keys. `enrichment.mode` must be `story_llm` or `disabled`.
 
-When evidence is enabled, the structured brief pipeline can run `story_grouping` after article fetch to provide shared story boundaries for evidence. Standalone enrichment plans its own story threads from the saved handoff/brief inputs.
+When evidence is enabled, the structured brief pipeline can run `story_grouping` after article fetch to provide shared story boundaries for evidence. Standalone enrichment plans its own story threads from the saved handoff/brief inputs and prints progress for input collection, story planning, per-story retrieval, and per-story synthesis completion.
 
 ## Module Series
 
@@ -103,7 +148,7 @@ Allowed module names are `briefs`, `enrichment`, and `narrative_brief`. Unknown 
 
 CLI examples:
 
-```powershell
+```bash
 python main.py --module briefs
 python main.py --module enrichment --date 2026-06-25
 python main.py --module narrative_brief --date 2026-06-25
@@ -130,6 +175,7 @@ Removed keys and behaviors:
 - `enrichment.past_news_days`, `enrichment.max_past_news_results`, `enrichment.max_wikipedia_results`, and `enrichment.max_entities`.
 - `cache.wikipedia_retention_days`.
 - `runtime.max_enrichment_workers`.
+- `memory.recall_packet_enabled`; use `memory.recall_prompt_enabled` and `memory.save_recall_packets` instead.
 - Old event-cluster selection/filtering configuration. Event-cluster diversity heuristics were intentionally retired in favor of source caps, topic caps, ranking, novelty, duplicate-link checks, and optional shared story grouping after article fetch.
 
 ## Runtime Checks

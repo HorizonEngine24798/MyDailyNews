@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
-STORY_GROUPING_CACHE_VERSION = 1
+STORY_GROUPING_CACHE_VERSION = 2
 
 
 @dataclass
@@ -20,6 +20,7 @@ class StoryGroup:
     research_questions: list[ResearchQuestion]
     fallback: bool = False
     topic: str = ""
+    disposition: str = "group"
 
 
 # Backward-compatible name while enrichment migrates from story threads to

@@ -75,7 +75,7 @@ STORY_GROUPING_USER = """Selected articles:
 
 Work to perform:
 1. Identify the major story groups represented by these selected articles.
-2. Assign each article to at most one story group.
+2. {article_disposition_instruction}
 3. Prefer compact story groups over broad topic buckets.
 4. For each story group, write practical research questions that would improve reader understanding.
 5. For each question, provide search queries suitable for current web search.
@@ -89,6 +89,7 @@ Return:
     {{
       "story_id": "story-001",
       "story_title": "short concrete story label",
+      "disposition": "group | singleton | misc",
       "topic": "optional topic name",
       "article_ids": ["article id"],
       "research_questions": [
@@ -98,6 +99,9 @@ Return:
         }}
       ]
     }}
+  ],
+  "article_dispositions": [
+    {{"article_id": "article id", "disposition": "group | singleton | misc", "story_id": "story-001"}}
   ]
 }}"""
 
@@ -179,6 +183,9 @@ Topics:
 Previous reports:
 {prior_reports}
 
+Coverage recall packet (optional; may be empty):
+{recall_packet}
+
 Evidence distillation packet (optional; may be empty):
 {evidence_packet}
 
@@ -201,9 +208,10 @@ Work to perform:
    - topic framing fields: short, concrete sentences.
    - list fields: concise bullets, no filler.
 5. Use evidence and delta packets when provided, but do not overstate uncertain points.
-6. Populate explicit `knowns`, `unknowns`, and `watch_signals` slots.
-7. Do not generate a references/sources section.
-8. Do not include URLs or markdown links in generated text fields.
+6. Use coverage guidance to avoid making recently dominant continuing stories the core narrative unless today's supplied evidence shows a material new phase. If a story remains important but repetitive, cover it compactly and leave room for other material developments.
+7. Populate explicit `knowns`, `unknowns`, and `watch_signals` slots.
+8. Do not generate a references/sources section.
+9. Do not include URLs or markdown links in generated text fields.
 
 Return:
 {{
@@ -262,16 +270,20 @@ Sanitized source briefs:
 Optional enrichment context:
 {enrichment_context}
 
+Coverage recall packet (optional; may be empty):
+{recall_packet}
+
 Work to perform:
 1. Use the general brief for breadth and the detailed brief for deeper narrative context when both are present.
 2. Use enrichment context only as additional background when it is supplied; do not treat it as a replacement for the briefs.
 3. Merge overlapping stories without repeating them; preserve all material developments from both briefs.
-4. Write a human-readable narrative report with clear section headings, graceful transitions, and selective bullets where they improve scanning.
-5. Preserve uncertainty. Unknowns, thin evidence, and watch signals should be explicit.
-6. Keep the story coherent from opening to closing, but do not flatten the Markdown into a plain audio script.
-7. Do not include URLs, markdown links, references sections, source-link housekeeping, SSML, pause markers, pronunciation tags, or provider-specific TTS tags.
-8. Mention source names only when they help attribution or uncertainty; do not write a bibliography.
-9. Avoid hype, jokes, dramatic teasing, and generic filler.
+4. Use coverage guidance to keep recently dominant continuing stories proportionate unless the supplied briefs show a material new phase.
+5. Write a human-readable narrative report with clear section headings, graceful transitions, and selective bullets where they improve scanning.
+6. Preserve uncertainty. Unknowns, thin evidence, and watch signals should be explicit.
+7. Keep the story coherent from opening to closing, but do not flatten the Markdown into a plain audio script.
+8. Do not include URLs, markdown links, references sections, source-link housekeeping, SSML, pause markers, pronunciation tags, or provider-specific TTS tags.
+9. Mention source names only when they help attribution or uncertainty; do not write a bibliography.
+10. Avoid hype, jokes, dramatic teasing, and generic filler.
 
 Return:
 {{

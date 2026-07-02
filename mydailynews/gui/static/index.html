@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>MyDailyNews</title>
+    <link rel="stylesheet" href="/static/gui.css">
+  </head>
+  <body>
+    <div id="appShell" class="app-shell">
+      <aside id="appSidebar" class="sidebar">
+        <div class="sidebar-content">
+          <div class="brand">
+            <div class="brand-mark" aria-hidden="true"></div>
+            <div>
+              <h1>MyDailyNews</h1>
+              <div id="configPath" class="muted small"></div>
+            </div>
+          </div>
+          <nav class="nav-list" aria-label="Primary">
+            <button class="nav-button active" data-view="reports">Reports</button>
+            <button class="nav-button" data-view="settings">Settings</button>
+            <button class="nav-button" data-view="profiles">Profiles</button>
+            <button class="nav-button" data-view="memory">Memory</button>
+            <button class="nav-button" data-view="runs">Runs</button>
+          </nav>
+        </div>
+        <button id="toggleAppSidebar" class="sidebar-toggle" type="button" aria-label="Collapse menu">&lt;</button>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <h2 id="viewTitle">Reports</h2>
+            <div id="statusLine" class="muted small">Loading</div>
+          </div>
+          <button id="refreshButton" class="command" type="button">Refresh</button>
+        </header>
+
+        <section id="reportsView" class="view active">
+          <div id="reportsLayout" class="reports-layout browser-collapsed">
+            <article id="reportContentPane" class="report-viewer collapsible-pane">
+              <div class="pane-strip">
+                <button id="toggleReportContent" class="collapse-button" type="button">Report</button>
+              </div>
+              <div class="pane-body">
+                <div id="reportHeader" class="viewer-header"></div>
+                <div id="markdownView" class="markdown-body"></div>
+                <div id="feedbackPanel" class="feedback-panel"></div>
+              </div>
+            </article>
+            <aside id="reportBrowserPane" class="report-browser collapsible-pane collapsed">
+              <div class="pane-strip">
+                <button id="toggleReportBrowser" class="collapse-button" type="button">Reports</button>
+              </div>
+              <div class="pane-body">
+                <div class="pane-header report-browser-header">
+                  <h3>Past Reports</h3>
+                  <div class="report-controls">
+                    <select id="reportTypeFilter" class="inline-input compact" aria-label="Filter by type"></select>
+                    <select id="reportSort" class="inline-input compact" aria-label="Sort reports">
+                      <option value="date_desc" selected>Date descending</option>
+                      <option value="date_asc">Date ascending</option>
+                      <option value="type">Type</option>
+                      <option value="title">Title</option>
+                    </select>
+                  </div>
+                </div>
+                <div id="reportList" class="report-list grouped"></div>
+              </div>
+            </aside>
+          </div>
+        </section>
+
+        <section id="settingsView" class="view">
+          <div class="toolbar">
+            <button id="runAutoconfigButton" class="command" type="button">Run Autoconfig</button>
+            <input id="autoconfigWrite" class="inline-input" value="config.recommended.json" aria-label="Autoconfig output">
+          </div>
+          <div class="settings-panels">
+            <div class="editor-pane">
+              <div class="pane-header">
+                <h3>Ground-Truth Profile</h3>
+                <div class="button-row">
+                  <button id="previewUserMemoryButton" class="command" type="button">Preview</button>
+                  <button id="saveSettingsUserMemoryButton" class="command primary" type="button">Save</button>
+                </div>
+              </div>
+              <div id="settingsUserMemoryForm" class="form-shell compact"></div>
+              <pre id="userMemoryPreview" class="preview-output"></pre>
+            </div>
+            <div class="editor-pane">
+              <div class="pane-header">
+                <h3>Memory Settings</h3>
+                <button id="saveSettingsMemoryButton" class="command primary" type="button">Save</button>
+              </div>
+              <div id="settingsMemoryForm" class="form-shell compact"></div>
+            </div>
+            <div class="editor-pane">
+              <div class="pane-header">
+                <h3>RSS Sources</h3>
+                <button id="saveSettingsSourcesButton" class="command primary" type="button">Save</button>
+              </div>
+              <div id="settingsSourcesForm" class="form-shell compact"></div>
+            </div>
+            <div class="editor-pane">
+              <div class="pane-header">
+                <h3>General Topics</h3>
+                <button id="saveSettingsGeneralTopicsButton" class="command primary" type="button">Save</button>
+              </div>
+              <div id="settingsGeneralTopicsForm" class="form-shell compact"></div>
+            </div>
+            <div class="editor-pane">
+              <div class="pane-header">
+                <h3>Detailed Topics</h3>
+                <button id="saveSettingsDetailedTopicsButton" class="command primary" type="button">Save</button>
+              </div>
+              <div id="settingsDetailedTopicsForm" class="form-shell compact"></div>
+            </div>
+            <div class="editor-pane">
+              <div class="pane-header">
+                <h3>General Filtering</h3>
+                <button id="saveSettingsGeneralFilteringButton" class="command primary" type="button">Save</button>
+              </div>
+              <div id="settingsGeneralFilteringForm" class="form-shell compact"></div>
+            </div>
+            <div class="editor-pane">
+              <div class="pane-header">
+                <h3>Detailed Filtering</h3>
+                <button id="saveSettingsFilteringButton" class="command primary" type="button">Save</button>
+              </div>
+              <div id="settingsFilteringForm" class="form-shell compact"></div>
+            </div>
+            <div class="editor-pane">
+              <div class="pane-header">
+                <h3>Pipeline</h3>
+                <button id="saveSettingsPipelineButton" class="command primary" type="button">Save</button>
+              </div>
+              <div id="settingsPipelineForm" class="form-shell compact"></div>
+            </div>
+          </div>
+          <details class="advanced-config">
+            <summary>Advanced JSON-style Config</summary>
+            <div class="toolbar nested-toolbar">
+              <button id="saveConfigButton" class="command primary" type="button">Save Config</button>
+            </div>
+            <div id="configForm" class="form-shell"></div>
+          </details>
+          <pre id="autoconfigOutput" class="console-output"></pre>
+        </section>
+
+        <section id="profilesView" class="view">
+          <div class="split-editors">
+            <div class="editor-pane">
+              <div class="pane-header">
+                <h3>Ground Truth Profile</h3>
+                <button id="saveUserMemoryButton" class="command primary" type="button">Save</button>
+              </div>
+              <div id="userMemoryForm" class="form-shell compact"></div>
+            </div>
+            <div class="editor-pane">
+              <div class="pane-header">
+                <h3>Learned Preferences</h3>
+                <div class="button-row">
+                  <button id="previewLearnedButton" class="command" type="button">Preview</button>
+                  <button id="saveLearnedButton" class="command primary" type="button">Save</button>
+                </div>
+              </div>
+              <div id="learnedForm" class="form-shell compact"></div>
+              <pre id="learnedPreview" class="preview-output"></pre>
+            </div>
+          </div>
+        </section>
+
+        <section id="memoryView" class="view">
+          <div class="toolbar">
+            <button id="pruneMemoryButton" class="command" type="button">Prune</button>
+            <button id="saveStoryIndexButton" class="command primary" type="button">Save Story Index</button>
+          </div>
+          <div id="memorySummary" class="summary-grid"></div>
+          <div class="filter-bar" aria-label="Memory filters">
+            <input id="memoryStorySearch" class="inline-input compact" type="search" placeholder="Story key or title" aria-label="Filter stories">
+            <select id="memoryStatusFilter" class="inline-input compact" aria-label="Filter story status">
+              <option value="all">All statuses</option>
+              <option value="active">Active</option>
+              <option value="stale">Stale</option>
+            </select>
+            <select id="memoryFeedbackActionFilter" class="inline-input compact" aria-label="Filter feedback action">
+              <option value="all">All feedback</option>
+              <option value="too_repetitive">Too repetitive</option>
+              <option value="not_relevant">Not relevant</option>
+              <option value="not_interested_in_topic">Not interested</option>
+              <option value="more_like_this">More like this</option>
+            </select>
+            <input id="memoryTopicSourceFilter" class="inline-input compact" type="search" placeholder="Topic or source" aria-label="Filter topic or source">
+            <input id="memoryDateBriefFilter" class="inline-input compact" type="search" placeholder="Date or brief" aria-label="Filter date or brief">
+          </div>
+          <div class="memory-layout">
+            <div class="memory-tables">
+              <section>
+                <h3>Story Index</h3>
+                <div id="storyTable" class="table-wrap"></div>
+              </section>
+              <section>
+                <h3>Coverage Memory</h3>
+                <div id="coverageTable" class="table-wrap"></div>
+              </section>
+              <section>
+                <h3>Feedback Events</h3>
+                <div id="feedbackTable" class="table-wrap"></div>
+              </section>
+              <section>
+                <h3>Learned Preferences</h3>
+                <div id="learnedMemorySummary" class="info-list"></div>
+              </section>
+              <section>
+                <h3>Recall Packets</h3>
+                <div id="recallPacketSummary" class="info-list"></div>
+              </section>
+              <section>
+                <h3>Health</h3>
+                <div id="memoryHealth" class="info-list"></div>
+              </section>
+            </div>
+            <div class="memory-editors">
+              <div class="editor-pane">
+                <div class="pane-header">
+                  <h3>Story Index</h3>
+                </div>
+                <div id="storyIndexForm" class="form-shell memory-editor"></div>
+              </div>
+              <div class="editor-pane">
+                <div class="pane-header">
+                  <h3>Learned Preferences</h3>
+                  <div class="button-row">
+                    <button id="previewMemoryLearnedButton" class="command" type="button">Preview</button>
+                    <button id="saveMemoryLearnedButton" class="command primary" type="button">Save</button>
+                  </div>
+                </div>
+                <div id="memoryLearnedForm" class="form-shell memory-editor"></div>
+                <pre id="memoryLearnedPreview" class="preview-output"></pre>
+              </div>
+              <div class="editor-pane">
+                <div class="pane-header">
+                  <h3>Repair Tools</h3>
+                </div>
+                <div class="repair-tools">
+                  <section class="repair-block">
+                    <h4>Story Merge</h4>
+                    <label class="field-row">
+                      <span class="field-label">Source story keys</span>
+                      <textarea id="repairMergeSources" class="field-textarea" rows="3"></textarea>
+                    </label>
+                    <label class="field-row">
+                      <span class="field-label">Canonical story JSON</span>
+                      <textarea id="repairMergeCanonical" class="field-textarea code-textarea" rows="7">{
+  "story_key": "",
+  "story_family_key": "",
+  "title": "",
+  "topic": "",
+  "tokens": []
+}</textarea>
+                    </label>
+                    <button id="repairMergeButton" class="command primary" type="button">Merge Stories</button>
+                  </section>
+                  <section class="repair-block">
+                    <h4>Story Split</h4>
+                    <label class="field-row">
+                      <span class="field-label">Source story key</span>
+                      <input id="repairSplitSource" class="field-input">
+                    </label>
+                    <label class="field-row">
+                      <span class="field-label">Coverage row IDs</span>
+                      <textarea id="repairSplitCoverageRows" class="field-textarea" rows="3"></textarea>
+                    </label>
+                    <label class="field-row">
+                      <span class="field-label">Feedback row IDs</span>
+                      <textarea id="repairSplitFeedbackRows" class="field-textarea" rows="3"></textarea>
+                    </label>
+                    <label class="field-row">
+                      <span class="field-label">New story JSON</span>
+                      <textarea id="repairSplitNewStory" class="field-textarea code-textarea" rows="7">{
+  "story_key": "",
+  "story_family_key": "",
+  "title": "",
+  "topic": "",
+  "tokens": []
+}</textarea>
+                    </label>
+                    <button id="repairSplitButton" class="command primary" type="button">Split Story</button>
+                  </section>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="runsView" class="view">
+          <div class="toolbar run-launcher" aria-label="Run controls">
+            <select id="runKind" class="inline-input compact" aria-label="Run kind">
+              <option value="series">Default series</option>
+              <option value="briefs">Briefs</option>
+              <option value="enrichment">Enrichment</option>
+              <option value="narrative_brief">Narrative brief</option>
+              <option value="memory">Memory</option>
+            </select>
+            <select id="runBrief" class="inline-input compact" aria-label="Brief mode">
+              <option value="both">Both briefs</option>
+              <option value="general">General</option>
+              <option value="detailed">Detailed</option>
+            </select>
+            <input id="runDate" class="inline-input compact" placeholder="YYYY-MM-DD" aria-label="Run date">
+            <select id="runMemoryAction" class="inline-input compact" aria-label="Memory action">
+              <option value="inspect">Inspect memory</option>
+              <option value="prune">Prune memory</option>
+              <option value="export">Export memory</option>
+            </select>
+            <label class="toggle-row">
+              <input id="runDebug" type="checkbox">
+              <span>Debug</span>
+            </label>
+            <button id="startRunButton" class="command primary" type="button">Start</button>
+            <button id="refreshRunsButton" class="command" type="button">Refresh</button>
+            <button id="cancelRunButton" class="command" type="button" disabled>Cancel</button>
+          </div>
+          <div class="runs-layout">
+            <section class="run-list-pane">
+              <h3>Run History</h3>
+              <div id="runList" class="run-list"></div>
+            </section>
+            <section class="run-detail-pane">
+              <div class="pane-header">
+                <h3>Run Detail</h3>
+              </div>
+              <div id="runDetail" class="run-detail"></div>
+            </section>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="/static/js/main.js"></script>
+  </body>
+</html>

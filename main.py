@@ -5,6 +5,7 @@ from mydailynews.app.config import load_config
 from mydailynews.app.runtime_config import find_runtime_config_issues, format_runtime_config_issues
 from mydailynews.pipeline.stages import ALL_STAGE_ORDER, PIPELINE_MODULE_CHOICES, PIPELINE_MODULES, PipelineRunOptions
 from mydailynews.diagnostics.reporting import CliReporter
+from mydailynews.memory.cli import MEMORY_ACTIONS
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -67,6 +68,22 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="List available --stop-after-stage values and exit.",
     )
+    parser.add_argument(
+        "--memory",
+        default="",
+        choices=("", *MEMORY_ACTIONS),
+        help="Inspect, prune, export, or reset lightweight memory state and exit.",
+    )
+    parser.add_argument(
+        "--memory-export",
+        default="",
+        help="Path for --memory export output. Prints JSON to stdout when omitted.",
+    )
+    parser.add_argument(
+        "--confirm-memory-reset",
+        action="store_true",
+        help="Required with --memory reset.",
+    )
     return parser
 
 
@@ -82,12 +99,22 @@ def main() -> int:
     if not config_path.exists():
         print(f"Config not found: {config_path}")
         print("Create a local config before running the pipeline:")
-        print("  copy config.example.json config.local.json")
+        print("  cp config.example.json config.local.json")
         print("  python tools/autoconfig.py --config config.local.json --write config.recommended.json")
         print("  python main.py --config config.recommended.json")
         return 1
 
     config = load_config(config_path)
+    if args.memory:
+        from mydailynews.memory.cli import run_memory_command
+
+        return run_memory_command(
+            config,
+            action=args.memory,
+            export_path=args.memory_export,
+            confirm_reset=args.confirm_memory_reset,
+        )
+
     runtime_issues = find_runtime_config_issues(config)
     if runtime_issues:
         print(f"Config is not ready to run: {config_path}")

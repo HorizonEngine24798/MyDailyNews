@@ -17,6 +17,7 @@ from mydailynews.domain.headline_selection import (
     select_articles,
     selection_reason_counters,
 )
+from mydailynews.memory.ranking import memory_selection_summary
 from mydailynews.app.models import HeadlineDecision, NewsCandidate, PriorReport, RunSourceSnapshot, SelectedArticle, TopicConfig
 from mydailynews.retrieval.article import ArticleRetriever
 from mydailynews.pipeline.stage_results import (
@@ -277,6 +278,9 @@ def _select_articles_stage(
     brief_goal: str,
     date: str,
     include_enrichment_context: bool,
+    coverage_store=None,
+    story_index_store=None,
+    learned_preferences=None,
 ) -> SelectionResult:
     warnings: List[str] = []
     _report_phase(orchestrator, f"Selecting {brief_name} articles...")
@@ -287,6 +291,11 @@ def _select_articles_stage(
             topics,
             filtering,
             user_memory=orchestrator.config.user_memory,
+            memory_config=getattr(orchestrator.config, "memory", None),
+            coverage_store=coverage_store,
+            story_index_store=story_index_store,
+            learned_preferences=learned_preferences,
+            date=date,
         )
     selected = prune_selected_for_final_token_budget(
         orchestrator,
@@ -317,6 +326,11 @@ def _select_articles_stage(
         sum(int(value) for value in skipped_reason_counts.values()),
     )
     source_count = _selected_source_count(selected)
+    memory_summary = memory_selection_summary(limited_candidates, decisions)
+    memory_enabled = bool(getattr(getattr(orchestrator.config, "memory", None), "enabled", False))
+    if memory_enabled:
+        for key, value in memory_summary.items():
+            orchestrator.debug.set_metric(f"brief.{brief_name}.memory.{key}", value)
     orchestrator.debug.set_metric(f"brief.{brief_name}.selected_sources", source_count)
     orchestrator.debug.log(
         "headline.select",
@@ -326,12 +340,14 @@ def _select_articles_stage(
         selected_sources=source_count,
         selected_reason_codes=selected_reason_counts,
         skipped_reason_codes=skipped_reason_counts,
+        memory=memory_summary if memory_enabled else {},
     )
     return SelectionResult(
         selected=selected,
         selection_counts=selection_counts,
         warnings=warnings,
         selected_sources=source_count,
+        memory_summary=memory_summary if memory_enabled else {},
     )
 
 

@@ -19,6 +19,7 @@ from mydailynews.app.models import (
     EnrichmentConfig,
     FilteringConfig,
     GoogleNewsSourceConfig,
+    MemoryConfig,
     NarrativeBriefingConfig,
     PipelineConfig,
     PriorReportsSourceConfig,
@@ -45,6 +46,7 @@ def _defaults(config_obj: Any) -> Dict[str, Any]:
 DEFAULT_OUTPUT_DIR = AppConfig().output_dir
 DEFAULT_USER_AGENT = AppConfig().user_agent
 DEFAULT_FILTERING = _defaults(FilteringConfig(max_headlines_per_source=16))
+DEFAULT_MEMORY = _defaults(MemoryConfig())
 DEFAULT_GENERAL_FILTERING = _defaults(default_general_filtering_config())
 DEFAULT_ENRICHMENT = _defaults(EnrichmentConfig())
 DEFAULT_CACHE = _defaults(CacheConfig())
@@ -65,6 +67,7 @@ ROOT_CONFIG_KEYS = {
     "general_filtering",
     "topics_to_examine",
     "filtering",
+    "memory",
     "enrichment",
     "runtime",
     "narrative_briefing",
@@ -76,6 +79,7 @@ ROOT_CONFIG_KEYS = {
 AI_CONFIG_KEYS = set(_defaults(AIConfig()).keys())
 AI_CONFIG_KEYS.update({"model", "gguf_model_path"})
 FILTERING_CONFIG_KEYS = set(DEFAULT_FILTERING.keys())
+MEMORY_CONFIG_KEYS = set(DEFAULT_MEMORY.keys())
 ENRICHMENT_CONFIG_KEYS = set(DEFAULT_ENRICHMENT.keys())
 CACHE_CONFIG_KEYS = set(DEFAULT_CACHE.keys())
 RUNTIME_CONFIG_KEYS = set(DEFAULT_RUNTIME.keys())
@@ -273,6 +277,20 @@ def _normalize_enrichment_mode(value: Any) -> str:
     if mode not in allowed:
         raise ValueError("enrichment.mode must be one of: story_llm, disabled")
     return mode
+
+
+def _normalize_omitted_article_policy(value: Any) -> str:
+    policy = str(value or DEFAULT_ENRICHMENT["omitted_article_policy"]).strip().lower()
+    if policy not in {"skip", "fallback_singleton"}:
+        raise ValueError("enrichment.omitted_article_policy must be one of: skip, fallback_singleton")
+    return policy
+
+
+def _normalize_excerpt_strategy(value: Any) -> str:
+    strategy = str(value or DEFAULT_ENRICHMENT["excerpt_strategy"]).strip().lower()
+    if strategy not in {"prefix", "relevant_windows"}:
+        raise ValueError("enrichment.excerpt_strategy must be one of: prefix, relevant_windows")
+    return strategy
 
 
 def _normalize_pipeline_module(value: Any) -> str:
@@ -483,6 +501,54 @@ def _load_filtering(raw: Dict[str, Any], defaults: Dict[str, Any], *, section_na
     )
 
 
+def _load_memory(raw: Dict[str, Any]) -> MemoryConfig:
+    memory_raw = raw["memory"]
+    if not isinstance(memory_raw, dict):
+        raise ValueError("Config section memory must be an object")
+    _reject_unknown_keys(memory_raw, MEMORY_CONFIG_KEYS, "memory")
+    return MemoryConfig(
+        enabled=parse_bool(
+            memory_raw.get("enabled", DEFAULT_MEMORY["enabled"]),
+            default=DEFAULT_MEMORY["enabled"],
+            field_name="memory.enabled",
+        ),
+        state_dir=str(memory_raw.get("state_dir", DEFAULT_MEMORY["state_dir"]) or DEFAULT_MEMORY["state_dir"]),
+        coverage_window_days=max(0, int(memory_raw.get("coverage_window_days", DEFAULT_MEMORY["coverage_window_days"]))),
+        coverage_retention_days=max(
+            0,
+            int(memory_raw.get("coverage_retention_days", DEFAULT_MEMORY["coverage_retention_days"])),
+        ),
+        story_stale_after_days=max(
+            0,
+            int(memory_raw.get("story_stale_after_days", DEFAULT_MEMORY["story_stale_after_days"])),
+        ),
+        story_retention_days=max(0, int(memory_raw.get("story_retention_days", DEFAULT_MEMORY["story_retention_days"]))),
+        recent_story_penalty=max(0.0, float(memory_raw.get("recent_story_penalty", DEFAULT_MEMORY["recent_story_penalty"]))),
+        recent_lead_penalty=max(0.0, float(memory_raw.get("recent_lead_penalty", DEFAULT_MEMORY["recent_lead_penalty"]))),
+        material_update_boost=max(0.0, float(memory_raw.get("material_update_boost", DEFAULT_MEMORY["material_update_boost"]))),
+        max_selected_per_story=max(0, int(memory_raw.get("max_selected_per_story", DEFAULT_MEMORY["max_selected_per_story"]))),
+        max_selected_per_story_family=max(
+            0,
+            int(memory_raw.get("max_selected_per_story_family", DEFAULT_MEMORY["max_selected_per_story_family"])),
+        ),
+        recall_prompt_enabled=parse_bool(
+            memory_raw.get("recall_prompt_enabled", DEFAULT_MEMORY["recall_prompt_enabled"]),
+            default=DEFAULT_MEMORY["recall_prompt_enabled"],
+            field_name="memory.recall_prompt_enabled",
+        ),
+        save_recall_packets=parse_bool(
+            memory_raw.get("save_recall_packets", DEFAULT_MEMORY["save_recall_packets"]),
+            default=DEFAULT_MEMORY["save_recall_packets"],
+            field_name="memory.save_recall_packets",
+        ),
+        feedback_enabled=parse_bool(
+            memory_raw.get("feedback_enabled", DEFAULT_MEMORY["feedback_enabled"]),
+            default=DEFAULT_MEMORY["feedback_enabled"],
+            field_name="memory.feedback_enabled",
+        ),
+    )
+
+
 def _load_analysis(raw: Dict[str, Any]) -> AnalysisConfig:
     analysis_raw = raw.get("analysis", {})
     if analysis_raw is None:
@@ -640,7 +706,7 @@ def _load_cache(raw: Dict[str, Any]) -> CacheConfig:
         raise ValueError("Config section cache must be an object")
     _reject_unknown_keys(cache_raw, CACHE_CONFIG_KEYS, "cache")
 
-    legacy_http_retention = max(
+    http_retention_days = max(
         0,
         int(cache_raw.get("http_retention_days", DEFAULT_CACHE["http_retention_days"])),
     )
@@ -651,7 +717,7 @@ def _load_cache(raw: Dict[str, Any]) -> CacheConfig:
             field_name="cache.enabled",
         ),
         dir=cache_raw.get("dir", DEFAULT_CACHE["dir"]),
-        http_retention_days=legacy_http_retention,
+        http_retention_days=http_retention_days,
         discovery_mode=_cache_mode(
             cache_raw.get("discovery_mode", DEFAULT_CACHE["discovery_mode"]),
             field_name="cache.discovery_mode",
@@ -662,7 +728,7 @@ def _load_cache(raw: Dict[str, Any]) -> CacheConfig:
         ),
         enrichment_retention_days=max(
             0,
-            int(cache_raw.get("enrichment_retention_days", max(legacy_http_retention, 30))),
+            int(cache_raw.get("enrichment_retention_days", DEFAULT_CACHE["enrichment_retention_days"])),
         ),
         ai_enabled=parse_bool(
             cache_raw.get("ai_enabled", DEFAULT_CACHE["ai_enabled"]),
@@ -687,6 +753,7 @@ def _require_sections(raw: Dict[str, Any]) -> None:
         "general_filtering",
         "topics_to_examine",
         "filtering",
+        "memory",
         "enrichment",
         "sources",
     ]
@@ -707,6 +774,7 @@ def load_config(path: Path) -> AppConfig:
     sources_raw = raw["sources"]
     runtime_raw = raw.get("runtime", {})
     analysis = _load_analysis(raw)
+    memory_config = _load_memory(raw)
     narrative_briefing = _load_narrative_briefing(raw)
     pipeline = _load_pipeline(raw)
     if not isinstance(filtering_raw, dict):
@@ -739,6 +807,7 @@ def load_config(path: Path) -> AppConfig:
         ai_final=ai_final,
         filtering=filtering,
         general_filtering=general_filtering,
+        memory=memory_config,
         enrichment=EnrichmentConfig(
             enabled=parse_bool(
                 enrichment_raw.get("enabled", DEFAULT_ENRICHMENT["enabled"]),
@@ -761,6 +830,100 @@ def load_config(path: Path) -> AppConfig:
                         DEFAULT_ENRICHMENT["planner_max_questions_per_story"],
                     )
                 ),
+            ),
+            planner_require_article_disposition=parse_bool(
+                enrichment_raw.get(
+                    "planner_require_article_disposition",
+                    DEFAULT_ENRICHMENT["planner_require_article_disposition"],
+                ),
+                default=DEFAULT_ENRICHMENT["planner_require_article_disposition"],
+                field_name="enrichment.planner_require_article_disposition",
+            ),
+            planner_allow_misc_group=parse_bool(
+                enrichment_raw.get("planner_allow_misc_group", DEFAULT_ENRICHMENT["planner_allow_misc_group"]),
+                default=DEFAULT_ENRICHMENT["planner_allow_misc_group"],
+                field_name="enrichment.planner_allow_misc_group",
+            ),
+            planner_misc_story_id=str(
+                enrichment_raw.get("planner_misc_story_id", DEFAULT_ENRICHMENT["planner_misc_story_id"])
+            ).strip()
+            or DEFAULT_ENRICHMENT["planner_misc_story_id"],
+            enrich_misc_story=parse_bool(
+                enrichment_raw.get("enrich_misc_story", DEFAULT_ENRICHMENT["enrich_misc_story"]),
+                default=DEFAULT_ENRICHMENT["enrich_misc_story"],
+                field_name="enrichment.enrich_misc_story",
+            ),
+            omitted_article_policy=_normalize_omitted_article_policy(
+                enrichment_raw.get("omitted_article_policy", DEFAULT_ENRICHMENT["omitted_article_policy"])
+            ),
+            max_queries_per_story=_optional_pos_int(
+                enrichment_raw.get("max_queries_per_story", DEFAULT_ENRICHMENT["max_queries_per_story"]),
+                minimum=0,
+            ),
+            excerpt_strategy=_normalize_excerpt_strategy(
+                enrichment_raw.get("excerpt_strategy", DEFAULT_ENRICHMENT["excerpt_strategy"])
+            ),
+            selected_excerpt_lead_chars=max(
+                0,
+                int(
+                    enrichment_raw.get(
+                        "selected_excerpt_lead_chars",
+                        DEFAULT_ENRICHMENT["selected_excerpt_lead_chars"],
+                    )
+                ),
+            ),
+            selected_excerpt_window_chars=max(
+                0,
+                int(
+                    enrichment_raw.get(
+                        "selected_excerpt_window_chars",
+                        DEFAULT_ENRICHMENT["selected_excerpt_window_chars"],
+                    )
+                ),
+            ),
+            selected_excerpt_max_windows=max(
+                0,
+                int(
+                    enrichment_raw.get(
+                        "selected_excerpt_max_windows",
+                        DEFAULT_ENRICHMENT["selected_excerpt_max_windows"],
+                    )
+                ),
+            ),
+            research_excerpt_lead_chars=max(
+                0,
+                int(
+                    enrichment_raw.get(
+                        "research_excerpt_lead_chars",
+                        DEFAULT_ENRICHMENT["research_excerpt_lead_chars"],
+                    )
+                ),
+            ),
+            research_excerpt_window_chars=max(
+                0,
+                int(
+                    enrichment_raw.get(
+                        "research_excerpt_window_chars",
+                        DEFAULT_ENRICHMENT["research_excerpt_window_chars"],
+                    )
+                ),
+            ),
+            research_excerpt_max_windows=max(
+                0,
+                int(
+                    enrichment_raw.get(
+                        "research_excerpt_max_windows",
+                        DEFAULT_ENRICHMENT["research_excerpt_max_windows"],
+                    )
+                ),
+            ),
+            planner_max_input_tokens=_optional_pos_int(
+                enrichment_raw.get("planner_max_input_tokens", DEFAULT_ENRICHMENT["planner_max_input_tokens"]),
+                minimum=256,
+            ),
+            planner_max_new_tokens=_optional_pos_int(
+                enrichment_raw.get("planner_max_new_tokens", DEFAULT_ENRICHMENT["planner_max_new_tokens"]),
+                minimum=64,
             ),
             search_results_per_query=max(
                 0,
@@ -792,6 +955,14 @@ def load_config(path: Path) -> AppConfig:
                         DEFAULT_ENRICHMENT["max_research_excerpt_chars"],
                     )
                 ),
+            ),
+            synthesis_max_input_tokens=_optional_pos_int(
+                enrichment_raw.get("synthesis_max_input_tokens", DEFAULT_ENRICHMENT["synthesis_max_input_tokens"]),
+                minimum=256,
+            ),
+            synthesis_max_new_tokens=_optional_pos_int(
+                enrichment_raw.get("synthesis_max_new_tokens", DEFAULT_ENRICHMENT["synthesis_max_new_tokens"]),
+                minimum=64,
             ),
             cache_ttl_seconds=max(
                 0,

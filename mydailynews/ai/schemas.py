@@ -45,6 +45,7 @@ STORY_GROUPING_JSON_SCHEMA = JSONSchemaSpec(
                     "properties": {
                         "story_id": {"type": "string"},
                         "story_title": {"type": "string"},
+                        "disposition": {"type": "string", "enum": ["group", "singleton", "misc"]},
                         "topic": {"type": "string"},
                         "article_ids": {"type": "array", "items": {"type": "string"}},
                         "research_questions": {
@@ -62,7 +63,19 @@ STORY_GROUPING_JSON_SCHEMA = JSONSchemaSpec(
                     },
                     "required": ["story_id", "story_title", "article_ids"],
                 },
-            }
+            },
+            "article_dispositions": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "article_id": {"type": "string"},
+                        "disposition": {"type": "string", "enum": ["group", "singleton", "misc"]},
+                        "story_id": {"type": "string"},
+                    },
+                    "required": ["article_id", "disposition", "story_id"],
+                },
+            },
         },
         "required": ["story_groups"],
     },

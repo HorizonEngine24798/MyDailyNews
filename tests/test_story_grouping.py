@@ -252,6 +252,53 @@ class StoryGroupingStageResultTests(unittest.TestCase):
         self.assertEqual(result.groups[0].topic, "Technology policy")
         self.assertTrue(result.groups[2].fallback)
 
+    def test_normalizer_skip_policy_records_omitted_without_fallback(self) -> None:
+        selected = [
+            _selected("a", "Chip export scrutiny expands"),
+            _selected("b", "Separate antitrust case advances"),
+        ]
+
+        result = normalize_story_groups(
+            selected=selected,
+            raw_groups=[
+                {
+                    "story_id": "story-001",
+                    "story_title": "Chip supply-chain scrutiny",
+                    "article_ids": ["a"],
+                    "research_questions": [],
+                }
+            ],
+            caller="story grouping",
+            allow_singleton_fallback=False,
+        )
+
+        self.assertEqual([group.article_ids for group in result.groups], [["a"]])
+        self.assertEqual(result.groups[0].disposition, "singleton")
+        self.assertEqual(result.omitted_article_ids, ["b"])
+        self.assertEqual(result.fallback_groups, 0)
+        self.assertTrue(any("skipped enrichment" in warning for warning in result.warnings))
+
+    def test_normalizer_records_misc_group(self) -> None:
+        selected = [_selected("a", "Minor unrelated story")]
+
+        result = normalize_story_groups(
+            selected=selected,
+            raw_groups=[
+                {
+                    "story_id": "misc",
+                    "story_title": "Miscellaneous lower-priority selected articles",
+                    "disposition": "misc",
+                    "article_ids": ["a"],
+                    "research_questions": [],
+                }
+            ],
+            caller="story grouping",
+            allow_singleton_fallback=False,
+        )
+
+        self.assertEqual(result.groups[0].disposition, "misc")
+        self.assertEqual(result.misc_article_ids, ["a"])
+
 
 if __name__ == "__main__":
     unittest.main()

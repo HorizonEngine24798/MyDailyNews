@@ -93,6 +93,13 @@ class AutoconfigTests(unittest.TestCase):
         self.assertEqual(recommended["narrative_briefing"]["target_words"], 1800)
         self.assertEqual(recommended["pipeline"]["default_series"], ["briefs", "enrichment", "narrative_brief"])
         self.assertEqual(recommended["analysis"]["evidence_distillation"]["max_input_tokens"], 5000)
+        self.assertTrue(recommended["memory"]["enabled"])
+        self.assertEqual(recommended["memory"]["coverage_retention_days"], 30)
+        self.assertEqual(recommended["memory"]["story_stale_after_days"], 7)
+        self.assertEqual(recommended["memory"]["story_retention_days"], 30)
+        self.assertTrue(recommended["memory"]["recall_prompt_enabled"])
+        self.assertTrue(recommended["memory"]["save_recall_packets"])
+        self.assertTrue(recommended["memory"]["feedback_enabled"])
 
     def test_recommended_config_rewrites_stale_enrichment_section(self) -> None:
         catalog = self._catalog()
@@ -119,6 +126,29 @@ class AutoconfigTests(unittest.TestCase):
         self.assertEqual(recommended["enrichment"]["cache_ttl_seconds"], 604800)
 
         path = self._temp_dir() / "recommended.json"
+        path.write_text(json.dumps(recommended, ensure_ascii=False, indent=2), encoding="utf-8")
+        load_config(path)
+
+    def test_recommended_config_writes_current_memory_section(self) -> None:
+        catalog = self._catalog()
+        source = self._example_config()
+        source.pop("memory", None)
+        source["memory"] = {"recall_packet_enabled": False}
+        tier = next(item for item in catalog["tiers"] if item["id"] == "nvidia_8gb")
+        model = autoconfig.model_for_tier(catalog, tier)
+
+        recommended = autoconfig.build_recommended_config(source, tier, model)
+
+        self.assertNotIn("recall_packet_enabled", recommended["memory"])
+        self.assertTrue(recommended["memory"]["enabled"])
+        self.assertEqual(recommended["memory"]["coverage_retention_days"], 30)
+        self.assertEqual(recommended["memory"]["story_stale_after_days"], 7)
+        self.assertEqual(recommended["memory"]["story_retention_days"], 30)
+        self.assertTrue(recommended["memory"]["recall_prompt_enabled"])
+        self.assertTrue(recommended["memory"]["save_recall_packets"])
+        self.assertTrue(recommended["memory"]["feedback_enabled"])
+
+        path = self._temp_dir() / "recommended_memory.json"
         path.write_text(json.dumps(recommended, ensure_ascii=False, indent=2), encoding="utf-8")
         load_config(path)
 
