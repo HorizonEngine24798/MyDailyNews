@@ -65,6 +65,15 @@ DEFAULT_MEMORY_CONFIG = {
     "save_recall_packets": True,
     "feedback_enabled": True,
 }
+DEFAULT_TTS_CONFIG = {
+    "enabled": False,
+    "backend": "kokoro",
+    "model_id": "hexgrad/Kokoro-82M",
+    "voice": "af_heart",
+    "lang_code": "a",
+    "speed": 1.0,
+    "max_chunk_chars": 1200,
+}
 REMOVED_MEMORY_KEYS = ("recall_packet_enabled",)
 REMOVED_FILTERING_KEYS = (
     "max_selected_per_event_cluster",
@@ -102,6 +111,7 @@ class PipelinePreferences:
     narrative_length: str = "standard"
     server_mode: str = "managed"
     cache_mode: str = "fresh"
+    tts_audio: str = "keep"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -116,6 +126,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-server-probe", action="store_true", help="Do not launch or probe llama-server.")
     parser.add_argument("--no-json-probe", action="store_true", help="Do not run the JSON completion probe.")
     parser.add_argument("--no-download-prompt", action="store_true", help="Do not prompt to download a recommended GGUF model.")
+    parser.add_argument("--no-model-path-prompt", action="store_true", help="Do not prompt for an existing GGUF model path.")
     parser.add_argument("--no-preference-prompt", action="store_true", help="Do not prompt for pipeline usage preferences.")
     return parser
 
@@ -142,7 +153,10 @@ def main(argv: list[str] | None = None) -> int:
     recommended = build_recommended_config(source_config, tier, model)
 
     print_detection(hardware, tier, model)
-    if not args.detect_only and not args.no_preference_prompt:
+    if args.detect_only:
+        return 0
+
+    if not args.no_preference_prompt:
         preferences = maybe_prompt_pipeline_preferences()
         if preferences is not None:
             apply_pipeline_preferences(recommended, preferences)
@@ -151,15 +165,16 @@ def main(argv: list[str] | None = None) -> int:
     model_path = existing_model_path(source_config)
     if model_path:
         set_model_path(recommended, model_path, str(source_config.get("ai_summary", {}).get("server_model") or model["model_label"]))
-    elif not args.no_download_prompt:
-        downloaded = maybe_prompt_download(model, download_dir)
-        if downloaded:
-            set_model_path(recommended, str(downloaded), str(model["model_label"]))
     else:
-        print("No local model path found; leaving server_model_path unchanged.")
-
-    if args.detect_only:
-        return 0
+        prompted_path = "" if args.no_model_path_prompt else maybe_prompt_model_path(model)
+        if prompted_path:
+            set_model_path(recommended, prompted_path, str(model["model_label"]))
+        elif not args.no_download_prompt:
+            downloaded = maybe_prompt_download(model, download_dir)
+            if downloaded:
+                set_model_path(recommended, str(downloaded), str(model["model_label"]))
+        else:
+            print("No local model path found; leaving server_model_path unchanged.")
 
     report = ProbeReport()
     if not args.no_server_probe:
@@ -312,7 +327,8 @@ def choose_tier(catalog: dict[str, Any], hardware: HardwareInfo) -> dict[str, An
         if max_vram is not None and vram > float(max_vram):
             continue
         return tier
-    return tiers[-1]
+    lower_tiers = [tier for tier in tiers if float(tier.get("min_vram_gb") or 0) <= vram]
+    return lower_tiers[-1] if lower_tiers else next(tier for tier in tiers if tier["id"] == "cpu_small")
 
 
 def model_for_tier(catalog: dict[str, Any], tier: dict[str, Any]) -> dict[str, Any]:
@@ -342,6 +358,7 @@ def build_recommended_config(config: dict[str, Any], tier: dict[str, Any], model
     _apply_filtering(updated.setdefault("filtering", {}), settings, general=False)
     _apply_narrative_briefing(updated.setdefault("narrative_briefing", {}))
     _apply_story_enrichment_budget(updated.setdefault("enrichment", {}), settings)
+    _apply_tts(updated.setdefault("tts", {}))
     _apply_pipeline(updated.setdefault("pipeline", {}))
     _apply_analysis(updated.setdefault("analysis", {}), settings)
     _apply_runtime(updated.setdefault("runtime", {}))
@@ -414,6 +431,15 @@ def maybe_prompt_pipeline_preferences() -> PipelinePreferences | None:
         ],
         default="fresh",
     )
+    tts_audio = prompt_choice(
+        "TTS audio",
+        [
+            ("keep", "Use config setting", "leave the current tts setting alone"),
+            ("yes", "Yes", "add Kokoro audio after the narrative brief"),
+            ("no", "No", "skip audio during default runs"),
+        ],
+        default="keep",
+    )
     return PipelinePreferences(
         workflow=workflow,
         brief_volume=brief_volume,
@@ -421,6 +447,7 @@ def maybe_prompt_pipeline_preferences() -> PipelinePreferences | None:
         narrative_length=narrative_length,
         server_mode=server_mode,
         cache_mode=cache_mode,
+        tts_audio=tts_audio,
     )
 
 
@@ -451,6 +478,7 @@ def apply_pipeline_preferences(config: dict[str, Any], preferences: PipelinePref
     _apply_narrative_length_preference(config, preferences.narrative_length)
     _apply_server_mode_preference(config, preferences.server_mode)
     _apply_cache_mode_preference(config, preferences.cache_mode)
+    _apply_tts_audio_preference(config, preferences.tts_audio)
 
 
 def _apply_workflow_preference(config: dict[str, Any], workflow: str) -> None:
@@ -553,6 +581,30 @@ def _apply_cache_mode_preference(config: dict[str, Any], cache_mode: str) -> Non
     cache["discovery_mode"] = "cache_first" if str(cache_mode or "fresh").strip().lower() == "cache" else "network_first"
 
 
+def _apply_tts_audio_preference(config: dict[str, Any], tts_audio: str) -> None:
+    choice = str(tts_audio or "keep").strip().lower()
+    if choice in {"keep", "config"}:
+        return
+    tts = config.setdefault("tts", {})
+    _apply_tts(tts)
+    pipeline = config.setdefault("pipeline", {})
+    series = pipeline.get("default_series")
+    if not isinstance(series, list) or not series:
+        series = ["briefs", "enrichment", "narrative_brief"]
+    series = [str(item or "").strip().lower().replace("-", "_") for item in series]
+    if choice in {"yes", "on", "true", "enabled"}:
+        tts["enabled"] = True
+        config.setdefault("narrative_briefing", {})["enabled"] = True
+        if "narrative_brief" not in series:
+            series.append("narrative_brief")
+        if "tts" not in series:
+            series.append("tts")
+    elif choice in {"no", "off", "false", "disabled"}:
+        tts["enabled"] = False
+        series = [module for module in series if module != "tts"]
+    pipeline["default_series"] = series
+
+
 def _scale_int_setting(section: dict[str, Any], key: str, multiplier: float, *, minimum: int) -> None:
     raw = section.get(key)
     if raw is None:
@@ -592,6 +644,12 @@ def _apply_narrative_briefing(section: dict[str, Any]) -> None:
     )
 
 
+def _apply_tts(section: dict[str, Any]) -> None:
+    for key, value in DEFAULT_TTS_CONFIG.items():
+        section.setdefault(key, value)
+    section["enabled"] = bool(section.get("enabled", DEFAULT_TTS_CONFIG["enabled"]))
+
+
 def _apply_pipeline(section: dict[str, Any]) -> None:
     default_series = ["briefs", "enrichment", "narrative_brief"]
     current = section.get("default_series")
@@ -599,7 +657,7 @@ def _apply_pipeline(section: dict[str, Any]) -> None:
         section["default_series"] = default_series
         return
     normalized: list[str] = []
-    allowed = set(default_series)
+    allowed = {*default_series, "tts"}
     for item in current:
         module = str(item or "").strip().lower().replace("-", "_")
         if module in allowed and module not in normalized:
@@ -696,6 +754,23 @@ def maybe_prompt_download(model: dict[str, Any], download_dir: Path) -> Path | N
     if answer not in {"y", "yes"}:
         return None
     return download_model(model, download_dir)
+
+
+def maybe_prompt_model_path(model: dict[str, Any]) -> str:
+    if not sys.stdin.isatty():
+        return ""
+    print(f"Recommended model: {model['name']} ({model['repo_id']})")
+    answer = input("Existing GGUF model path, or Enter to skip: ").strip().strip("\"'")
+    if not answer:
+        return ""
+    path = Path(os.path.expandvars(os.path.expanduser(answer)))
+    if not path.exists():
+        print(f"Model path not found: {path}")
+        return ""
+    if path.suffix.lower() != ".gguf":
+        print(f"Model path is not a .gguf file: {path}")
+        return ""
+    return str(path)
 
 
 def download_model(model: dict[str, Any], download_dir: Path) -> Path:

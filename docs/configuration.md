@@ -10,7 +10,7 @@ python tools/autoconfig.py --config config.local.json --write config.recommended
 python main.py --config config.recommended.json
 ```
 
-In an interactive terminal, `autoconfig` also asks usage-preference questions after hardware detection. Those answers adjust the default module series, brief volume, evidence/delta depth, narrative length, managed-server behavior, and discovery cache mode. Add `--no-preference-prompt` for scripted runs that should keep the standard defaults.
+In an interactive terminal, `autoconfig` can ask for an existing GGUF model path, then asks usage-preference questions after hardware detection. Those answers adjust the default module series, brief volume, evidence/delta depth, narrative length, managed-server behavior, and discovery cache mode. Add `--no-model-path-prompt` or `--no-preference-prompt` for scripted runs that should keep the standard defaults.
 
 ## Files
 
@@ -70,9 +70,52 @@ output/YYYY-MM-DD_narrative_brief.md
 output/YYYY-MM-DD_narrative_brief.json
 ```
 
-This stage deliberately avoids SSML, pause markers, pronunciation tags, and provider-specific TTS markup. A future TTS-prep stage should consume the narrative Markdown and adapt it to the selected TTS backend.
+This stage deliberately avoids SSML, pause markers, pronunciation tags, and provider-specific TTS markup. The optional TTS module consumes the narrative Markdown and adapts plain text to the selected TTS backend.
 
 Narrative generation is a post-brief module. If it fails, the structured general/detailed briefs remain written and the pipeline records a warning instead of failing the whole run.
+
+## TTS Audio
+
+`tts` controls the optional Kokoro audio module. It is disabled by default and consumes the narrative Markdown output:
+
+```json
+{
+  "tts": {
+    "enabled": false,
+    "backend": "kokoro",
+    "model_id": "hexgrad/Kokoro-82M",
+    "voice": "af_heart",
+    "lang_code": "a",
+    "speed": 1.0,
+    "max_chunk_chars": 1200
+  }
+}
+```
+
+Kokoro currently supports Python 3.10 through 3.12. If your base environment is Python 3.13 or newer, create a Python 3.12 environment first:
+
+```bash
+conda create -n mydailynews-tts python=3.12
+conda activate mydailynews-tts
+python -m pip install -r requirements-tts.txt
+```
+
+Then run:
+
+```bash
+python main.py --module tts --markdown-path output/YYYY-MM-DD_general_brief.md
+```
+
+If `--markdown-path` is omitted, TTS falls back to the same-day narrative Markdown selected by `--date`.
+
+It writes:
+
+```text
+output/<input-markdown-stem>.wav
+output/<input-markdown-stem>_audio.json
+```
+
+Add `tts` after `narrative_brief` in `pipeline.default_series` only when audio should be part of normal runs.
 
 ## Memory
 
@@ -144,7 +187,7 @@ When evidence is enabled, the structured brief pipeline can run `story_grouping`
 }
 ```
 
-Allowed module names are `briefs`, `enrichment`, and `narrative_brief`. Unknown or duplicate module names fail config parsing. Disabled optional modules listed in the series are skipped with a warning. In series mode, downstream modules consume only artifacts created earlier in the same run; standalone module commands are the disk-rerun path. `--date` is accepted only for standalone `enrichment` and `narrative_brief` runs.
+Allowed module names are `briefs`, `enrichment`, `narrative_brief`, and `tts`. Unknown or duplicate module names fail config parsing. Disabled optional modules listed in the series are skipped with a warning. In series mode, downstream modules consume only artifacts created earlier in the same run; standalone module commands are the disk-rerun path. `--date` is accepted only for standalone `enrichment`, `narrative_brief`, and `tts` runs. `--markdown-path` is accepted only for standalone `tts` runs.
 
 CLI examples:
 
@@ -152,6 +195,7 @@ CLI examples:
 python main.py --module briefs
 python main.py --module enrichment --date 2026-06-25
 python main.py --module narrative_brief --date 2026-06-25
+python main.py --module tts --markdown-path output/2026-06-25_general_brief.md
 python main.py --module series --skip-module enrichment
 ```
 

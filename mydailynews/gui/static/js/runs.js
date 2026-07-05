@@ -4,6 +4,8 @@ import { selectReport } from "./reports.js";
 import { state } from "./state.js";
 
 const refreshedRunIds = new Set();
+const RUN_POLL_INTERVAL_MS = 2000;
+const RUNNING_STATUSES = new Set(["running", "canceling"]);
 let pollTimer = null;
 let refreshReports = async () => {};
 let refreshMemory = async () => {};
@@ -45,7 +47,7 @@ async function startRun() {
     brief: byId("runBrief").value,
     date: byId("runDate").value,
     memory_action: byId("runMemoryAction").value,
-    debug: byId("runDebug").checked,
+    debug: byId("runDebug").value === "true",
   };
   try {
     const result = await api("/api/runs", {
@@ -171,11 +173,11 @@ function scheduleRunPoll() {
     window.clearTimeout(pollTimer);
     pollTimer = null;
   }
-  const shouldPoll = (state.runs || []).some((run) => ["running", "canceling"].includes(run.status));
+  const shouldPoll = (state.runs || []).some((run) => RUNNING_STATUSES.has(run.status));
   if (!shouldPoll) {
     return;
   }
-  pollTimer = window.setTimeout(pollRuns, 2000);
+  pollTimer = window.setTimeout(pollRuns, RUN_POLL_INTERVAL_MS);
 }
 
 async function pollRuns() {

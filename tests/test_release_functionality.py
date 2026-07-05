@@ -88,6 +88,15 @@ class ReleaseSmokeTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Unsupported ai backend: auto"):
                 create_ai_client(AIConfig(backend="auto"))
 
+    def test_tts_backend_is_runtime_gated_not_parse_gated(self) -> None:
+        payload = self._config_payload()
+        payload["tts"]["backend"] = "piper"
+        path = self._write_config_payload(TEMP_ROOT, payload, "tts_backend_piper")
+
+        config = load_config(path)
+
+        self.assertEqual(config.tts.backend, "piper")
+
         payload = self._config_payload()
         with self.subTest("cache defaults"):
             cache_defaults_payload = deepcopy(payload)
@@ -345,6 +354,29 @@ class ReleaseSmokeTests(unittest.TestCase):
         self.assertIn("coverage 30 day(s)", result.stdout)
         self.assertNotIn("Config is not ready to run", result.stdout)
 
+    def test_cli_tts_skips_llama_runtime_readiness(self) -> None:
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-B",
+                "main.py",
+                "--config",
+                "config.example.json",
+                "--module",
+                "tts",
+                "--markdown-path",
+                "output/2026-06-14_general_brief.md",
+            ],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("tts: module is disabled by config; skipped.", result.stdout)
+        self.assertNotIn("Config is not ready to run", result.stdout)
+
     def test_cli_missing_config_points_to_public_setup_flow(self) -> None:
         result = subprocess.run(
             [sys.executable, "-B", "main.py", "--config", "missing-for-test.json"],
@@ -406,6 +438,15 @@ class ReleaseSmokeTests(unittest.TestCase):
 
         self.assertEqual(options.module, "narrative_brief")
         self.assertEqual(options.date, "2026-06-14")
+
+    def test_markdown_path_option_is_limited_to_tts(self) -> None:
+        with self.assertRaisesRegex(ValueError, "--markdown-path can only be used with --module tts"):
+            PipelineRunOptions.from_cli(brief="both", module="narrative_brief", markdown_path="output/general.md")
+
+        options = PipelineRunOptions.from_cli(brief="both", module="tts", markdown_path="output/general.md")
+
+        self.assertEqual(options.module, "tts")
+        self.assertEqual(options.markdown_path, "output/general.md")
 
 
 if __name__ == "__main__":

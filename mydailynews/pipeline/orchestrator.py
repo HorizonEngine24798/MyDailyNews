@@ -23,6 +23,7 @@ from mydailynews.common.cache import HTTPCache, JSONCache
 from mydailynews.pipeline.brief_execution import run_brief as run_brief_helper
 from mydailynews.pipeline.enrichment_module import run_enrichment as run_enrichment_helper
 from mydailynews.pipeline.narrative_brief import run_narrative_brief as run_narrative_brief_helper
+from mydailynews.pipeline.tts_module import run_tts as run_tts_helper
 from mydailynews.diagnostics.debug import DebugLogger
 from mydailynews.app.models import (
     AppConfig,
@@ -36,8 +37,14 @@ from mydailynews.app.models import (
     RunSourceSnapshot,
     NarrativeBriefOutput,
     TopicConfig,
+    TTSOutput,
 )
-from mydailynews.pipeline.stages import PIPELINE_MODULES, PipelineRunOptions, validate_run_date_usage
+from mydailynews.pipeline.stages import (
+    PIPELINE_MODULES,
+    PipelineRunOptions,
+    validate_markdown_path_usage,
+    validate_run_date_usage,
+)
 from mydailynews.diagnostics.reporting import CliReporter
 from mydailynews.retrieval.google_news import GoogleNewsQueryRetriever
 from mydailynews.retrieval.article_cache import ArticleTextCache
@@ -133,18 +140,22 @@ class NewsOrchestrator:
             return self.run_enrichment(date=date)
         if module == "narrative_brief":
             return self.run_narrative_brief(date=date)
+        if module == "tts":
+            return self.run_tts(date=date, markdown_path=self.run_options.markdown_path)
         raise ValueError(f"Unsupported pipeline module: {module}")
 
     def run_series(self, *, date: str) -> PipelineResult:
         outputs: List[BriefOutput] = []
         enrichment_outputs: List[EnrichmentOutput] = []
         narrative_outputs: List[NarrativeBriefOutput] = []
+        tts_outputs: List[TTSOutput] = []
         for module in self._runtime_series():
             if module == "briefs":
                 result = self.run_briefs(date=date)
                 outputs.extend(result.outputs)
                 enrichment_outputs.extend(result.enrichment_outputs)
                 narrative_outputs.extend(result.narrative_outputs)
+                tts_outputs.extend(result.tts_outputs)
             elif module == "enrichment":
                 if not self._module_enabled("enrichment"):
                     self.warnings.append("enrichment: module is disabled by config; skipped.")
@@ -164,16 +175,29 @@ class NewsOrchestrator:
                     use_enrichment=bool(enrichment_json_path),
                 )
                 narrative_outputs.extend(result.narrative_outputs)
+            elif module == "tts":
+                if not self._module_enabled("tts"):
+                    self.warnings.append("tts: module is disabled by config; skipped.")
+                    continue
+                narrative_markdown_path = narrative_outputs[-1].markdown_path if narrative_outputs else ""
+                result = self.run_tts(
+                    date=date,
+                    markdown_path=narrative_markdown_path,
+                    allow_disk_fallback=False,
+                )
+                tts_outputs.extend(result.tts_outputs)
             if self.stopped_after_stage:
                 return self._stopped_result(
                     outputs=outputs,
                     enrichment_outputs=enrichment_outputs,
                     narrative_outputs=narrative_outputs,
+                    tts_outputs=tts_outputs,
                 )
         return PipelineResult(
             outputs=outputs,
             enrichment_outputs=enrichment_outputs,
             narrative_outputs=narrative_outputs,
+            tts_outputs=tts_outputs,
             warnings=self.warnings,
         )
 
@@ -380,6 +404,7 @@ class NewsOrchestrator:
 
     def _prepare_run_options(self, options: PipelineRunOptions) -> None:
         validate_run_date_usage(options.module, options.date)
+        validate_markdown_path_usage(options.module, options.markdown_path)
         self.run_options = options
         self.stopped_after_stage = ""
         self.stage_artifact_paths = []
@@ -425,6 +450,8 @@ class NewsOrchestrator:
             return bool(getattr(self.config.enrichment, "enabled", False)) and mode != "disabled"
         if module == "narrative_brief":
             return bool(getattr(self.config.narrative_briefing, "enabled", False))
+        if module == "tts":
+            return bool(getattr(self.config.tts, "enabled", False))
         return True
 
     def _stopped_result(
@@ -432,10 +459,12 @@ class NewsOrchestrator:
         outputs: List[BriefOutput] | None = None,
         enrichment_outputs: List[EnrichmentOutput] | None = None,
         narrative_outputs: List[NarrativeBriefOutput] | None = None,
+        tts_outputs: List[TTSOutput] | None = None,
     ) -> PipelineResult:
         self.debug.set_metric("pipeline.outputs", len(outputs or []))
         self.debug.set_metric("pipeline.enrichment_outputs", len(enrichment_outputs or []))
         self.debug.set_metric("pipeline.narrative_outputs", len(narrative_outputs or []))
+        self.debug.set_metric("pipeline.tts_outputs", len(tts_outputs or []))
         self.debug.set_metric("pipeline.status", "stopped")
         self.debug.log(
             "pipeline",
@@ -444,11 +473,13 @@ class NewsOrchestrator:
             outputs=len(outputs or []),
             enrichment_outputs=len(enrichment_outputs or []),
             narrative_outputs=len(narrative_outputs or []),
+            tts_outputs=len(tts_outputs or []),
         )
         return PipelineResult(
             outputs=list(outputs or []),
             enrichment_outputs=list(enrichment_outputs or []),
             narrative_outputs=list(narrative_outputs or []),
+            tts_outputs=list(tts_outputs or []),
             warnings=self.warnings,
         )
 
@@ -557,6 +588,25 @@ class NewsOrchestrator:
                 narrative_outputs=narrative_outputs,
             )
         return PipelineResult(outputs=list(outputs or []), narrative_outputs=narrative_outputs, warnings=self.warnings)
+
+    def run_tts(
+        self,
+        *,
+        date: str,
+        markdown_path: str = "",
+        narrative_markdown_path: str = "",
+        allow_disk_fallback: bool = True,
+    ) -> PipelineResult:
+        output = run_tts_helper(
+            self,
+            date=date,
+            markdown_path=markdown_path or narrative_markdown_path,
+            allow_disk_fallback=allow_disk_fallback,
+        )
+        tts_outputs = [output] if output is not None else []
+        if self._stop_requested("tts"):
+            return self._stopped_result(tts_outputs=tts_outputs)
+        return PipelineResult(tts_outputs=tts_outputs, warnings=self.warnings)
 
     def _run_brief(
         self,

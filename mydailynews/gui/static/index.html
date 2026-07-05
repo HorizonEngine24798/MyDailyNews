@@ -7,9 +7,9 @@
     <link rel="stylesheet" href="/static/gui.css">
   </head>
   <body>
-    <div id="appShell" class="app-shell">
-      <aside id="appSidebar" class="sidebar">
-        <div class="sidebar-content">
+    <div class="app-shell">
+      <aside class="app-banner">
+        <div class="banner-content">
           <div class="brand">
             <div class="brand-mark" aria-hidden="true"></div>
             <div>
@@ -25,7 +25,6 @@
             <button class="nav-button" data-view="runs">Runs</button>
           </nav>
         </div>
-        <button id="toggleAppSidebar" class="sidebar-toggle" type="button" aria-label="Collapse menu">&lt;</button>
       </aside>
 
       <main class="main">
@@ -80,24 +79,6 @@
           <div class="settings-panels">
             <div class="editor-pane">
               <div class="pane-header">
-                <h3>Ground-Truth Profile</h3>
-                <div class="button-row">
-                  <button id="previewUserMemoryButton" class="command" type="button">Preview</button>
-                  <button id="saveSettingsUserMemoryButton" class="command primary" type="button">Save</button>
-                </div>
-              </div>
-              <div id="settingsUserMemoryForm" class="form-shell compact"></div>
-              <pre id="userMemoryPreview" class="preview-output"></pre>
-            </div>
-            <div class="editor-pane">
-              <div class="pane-header">
-                <h3>Memory Settings</h3>
-                <button id="saveSettingsMemoryButton" class="command primary" type="button">Save</button>
-              </div>
-              <div id="settingsMemoryForm" class="form-shell compact"></div>
-            </div>
-            <div class="editor-pane">
-              <div class="pane-header">
                 <h3>RSS Sources</h3>
                 <button id="saveSettingsSourcesButton" class="command primary" type="button">Save</button>
               </div>
@@ -139,13 +120,6 @@
               <div id="settingsPipelineForm" class="form-shell compact"></div>
             </div>
           </div>
-          <details class="advanced-config">
-            <summary>Advanced JSON-style Config</summary>
-            <div class="toolbar nested-toolbar">
-              <button id="saveConfigButton" class="command primary" type="button">Save Config</button>
-            </div>
-            <div id="configForm" class="form-shell"></div>
-          </details>
           <pre id="autoconfigOutput" class="console-output"></pre>
         </section>
 
@@ -302,6 +276,7 @@
               <option value="briefs">Briefs</option>
               <option value="enrichment">Enrichment</option>
               <option value="narrative_brief">Narrative brief</option>
+              <option value="tts">TTS audio</option>
               <option value="memory">Memory</option>
             </select>
             <select id="runBrief" class="inline-input compact" aria-label="Brief mode">
@@ -315,9 +290,12 @@
               <option value="prune">Prune memory</option>
               <option value="export">Export memory</option>
             </select>
-            <label class="toggle-row">
-              <input id="runDebug" type="checkbox">
-              <span>Debug</span>
+            <label class="field-row boolean-row run-debug-row">
+              <span class="field-label">Debug</span>
+              <select id="runDebug" class="inline-input compact boolean-input" aria-label="Debug">
+                <option value="false" selected>false</option>
+                <option value="true">true</option>
+              </select>
             </label>
             <button id="startRunButton" class="command primary" type="button">Start</button>
             <button id="refreshRunsButton" class="command" type="button">Refresh</button>

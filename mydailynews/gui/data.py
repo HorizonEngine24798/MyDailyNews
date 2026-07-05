@@ -33,6 +33,14 @@ from mydailynews.memory.repair import (
 
 REPORT_NAME_RE = re.compile(r"^(?P<date>\d{4}-\d{2}-\d{2})_(?P<kind>.+)\.md$")
 RECALL_PACKET_NAME_RE = re.compile(r"^(?P<date>\d{4}-\d{2}-\d{2})_(?P<brief>.+)$")
+AUTOCONFIG_TIMEOUT_DEFAULT_SECONDS = 90
+AUTOCONFIG_TIMEOUT_MIN_SECONDS = 5
+AUTOCONFIG_TIMEOUT_MAX_SECONDS = 300
+LEARNED_NOTES_LIMIT = 2000
+MARKDOWN_TITLE_SCAN_LINES = 8
+STORY_TITLE_LIMIT = 140
+STORY_TOPIC_LIMIT = 120
+STORY_TOKEN_LIMIT = 24
 EDITABLE_CONFIG_SECTIONS = {
     "ai_summary",
     "ai_final",
@@ -45,6 +53,7 @@ EDITABLE_CONFIG_SECTIONS = {
     "enrichment",
     "runtime",
     "narrative_briefing",
+    "tts",
     "pipeline",
     "analysis",
     "cache",
@@ -137,7 +146,7 @@ class GuiDataService:
             avoided_sources=_string_list(payload.get("avoided_sources")),
             topic_weights=_float_map(payload.get("topic_weights")),
             source_weights=_float_map(payload.get("source_weights")),
-            notes=str(payload.get("notes", "") or "").strip()[:2000],
+            notes=str(payload.get("notes", "") or "").strip()[:LEARNED_NOTES_LIMIT],
         )
         return {
             "preferences": asdict(preferences),
@@ -349,7 +358,7 @@ class GuiDataService:
             avoided_sources=_string_list(payload.get("avoided_sources")),
             topic_weights=_float_map(payload.get("topic_weights")),
             source_weights=_float_map(payload.get("source_weights")),
-            notes=str(payload.get("notes", "") or "").strip()[:2000],
+            notes=str(payload.get("notes", "") or "").strip()[:LEARNED_NOTES_LIMIT],
         )
         store.write(preferences)
         return self.learned_preferences()
@@ -414,7 +423,8 @@ class GuiDataService:
             "--no-server-probe",
             "--print-launch-command",
         ]
-        timeout = max(5, min(300, int(payload.get("timeout_seconds", 90) or 90)))
+        raw_timeout = int(payload.get("timeout_seconds", AUTOCONFIG_TIMEOUT_DEFAULT_SECONDS) or AUTOCONFIG_TIMEOUT_DEFAULT_SECONDS)
+        timeout = max(AUTOCONFIG_TIMEOUT_MIN_SECONDS, min(AUTOCONFIG_TIMEOUT_MAX_SECONDS, raw_timeout))
         result = subprocess.run(
             command,
             cwd=self.root,
@@ -526,7 +536,7 @@ def _brief_name_for_kind(kind: str) -> str:
 
 def _markdown_title(path: Path) -> str:
     try:
-        for line in path.read_text(encoding="utf-8-sig").splitlines()[:8]:
+        for line in path.read_text(encoding="utf-8-sig").splitlines()[:MARKDOWN_TITLE_SCAN_LINES]:
             text = line.strip()
             if text.startswith("#"):
                 return text.lstrip("#").strip() or path.name
@@ -539,7 +549,7 @@ def _brief_title(payload: Dict[str, Any], markdown: str, fallback: str) -> str:
     title = str(payload.get("title", "") or "").strip()
     if title:
         return title
-    for line in markdown.splitlines()[:8]:
+    for line in markdown.splitlines()[:MARKDOWN_TITLE_SCAN_LINES]:
         text = line.strip()
         if text.startswith("#"):
             return text.lstrip("#").strip() or fallback
@@ -768,9 +778,9 @@ def _normalize_story_index_payload(payload: Any) -> Dict[str, Any]:
             {
                 "story_key": story_key,
                 "story_family_key": str(raw.get("story_family_key", "") or "").strip(),
-                "title": str(raw.get("title", "") or "").strip()[:140],
-                "topic": str(raw.get("topic", "") or "").strip()[:120],
-                "tokens": _string_list(raw.get("tokens"))[:24],
+                "title": str(raw.get("title", "") or "").strip()[:STORY_TITLE_LIMIT],
+                "topic": str(raw.get("topic", "") or "").strip()[:STORY_TOPIC_LIMIT],
+                "tokens": _string_list(raw.get("tokens"))[:STORY_TOKEN_LIMIT],
                 "first_seen": str(raw.get("first_seen", "") or "").strip(),
                 "last_seen": str(raw.get("last_seen", "") or "").strip(),
                 "status": status,

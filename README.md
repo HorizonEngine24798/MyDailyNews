@@ -1,156 +1,51 @@
 # MyDailyNews
 
-MyDailyNews is a local-first news briefing pipeline. It collects headlines from RSS and Google News RSS, deduplicates them, asks a local llama.cpp model to score candidates, retrieves selected articles, optionally plans shared story groups for evidence, then writes Markdown and JSON daily briefs. Enrichment and narrative briefing can run as standalone post-brief modules.
+Local news briefing pipeline. It fetches headlines, scores and summarizes them with a local `llama-server`, then writes Markdown/JSON briefs. Optional TTS turns any saved Markdown brief into a WAV file.
 
-The supported public runtime is llama.cpp through its OpenAI-compatible `llama-server`. MyDailyNews can spawn, probe, reuse, and stop that server when `manage_server=true`.
+Use Git Bash for the commands below.
 
-## Quick Start
-
-Install Python dependencies:
+## First Setup
 
 ```bash
+cd /d/Project/MyDailyNews
+python -m venv .venv
+source .venv/Scripts/activate
+python -m pip install -U pip
 python -m pip install -r requirements.txt
+test -f config.local.json || cp config.example.json config.local.json
+notepad config.local.json
 ```
 
-Install or build llama.cpp, then create a local config:
+In `config.local.json`, set these four values to your real paths:
+
+```json
+"ai_summary": {
+  "server_executable": "PATH/TO/llama-server",
+  "server_model_path": "PATH/TO/model.gguf"
+},
+"ai_final": {
+  "server_executable": "PATH/TO/llama-server",
+  "server_model_path": "PATH/TO/model.gguf"
+}
+```
+
+Then write the tuned config:
 
 ```bash
-cp config.example.json config.local.json
 python tools/autoconfig.py --config config.local.json --write config.recommended.json
+```
+
+Autoconfig asks what default run shape you want, including whether to include TTS audio.
+
+## Run It
+
+```bash
+cd /d/Project/MyDailyNews
+source .venv/Scripts/activate
 python main.py --config config.recommended.json
 ```
 
-`autoconfig` detects your hardware, then asks how you want the default pipeline to behave: full report, structured briefs only, narrative-focused, or enrichment-focused, plus brief volume, analysis depth, narrative length, server management, and cache preference. Use `--no-preference-prompt` for unattended setup with the standard defaults.
-
-Useful run options:
-
-```bash
-python main.py --brief general
-python main.py --brief detailed
-python main.py --module briefs
-python main.py --module enrichment --date 2026-06-25
-python main.py --module narrative_brief --date 2026-06-25
-python main.py --debug
-python main.py --list-stages
-python main.py --memory inspect
-python main.py --memory prune
-python gui.py
-```
-
-`python main.py` looks for `config.local.json` by default. Local configs, recommended configs, downloaded models, output, logs, and caches are intentionally ignored by git.
-`python gui.py` starts the local web GUI at `http://127.0.0.1:8765` and skips llama.cpp runtime readiness checks.
-
-## Manual Backend And GUI Testing
-
-Use Git Bash for these commands.
-
-Start the GUI in one terminal:
-
-```bash
-cd /d/Project/MyDailyNews
-python -B gui.py --config config.local.json --host 127.0.0.1 --port 8765
-```
-
-Then open `http://127.0.0.1:8765`.
-
-To test the backend pipeline alongside the GUI, use either the GUI Runs tab or a second Git Bash terminal.
-
-From the GUI:
-
-```text
-Runs -> Default series -> Start
-```
-
-From a second Git Bash terminal:
-
-```bash
-cd /d/Project/MyDailyNews
-python -B main.py --config config.local.json --module series
-```
-
-If your local config uses `manage_server=true`, the backend pipeline run starts and stops the configured llama.cpp backend for the run. If you manage the model backend yourself, start `llama-server` in its own Git Bash terminal first, adapting the paths and arguments to your machine:
-
-```bash
-cd /d/Project/MyDailyNews
-"/c/path/to/llama-server.exe" -m "/d/path/to/model.gguf" --host 127.0.0.1 --port 8080 --no-webui --reasoning off -ngl 999 -c 16384 -np 1
-```
-
-The GUI `Runs` tab launches only approved `main.py` modes: default series, briefs, enrichment, narrative brief, and memory inspect/prune/export. It shows status, return code, stdout/stderr tails, and links to newly detected output files. Feedback recorded in the GUI updates `state/memory/learned_preferences.json`; the next backend pipeline run uses those Learned Preferences as bounded rank adjustments when memory is enabled. Memory repair actions in the GUI create timestamped backups under `state/memory/backups/` before rewriting state files.
-
-See [GUI, Settings, Memory, Profile, And Runs Status](docs/gui_memory_profile_status.md) for what the GUI currently implements, how feedback and memory state flow through the app, the Runs workflow, the manual smoke checklist, and the remaining work.
-
-## llama.cpp Runtime
-
-The supported backend value is:
-
-```json
-{
-  "backend": "llama_cpp_server"
-}
-```
-
-Managed mode is the default public path:
-
-```json
-{
-  "backend": "llama_cpp_server",
-  "base_url": "http://127.0.0.1:8080/v1",
-  "manage_server": true,
-  "server_executable": "PATH/TO/llama-server",
-  "server_model_path": "PATH/TO/model.gguf",
-  "server_arguments": ["--no-webui", "--reasoning", "off", "-ngl", "999", "-c", "16384", "-np", "1"],
-  "server_auto_stop": true
-}
-```
-
-`server_executable` is your local `llama-server` binary. `server_model_path` is the local GGUF model file. Keep `max_input_tokens + max_new_tokens` below the context window passed with `-c`.
-
-See [llama.cpp setup](docs/llama_cpp_setup.md) and [configuration](docs/configuration.md) for platform notes.
-
-## Hardware Profiles
-
-There is no single universal config. Start with `config.example.json`, then let autoconfig choose a conservative tier from `profiles/model_catalog.json`.
-
-Committed examples:
-
-```text
-profiles/config.cpu-small.example.json
-profiles/config.nvidia-8gb.example.json
-profiles/config.nvidia-12gb.example.json
-profiles/config.nvidia-24gb.example.json
-profiles/config.remote-server.example.json
-```
-
-The catalog recommends Qwen-family quantized GGUF models and can prompt interactive users to download one into ignored `models/`.
-
-See [hardware profiles](docs/hardware_profiles.md) for the tuning model.
-
-## Pipeline
-
-```text
-config
--> fetch prior reports
--> fetch RSS headlines
--> fetch Google News RSS topic headlines
--> merge duplicate URLs
--> dedupe similar titles
--> score candidates with local llama.cpp
--> apply coverage memory and learned preferences, then select articles deterministically
--> fetch article text
--> optionally plan shared story groups for evidence
--> optionally distill evidence
--> optionally extract narrative deltas
--> generate final brief JSON
--> write Markdown and JSON
--> write handoff JSON for post-brief modules
--> optionally run standalone enrichment and narrative modules
-```
-
-The model is not the pipeline controller. Python owns fetching, dedupe, candidate limits, deterministic selection, fallback scaffolds, output normalization, diagnostics, and cache behavior.
-
-## Output And Diagnostics
-
-Briefs are written under `output/`:
+Outputs land in `output/`, usually like:
 
 ```text
 output/YYYY-MM-DD_general_brief.md
@@ -161,62 +56,110 @@ output/YYYY-MM-DD_enrichment.md
 output/YYYY-MM-DD_enrichment.json
 output/YYYY-MM-DD_narrative_brief.md
 output/YYYY-MM-DD_narrative_brief.json
-output/handoff/YYYY-MM-DD_general_handoff.json
-output/handoff/YYYY-MM-DD_detailed_handoff.json
+output/<input-markdown-stem>.wav
+output/<input-markdown-stem>_audio.json
 ```
 
-The configured module series is controlled by `pipeline.default_series`. The default runs structured briefs, enrichment, then narrative briefing. In series mode, downstream modules use only artifacts produced earlier in the same run. Standalone modules consume same-day outputs from disk, so you can run `python main.py --module enrichment --date YYYY-MM-DD` or `python main.py --module narrative_brief --date YYYY-MM-DD` after a core brief run. `--date` is only for those standalone module reruns.
-
-The narrative brief is enabled by default. `narrative_briefing` runs a final-model pass that combines general and detailed JSON briefs, uses enrichment JSON when enrichment is enabled and available for the run, strips source links before prompting, and writes polished Markdown for human reading. If this post-output pass fails, the already written structured briefs are preserved and the failure is reported as a warning.
-
-Managed server logs are written under:
-
-```text
-output/diagnostics/llama_server/
-```
-
-Stage artifacts are written when `--stop-after-stage`, `--dump-stage-artifacts`, or `--save-intermediate` is used.
-
-## Configuration
-
-Main sections:
-
-- `ai_summary`: local llama.cpp client for headline scoring and summary-role analysis.
-- `ai_final`: local llama.cpp client for final brief synthesis.
-- `general_topics`: broad-topic query definitions.
-- `topics_to_examine`: focused-topic query definitions.
-- `general_filtering` and `filtering`: candidate limits, selection caps, and prompt budgets.
-- `user_memory`: reader preferences and briefing style.
-- `memory`: lightweight story keys, recent-coverage penalties, story caps, recall packets, feedback events, learned preferences, and memory retention under `state/memory/`.
-- `sources`: RSS feeds, Google News RSS settings, and prior-report lookup.
-- `analysis`: evidence and delta stage settings.
-- `narrative_briefing`: optional final pass that rewrites saved JSON briefs into a polished narrative Markdown brief.
-- `enrichment`: story-thread research context, enabled by default. Set `enabled=false`, `mode="disabled"`, or use `--skip-module enrichment` to skip it.
-- `pipeline`: default module series, such as `briefs -> enrichment -> narrative_brief`.
-- `runtime`: HTTP/article worker limits and shared-snapshot behavior. Story enrichment is sequential.
-- `cache`: HTTP, article text, enrichment, and AI cache settings.
-
-See [configuration](docs/configuration.md) for details.
-
-## Tests
-
-Run the maintained no-GPU/no-network suite:
+## Run The GUI
 
 ```bash
-python -B -m unittest discover -s tests
-python -B main.py --list-stages
+cd /d/Project/MyDailyNews
+source .venv/Scripts/activate
+python gui.py --config config.recommended.json --host 127.0.0.1 --port 8765
 ```
 
-Optional llama.cpp probing belongs in local autoconfig runs, not public CI.
+Open:
+
+```text
+http://127.0.0.1:8765
+```
+
+## Useful Commands
+
+```bash
+python main.py --config config.recommended.json --module briefs
+python main.py --config config.recommended.json --module enrichment --date "$(date +%F)"
+python main.py --config config.recommended.json --module narrative_brief --date "$(date +%F)"
+python main.py --config config.recommended.json --debug
+python main.py --config config.recommended.json --list-stages
+python main.py --config config.recommended.json --memory inspect
+python main.py --config config.recommended.json --memory prune
+```
+
+## TTS Audio
+Kokoro needs Python 3.10 through 3.12. If your main `.venv` uses one of those versions, TTS is already installed by the first setup command:
+
+```bash
+source .venv/Scripts/activate
+python -m pip install -r requirements.txt
+```
+
+If your main Python is newer, use a Python 3.12 environment for runs that need TTS:
+
+```bash
+conda create -n mydailynews-tts python=3.12 -y
+conda activate mydailynews-tts
+python -m pip install -r requirements.txt
+```
+
+Run TTS by itself against any saved Markdown brief:
+
+```bash
+cd /d/Project/MyDailyNews
+source .venv/Scripts/activate
+python main.py --config config.local.json --module tts --markdown-path output/YYYY-MM-DD_general_brief.md
+```
+
+If you use the separate Conda TTS environment:
+
+```bash
+cd /d/Project/MyDailyNews
+conda activate mydailynews-tts
+python main.py --config config.local.json --module tts --markdown-path output/YYYY-MM-DD_general_brief.md
+```
+
+## Config Defaults
+
+`config.example.json` keeps TTS off. To include audio in normal runs, set `tts.enabled=true` and add `tts` after `narrative_brief` in `pipeline.default_series`.
+
+To turn TTS off:
+
+```bash
+python - <<'PY'
+import json
+from pathlib import Path
+p = Path("config.local.json")
+c = json.loads(p.read_text())
+c["tts"]["enabled"] = False
+c["pipeline"]["default_series"] = [m for m in c["pipeline"]["default_series"] if m != "tts"]
+p.write_text(json.dumps(c, indent=2) + "\n")
+PY
+```
+
+## Test
+
+```bash
+cd /d/Project/MyDailyNews
+source .venv/Scripts/activate
+python -B -m unittest discover -s tests
+```
 
 ## Troubleshooting
 
-Most runtime failures are config or hardware-fit issues: missing `llama-server`, missing GGUF model path, context/token mismatch, server startup timeout, or invalid JSON from an overloaded model.
+Validate JSON:
 
-Start with [troubleshooting](docs/troubleshooting.md), then inspect `output/diagnostics/llama_server/`.
+```bash
+python -m json.tool config.local.json >/tmp/mydailynews-config.json
+```
 
-## Attribution
+Print the managed llama-server command:
 
-- Horizon inspiration: https://github.com/Thysrael/Horizon. MyDailyNews uses an original local-first implementation, with RSS normalization and the staged fetch/dedupe/score/enrich/summarize pipeline shape adapted from or substantially inspired by Horizon. See `LICENSE` for the retained Horizon MIT notice.
-- Qwen public model organization: https://huggingface.co/Qwen
-- License: MIT
+```bash
+python tools/autoconfig.py --config config.local.json --write config.recommended.json --print-launch-command --no-server-probe
+```
+
+If the run says the config is not ready, fix `server_executable` and `server_model_path` in both `ai_summary` and `ai_final`, then rerun autoconfig.
+
+## License
+
+MIT. See `LICENSE`.

@@ -46,7 +46,9 @@ class CliReporter:
         self._print(text)
 
     def outputs(self, result: PipelineResult) -> None:
-        if not self.enabled or not (result.outputs or result.enrichment_outputs or result.narrative_outputs):
+        if not self.enabled or not (
+            result.outputs or result.enrichment_outputs or result.narrative_outputs or result.tts_outputs
+        ):
             return
         self._print("")
         for output in result.outputs:
@@ -74,6 +76,11 @@ class CliReporter:
             self._print(f"{label} markdown brief: {output.markdown_path}")
             self._print(f"{label} JSON brief:     {output.json_path}")
             self._print(f"{label} source briefs:  {source_label}")
+        for output in result.tts_outputs:
+            label = output.name.upper()
+            self._print(f"{label} WAV:            {output.wav_path}")
+            self._print(f"{label} JSON:           {output.json_path}")
+            self._print(f"{label} source markdown: {output.markdown_path}")
 
     def stopped(self, stage: str, artifact_paths: Iterable[str] | None = None) -> None:
         if not self.enabled:

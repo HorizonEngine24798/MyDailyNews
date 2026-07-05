@@ -272,6 +272,15 @@
     "target_words": 1800,
     "editorial_style": "Write like a sharp human news editor, not a consultant memo. Use clear narrative paragraphs, concrete verbs, and varied sentence rhythm. Avoid repeated Status/Impact/Operational Implication labels. Do not address the reader as an operator. Use bullets sparingly, only for genuinely scannable watch items. Prefer 'what changed, why it matters, what remains uncertain' woven into prose."
   },
+  "tts": {
+    "enabled": false,
+    "backend": "kokoro",
+    "model_id": "hexgrad/Kokoro-82M",
+    "voice": "af_heart",
+    "lang_code": "a",
+    "speed": 1.0,
+    "max_chunk_chars": 1200
+  },
   "analysis": {
     "rollout": {
       "enabled": true,

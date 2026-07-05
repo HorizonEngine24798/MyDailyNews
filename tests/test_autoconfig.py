@@ -67,6 +67,58 @@ class AutoconfigTests(unittest.TestCase):
         self.assertEqual(tier["id"], "nvidia_12gb")
         self.assertEqual(model["id"], "qwen3-14b-q4")
 
+    def test_hardware_tier_gap_uses_nearest_lower_profile(self) -> None:
+        catalog = self._catalog()
+
+        cases = [
+            (5.5, "cpu_small"),
+            (9.5, "nvidia_8gb"),
+            (19.5, "nvidia_12gb"),
+            (47.5, "nvidia_24gb"),
+        ]
+        for vram_gb, tier_id in cases:
+            with self.subTest(vram_gb=vram_gb):
+                tier = autoconfig.choose_tier(
+                    catalog,
+                    autoconfig.HardwareInfo("test", 64, "GPU", "nvidia", vram_gb),
+                )
+                self.assertEqual(tier["id"], tier_id)
+
+    def test_model_catalog_profiles_have_sane_token_budgets(self) -> None:
+        catalog = self._catalog()
+        model_ids = {model["id"] for model in catalog["models"]}
+        profile_pairs = [
+            ("main", "max_input_tokens", "max_new_tokens"),
+            ("headline", "headline_max_input_tokens", "headline_max_new_tokens"),
+            ("headline_replay", "headline_max_input_tokens", "headline_single_replay_max_new_tokens"),
+            ("evidence", "evidence_max_input_tokens", "evidence_max_new_tokens"),
+            ("delta", "delta_max_input_tokens", "delta_max_new_tokens"),
+        ]
+        budget_pairs = [
+            ("planner", "planner_max_input_tokens", "planner_max_new_tokens"),
+            ("synthesis", "synthesis_max_input_tokens", "synthesis_max_new_tokens"),
+        ]
+
+        for tier in catalog["tiers"]:
+            settings = tier["settings"]
+            context = int(settings["context_window_tokens"])
+            args = settings["server_arguments"]
+            self.assertIn(tier["recommended_model_id"], model_ids)
+            self.assertEqual(int(args[args.index("-c") + 1]), context)
+            for label, input_key, output_key in profile_pairs:
+                self.assertLessEqual(
+                    int(settings[input_key]) + int(settings[output_key]),
+                    context,
+                    f"{tier['id']} {label}",
+                )
+            budget = settings["story_enrichment_budget"]
+            for label, input_key, output_key in budget_pairs:
+                self.assertLessEqual(
+                    int(budget[input_key]) + int(budget[output_key]),
+                    context,
+                    f"{tier['id']} {label}",
+                )
+
     def test_recommended_config_is_coupled_and_does_not_mutate_source(self) -> None:
         catalog = self._catalog()
         source = self._example_config()
@@ -91,6 +143,8 @@ class AutoconfigTests(unittest.TestCase):
         self.assertEqual(recommended["enrichment"]["max_context_chars_per_article"], 2400)
         self.assertTrue(recommended["narrative_briefing"]["enabled"])
         self.assertEqual(recommended["narrative_briefing"]["target_words"], 1800)
+        self.assertFalse(recommended["tts"]["enabled"])
+        self.assertEqual(recommended["tts"]["backend"], "kokoro")
         self.assertEqual(recommended["pipeline"]["default_series"], ["briefs", "enrichment", "narrative_brief"])
         self.assertEqual(recommended["analysis"]["evidence_distillation"]["max_input_tokens"], 5000)
         self.assertTrue(recommended["memory"]["enabled"])
@@ -223,9 +277,23 @@ class AutoconfigTests(unittest.TestCase):
         self.assertFalse(recommended["ai_final"]["server_auto_stop"])
         self.assertEqual(recommended["cache"]["discovery_mode"], "cache_first")
 
+    def test_apply_pipeline_preferences_can_enable_tts(self) -> None:
+        catalog = self._catalog()
+        source = self._example_config()
+        tier = next(item for item in catalog["tiers"] if item["id"] == "nvidia_8gb")
+        model = autoconfig.model_for_tier(catalog, tier)
+        recommended = autoconfig.build_recommended_config(source, tier, model)
+        preferences = autoconfig.PipelinePreferences(workflow="structured", tts_audio="yes")
+
+        autoconfig.apply_pipeline_preferences(recommended, preferences)
+
+        self.assertTrue(recommended["tts"]["enabled"])
+        self.assertTrue(recommended["narrative_briefing"]["enabled"])
+        self.assertEqual(recommended["pipeline"]["default_series"], ["briefs", "narrative_brief", "tts"])
+
     def test_prompt_pipeline_preferences_accepts_names_and_numbers(self) -> None:
         stdout = io.StringIO()
-        answers = ["research", "3", "deep", "long", "external", "cache"]
+        answers = ["research", "3", "deep", "long", "external", "cache", "yes"]
 
         with patch("tools.autoconfig.sys.stdin", FakeInteractiveStdin()), patch(
             "builtins.input",
@@ -242,6 +310,7 @@ class AutoconfigTests(unittest.TestCase):
                 narrative_length="long",
                 server_mode="external",
                 cache_mode="cache",
+                tts_audio="yes",
             ),
         )
 
@@ -261,6 +330,43 @@ class AutoconfigTests(unittest.TestCase):
         self.assertEqual(config["ai_summary"]["server_model_path"], str(model_path))
         self.assertEqual(config["ai_final"]["server_model_path"], str(model_path))
         self.assertEqual(config["ai_final"]["server_model"], "local-model")
+
+    def test_main_can_prompt_for_existing_model_path(self) -> None:
+        temp_dir = self._temp_dir()
+        source_path = temp_dir / "config.local.json"
+        target_path = temp_dir / "config.recommended.json"
+        model_path = temp_dir / "model.gguf"
+        source_path.write_text(json.dumps(self._example_config(), ensure_ascii=False, indent=2), encoding="utf-8")
+        model_path.write_bytes(b"gguf")
+
+        stdout = io.StringIO()
+        with patch("tools.autoconfig.sys.stdin", FakeInteractiveStdin()), patch(
+            "builtins.input",
+            return_value=str(model_path),
+        ), patch(
+            "tools.autoconfig.detect_hardware",
+            return_value=autoconfig.HardwareInfo("test-os", 64, "RTX test", "nvidia", 12),
+        ), patch(
+            "tools.autoconfig.probe_config",
+            return_value=autoconfig.ProbeReport(version_ok=True, server_ready=True, json_probe_ok=True),
+        ), redirect_stdout(stdout):
+            rc = autoconfig.main(
+                [
+                    "--config",
+                    str(source_path),
+                    "--write",
+                    str(target_path),
+                    "--model-catalog",
+                    str(REPO_ROOT / "profiles" / "model_catalog.json"),
+                    "--no-download-prompt",
+                    "--no-preference-prompt",
+                ]
+            )
+
+        self.assertEqual(rc, 0)
+        written = json.loads(target_path.read_text(encoding="utf-8"))
+        self.assertEqual(written["ai_summary"]["server_model_path"], str(model_path))
+        self.assertEqual(written["ai_final"]["server_model_path"], str(model_path))
 
     def test_download_model_streams_to_ignored_models_dir(self) -> None:
         temp_dir = self._temp_dir()

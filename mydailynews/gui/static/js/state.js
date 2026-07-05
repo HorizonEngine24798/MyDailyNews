@@ -24,7 +24,6 @@ export const state = {
   reportGroupsOpen: {},
   contentCollapsed: false,
   browserCollapsed: true,
-  sidebarCollapsed: false,
 };
 
 export const feedbackLabels = {

@@ -13,11 +13,14 @@ from typing import Any, Dict, List
 from mydailynews.app.config import load_config
 
 
-RUN_KINDS = {"series", "briefs", "enrichment", "narrative_brief", "memory"}
+RUN_KINDS = {"series", "briefs", "enrichment", "narrative_brief", "tts", "memory"}
 BRIEF_CHOICES = {"general", "detailed", "both"}
 MEMORY_RUN_ACTIONS = {"inspect", "prune", "export"}
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 TAIL_LIMIT = 20000
+RUN_ID_LENGTH = 12
+OUTPUT_DISCOVERY_GRACE_SECONDS = 2.0
+OUTPUT_DISCOVERY_LIMIT = 40
 
 
 @dataclass
@@ -59,7 +62,7 @@ class GuiRunManager:
     def start_run(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         command, kind, label = self._build_command(payload)
         job = RunJob(
-            id=uuid.uuid4().hex[:12],
+            id=uuid.uuid4().hex[:RUN_ID_LENGTH],
             kind=kind,
             label=label,
             command=command,
@@ -155,13 +158,16 @@ class GuiRunManager:
                 raise ValueError(f"Unsupported brief mode: {brief}")
             command.extend(["--module", "briefs", "--brief", brief])
             label = f"Run briefs ({brief})"
-        elif kind in {"enrichment", "narrative_brief"}:
+        elif kind in {"enrichment", "narrative_brief", "tts"}:
             date = _clean(payload.get("date"))
             if date and DATE_RE.match(date) is None:
                 raise ValueError("Date must use YYYY-MM-DD.")
             command.extend(["--module", kind])
             if date:
                 command.extend(["--date", date])
+            markdown_path = _clean(payload.get("markdown_path"))
+            if markdown_path and kind == "tts":
+                command.extend(["--markdown-path", markdown_path])
             label = f"Run {kind.replace('_', ' ')}"
         elif kind == "memory":
             memory_action = _clean(payload.get("memory_action")).lower() or "inspect"
@@ -187,16 +193,16 @@ class GuiRunManager:
             for path in directory.rglob("*"):
                 if not path.is_file():
                     continue
-                if path.suffix.lower() not in {".md", ".json", ".txt", ".log"}:
+                if path.suffix.lower() not in {".md", ".json", ".txt", ".log", ".wav"}:
                     continue
                 try:
                     modified = path.stat().st_mtime
                 except OSError:
                     continue
-                if modified + 2.0 < started:
+                if modified + OUTPUT_DISCOVERY_GRACE_SECONDS < started:
                     continue
                 paths.append(str(path))
-                if len(paths) >= 40:
+                if len(paths) >= OUTPUT_DISCOVERY_LIMIT:
                     return sorted(paths)
         return sorted(paths)
 

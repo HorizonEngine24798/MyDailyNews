@@ -26,6 +26,7 @@ from mydailynews.app.models import (
     RSSSourceConfig,
     RuntimeConfig,
     TopicConfig,
+    TTSConfig,
     UserMemory,
     default_general_filtering_config,
 )
@@ -52,6 +53,7 @@ DEFAULT_ENRICHMENT = _defaults(EnrichmentConfig())
 DEFAULT_CACHE = _defaults(CacheConfig())
 DEFAULT_RUNTIME = _defaults(RuntimeConfig())
 DEFAULT_NARRATIVE_BRIEFING = _defaults(NarrativeBriefingConfig())
+DEFAULT_TTS = _defaults(TTSConfig())
 DEFAULT_PIPELINE = _defaults(PipelineConfig())
 DEFAULT_ANALYSIS_EVIDENCE = _defaults(EvidenceDistillationConfig())
 DEFAULT_ANALYSIS_DELTA = _defaults(DeltaExtractionConfig())
@@ -71,6 +73,7 @@ ROOT_CONFIG_KEYS = {
     "enrichment",
     "runtime",
     "narrative_briefing",
+    "tts",
     "pipeline",
     "analysis",
     "cache",
@@ -84,8 +87,9 @@ ENRICHMENT_CONFIG_KEYS = set(DEFAULT_ENRICHMENT.keys())
 CACHE_CONFIG_KEYS = set(DEFAULT_CACHE.keys())
 RUNTIME_CONFIG_KEYS = set(DEFAULT_RUNTIME.keys())
 NARRATIVE_BRIEFING_CONFIG_KEYS = set(DEFAULT_NARRATIVE_BRIEFING.keys())
+TTS_CONFIG_KEYS = set(DEFAULT_TTS.keys())
 PIPELINE_CONFIG_KEYS = set(DEFAULT_PIPELINE.keys())
-PIPELINE_MODULE_NAMES = {"briefs", "enrichment", "narrative_brief"}
+PIPELINE_MODULE_NAMES = {"briefs", "enrichment", "narrative_brief", "tts"}
 ANALYSIS_CONFIG_KEYS = {"evidence_distillation", "delta_extraction", "rollout"}
 EVIDENCE_DISTILLATION_CONFIG_KEYS = set(DEFAULT_ANALYSIS_EVIDENCE.keys())
 DELTA_EXTRACTION_CONFIG_KEYS = set(DEFAULT_ANALYSIS_DELTA.keys())
@@ -681,6 +685,34 @@ def _load_narrative_briefing(raw: Dict[str, Any]) -> NarrativeBriefingConfig:
     )
 
 
+def _load_tts(raw: Dict[str, Any]) -> TTSConfig:
+    tts_raw = raw.get("tts", {})
+    if tts_raw is None:
+        tts_raw = {}
+    if not isinstance(tts_raw, dict):
+        raise ValueError("Config section tts must be an object")
+    _reject_unknown_keys(tts_raw, TTS_CONFIG_KEYS, "tts")
+    backend = str(tts_raw.get("backend", DEFAULT_TTS["backend"]) or DEFAULT_TTS["backend"]).strip().lower()
+    if not backend:
+        backend = DEFAULT_TTS["backend"]
+    speed = float(tts_raw.get("speed", DEFAULT_TTS["speed"]))
+    if speed <= 0:
+        raise ValueError("tts.speed must be greater than 0")
+    return TTSConfig(
+        enabled=parse_bool(
+            tts_raw.get("enabled", DEFAULT_TTS["enabled"]),
+            default=DEFAULT_TTS["enabled"],
+            field_name="tts.enabled",
+        ),
+        backend=backend,
+        model_id=str(tts_raw.get("model_id", DEFAULT_TTS["model_id"]) or DEFAULT_TTS["model_id"]).strip(),
+        voice=str(tts_raw.get("voice", DEFAULT_TTS["voice"]) or DEFAULT_TTS["voice"]).strip(),
+        lang_code=str(tts_raw.get("lang_code", DEFAULT_TTS["lang_code"]) or DEFAULT_TTS["lang_code"]).strip(),
+        speed=speed,
+        max_chunk_chars=max(200, int(tts_raw.get("max_chunk_chars", DEFAULT_TTS["max_chunk_chars"]))),
+    )
+
+
 def _worker_count(raw: Dict[str, Any], key: str, default_value: int) -> int:
     value = int(raw.get(key, default_value))
     if value < 1:
@@ -776,6 +808,7 @@ def load_config(path: Path) -> AppConfig:
     analysis = _load_analysis(raw)
     memory_config = _load_memory(raw)
     narrative_briefing = _load_narrative_briefing(raw)
+    tts = _load_tts(raw)
     pipeline = _load_pipeline(raw)
     if not isinstance(filtering_raw, dict):
         raise ValueError("Config section filtering must be an object")
@@ -1030,5 +1063,6 @@ def load_config(path: Path) -> AppConfig:
         ),
         analysis=analysis,
         narrative_briefing=narrative_briefing,
+        tts=tts,
         pipeline=pipeline,
     )

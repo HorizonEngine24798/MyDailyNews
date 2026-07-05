@@ -12,7 +12,7 @@ Why:
 - Kokoro is small enough to be practical for a local-first app: 82M parameters.
 - The model card lists an Apache 2.0 license, which is much easier to ship around than GPL or noncommercial model weights.
 - The Python usage path is simple: install `kokoro` and `soundfile`, create a pipeline, synthesize text, write WAV.
-- It fits the existing architecture: consume `output/YYYY-MM-DD_narrative_brief.md`, produce `output/YYYY-MM-DD_narrative_brief.wav`, and leave the analysis pipeline untouched.
+- It fits the existing architecture: consume a saved Markdown brief, produce a matching WAV, and leave the analysis pipeline untouched.
 
 The shortest useful implementation is an optional post-brief module, disabled by default, that runs after `narrative_brief`.
 
@@ -21,7 +21,7 @@ The shortest useful implementation is an optional post-brief module, disabled by
 Current repo shape already points to the right place:
 
 - `narrative_briefing` writes the human-readable Markdown that should be spoken.
-- `docs/configuration.md` already says narrative generation intentionally avoids SSML and that a future TTS-prep stage should consume narrative Markdown.
+- `docs/configuration.md` says narrative generation intentionally avoids SSML and that the optional TTS stage consumes narrative Markdown.
 - The module series already supports post-brief modules: `briefs -> enrichment -> narrative_brief`.
 - Local model download and ignored output conventions already exist: `models/`, `output/`, config examples, and autoconfig.
 
@@ -49,7 +49,8 @@ Observed facts:
 
 - Hugging Face lists it as text-to-speech, English, Apache 2.0.
 - The model card describes Kokoro as an open-weight 82M parameter TTS model.
-- The usage example installs `kokoro>=0.9.2` and `soundfile`, then writes 24 kHz WAV output.
+- The usage example installs `kokoro>=0.9.4` and `soundfile`, then writes 24 kHz WAV output.
+- PyPI currently lists Kokoro as requiring Python >=3.10,<3.13.
 - The model card says the weights are Apache-licensed and suitable for real deployments.
 
 Why it should be first:
@@ -63,7 +64,7 @@ Likely implementation dependency:
 
 ```text
 requirements-tts.txt
-kokoro>=0.9.2
+kokoro>=0.9.4
 soundfile
 ```
 
@@ -202,9 +203,9 @@ When to choose it:
 - Research-only/noncommercial usage.
 - The user wants to experiment with voice cloning and flow-matching TTS.
 
-## Proposed Implementation Plan
+## Implementation Plan
 
-No code yet. When ready, keep the implementation small.
+The first small implementation is now wired as an optional Kokoro module.
 
 ### Phase 1: Optional Kokoro Module
 
@@ -240,20 +241,20 @@ briefs -> enrichment -> narrative_brief -> tts
 CLI:
 
 ```bash
-python main.py --module tts --date YYYY-MM-DD
+python main.py --module tts --markdown-path output/YYYY-MM-DD_general_brief.md
 python main.py --module series
 ```
 
 Output:
 
 ```text
-output/YYYY-MM-DD_narrative_brief.wav
-output/YYYY-MM-DD_narrative_brief_audio.json
+output/<input-markdown-stem>.wav
+output/<input-markdown-stem>_audio.json
 ```
 
 ### Phase 2: Text Cleanup
 
-Input should be the narrative Markdown, not the structured JSON.
+Input should be a Markdown brief, not the structured JSON.
 
 Cleanup rules:
 
@@ -317,7 +318,7 @@ Do not add voice cloning in the first pass. If added later:
 First build:
 
 ```text
-Kokoro only, optional dependency, disabled by default, consumes narrative Markdown, writes one WAV.
+Kokoro is the first implemented backend, optional dependency, disabled by default, consumes Markdown, writes one WAV.
 ```
 
 Skipped for now:

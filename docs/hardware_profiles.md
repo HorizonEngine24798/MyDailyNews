@@ -8,7 +8,7 @@ Use:
 python tools/autoconfig.py --config config.local.json --write config.recommended.json
 ```
 
-Autoconfig detects hardware best-effort, recommends a Qwen-family GGUF model from `profiles/model_catalog.json`, optionally prompts to download it, probes llama.cpp when possible, and writes a recommended config.
+Autoconfig detects hardware best-effort, recommends a Qwen-family GGUF model from `profiles/model_catalog.json`, optionally prompts for an existing `.gguf` path or download, probes llama.cpp when possible, and writes a recommended config.
 
 ## Tiers
 

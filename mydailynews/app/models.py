@@ -149,6 +149,17 @@ class NarrativeBriefingConfig:
 
 
 @dataclass
+class TTSConfig:
+    enabled: bool = False
+    backend: str = "kokoro"
+    model_id: str = "hexgrad/Kokoro-82M"
+    voice: str = "af_heart"
+    lang_code: str = "a"
+    speed: float = 1.0
+    max_chunk_chars: int = 1200
+
+
+@dataclass
 class PipelineConfig:
     default_series: List[str] = field(default_factory=lambda: ["briefs", "enrichment", "narrative_brief"])
 
@@ -372,6 +383,7 @@ class AppConfig:
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
     analysis: AnalysisConfig = field(default_factory=AnalysisConfig)
     narrative_briefing: NarrativeBriefingConfig = field(default_factory=NarrativeBriefingConfig)
+    tts: TTSConfig = field(default_factory=TTSConfig)
     pipeline: PipelineConfig = field(default_factory=PipelineConfig)
 
 
@@ -531,8 +543,21 @@ class NarrativeBriefOutput:
 
 
 @dataclass
+class TTSOutput:
+    name: str
+    wav_path: str
+    json_path: str
+    markdown_path: str
+    backend: str = "kokoro"
+    voice: str = ""
+    chunk_count: int = 0
+    warnings: List[str] = field(default_factory=list)
+
+
+@dataclass
 class PipelineResult:
     outputs: List[BriefOutput] = field(default_factory=list)
     enrichment_outputs: List[EnrichmentOutput] = field(default_factory=list)
     narrative_outputs: List[NarrativeBriefOutput] = field(default_factory=list)
+    tts_outputs: List[TTSOutput] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)

@@ -24,6 +24,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Target date for standalone modules, formatted YYYY-MM-DD. Defaults to today.",
     )
     parser.add_argument(
+        "--markdown-path",
+        default="",
+        help="Input Markdown path for --module tts. Defaults to the date narrative brief when omitted.",
+    )
+    parser.add_argument(
         "--skip-module",
         action="append",
         choices=PIPELINE_MODULES,
@@ -115,12 +120,6 @@ def main() -> int:
             confirm_reset=args.confirm_memory_reset,
         )
 
-    runtime_issues = find_runtime_config_issues(config)
-    if runtime_issues:
-        print(f"Config is not ready to run: {config_path}")
-        print(format_runtime_config_issues(runtime_issues))
-        print("Run tools/autoconfig.py or edit the local config with your llama.cpp paths and token limits.")
-        return 1
     if args.no_enrichment:
         config.enrichment.enabled = False
     skip_modules = list(args.skip_module or [])
@@ -131,6 +130,7 @@ def main() -> int:
             brief=args.brief,
             module=args.module,
             date=args.date,
+            markdown_path=args.markdown_path,
             skip_modules=skip_modules,
             stop_after_stage=args.stop_after_stage,
             save_intermediate=args.save_intermediate,
@@ -141,6 +141,14 @@ def main() -> int:
     except ValueError as exc:
         print(f"Invalid run option: {exc}")
         return 1
+
+    if run_options.module != "tts":
+        runtime_issues = find_runtime_config_issues(config)
+        if runtime_issues:
+            print(f"Config is not ready to run: {config_path}")
+            print(format_runtime_config_issues(runtime_issues))
+            print("Run tools/autoconfig.py or edit the local config with your llama.cpp paths and token limits.")
+            return 1
 
     reporter = CliReporter(enabled=True)
     reporter.run_start(config_path=config_path, config=config, run_options=run_options)

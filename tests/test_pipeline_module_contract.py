@@ -3,7 +3,7 @@ from __future__ import annotations
 from types import MethodType, SimpleNamespace
 import unittest
 
-from mydailynews.app.models import BriefOutput, EnrichmentOutput, NarrativeBriefOutput, PipelineResult
+from mydailynews.app.models import BriefOutput, EnrichmentOutput, NarrativeBriefOutput, PipelineResult, TTSOutput
 from mydailynews.pipeline.orchestrator import NewsOrchestrator
 from mydailynews.pipeline.stages import PipelineRunOptions
 
@@ -138,7 +138,63 @@ class PipelineModuleContractTests(unittest.TestCase):
         self.assertFalse(calls["narrative"]["use_enrichment"])
         self.assertTrue(any("enrichment: module skipped by run option" in warning for warning in orchestrator.warnings))
 
+    def test_series_tts_uses_current_run_narrative_markdown(self) -> None:
+        orchestrator = _orchestrator()
+        orchestrator.config.pipeline.default_series = ["briefs", "narrative_brief", "tts"]
+        orchestrator.config.tts = SimpleNamespace(enabled=True, backend="kokoro")
+        brief = _brief_output()
+        narrative = NarrativeBriefOutput(
+            name="narrative",
+            markdown_path="output/current_narrative.md",
+            json_path="output/current_narrative.json",
+        )
+        tts = TTSOutput(
+            name="tts",
+            wav_path="output/current_narrative.wav",
+            json_path="output/current_narrative_audio.json",
+            markdown_path=narrative.markdown_path,
+            chunk_count=1,
+        )
+        calls: dict[str, dict] = {}
+
+        def run_briefs(self, *, date: str) -> PipelineResult:
+            return PipelineResult(outputs=[brief], warnings=self.warnings)
+
+        def run_narrative_brief(
+            self,
+            *,
+            date: str,
+            outputs=None,
+            enrichment_json_path: str = "",
+            allow_disk_fallback: bool = True,
+            use_enrichment=None,
+        ) -> PipelineResult:
+            return PipelineResult(outputs=list(outputs or []), narrative_outputs=[narrative], warnings=self.warnings)
+
+        def run_tts(
+            self,
+            *,
+            date: str,
+            markdown_path: str = "",
+            allow_disk_fallback: bool = True,
+        ) -> PipelineResult:
+            calls["tts"] = {
+                "date": date,
+                "markdown_path": markdown_path,
+                "allow_disk_fallback": allow_disk_fallback,
+            }
+            return PipelineResult(tts_outputs=[tts], warnings=self.warnings)
+
+        orchestrator.run_briefs = MethodType(run_briefs, orchestrator)
+        orchestrator.run_narrative_brief = MethodType(run_narrative_brief, orchestrator)
+        orchestrator.run_tts = MethodType(run_tts, orchestrator)
+
+        result = orchestrator.run_series(date="2026-06-14")
+
+        self.assertEqual(result.tts_outputs, [tts])
+        self.assertEqual(calls["tts"]["markdown_path"], narrative.markdown_path)
+        self.assertFalse(calls["tts"]["allow_disk_fallback"])
+
 
 if __name__ == "__main__":
     unittest.main()
-

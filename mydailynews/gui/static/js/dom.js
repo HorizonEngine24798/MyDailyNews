@@ -75,7 +75,6 @@ export function renderMarkdown(markdown) {
 
 export function humanLabel(label) {
   return String(label || "")
-    .replace(/^\[(\d+)\]$/, "Item $1")
     .replaceAll("_", " ")
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }

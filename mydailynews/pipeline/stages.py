@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import date as date_type
 
 PIPELINE_BRIEFS = ("general", "detailed")
-PIPELINE_MODULES = ("briefs", "enrichment", "narrative_brief")
+PIPELINE_MODULES = ("briefs", "enrichment", "narrative_brief", "tts")
 PIPELINE_MODULE_CHOICES = PIPELINE_MODULES + ("series",)
 
 PIPELINE_STAGE_ORDER = (
@@ -30,6 +30,7 @@ BRIEF_STAGE_ORDER = (
 MODULE_STAGE_ORDER = (
     "enrichment",
     "narrative_brief",
+    "tts",
 )
 
 ALL_STAGE_ORDER = PIPELINE_STAGE_ORDER + BRIEF_STAGE_ORDER + MODULE_STAGE_ORDER
@@ -86,7 +87,12 @@ def validate_run_date_usage(module: str, date: str) -> None:
     normalized_module = normalize_module_name(module)
     normalized_date = normalize_run_date(date)
     if normalized_date and normalized_module in {"series", "briefs"}:
-        raise ValueError("--date can only be used with standalone modules: enrichment, narrative_brief")
+        raise ValueError("--date can only be used with standalone modules: enrichment, narrative_brief, tts")
+
+
+def validate_markdown_path_usage(module: str, markdown_path: str) -> None:
+    if str(markdown_path or "").strip() and normalize_module_name(module) != "tts":
+        raise ValueError("--markdown-path can only be used with --module tts")
 
 
 def normalize_skip_modules(values: tuple[str, ...] | list[str] | None) -> tuple[str, ...]:
@@ -108,6 +114,7 @@ class PipelineRunOptions:
     briefs: tuple[str, ...] = PIPELINE_BRIEFS
     module: str = "series"
     date: str = ""
+    markdown_path: str = ""
     skip_modules: tuple[str, ...] = ()
     stop_after_stage: str = ""
     save_intermediate: bool = False
@@ -121,6 +128,7 @@ class PipelineRunOptions:
         brief: str,
         module: str = "series",
         date: str = "",
+        markdown_path: str = "",
         skip_modules: tuple[str, ...] | list[str] | None = None,
         stop_after_stage: str = "",
         save_intermediate: bool = False,
@@ -131,6 +139,7 @@ class PipelineRunOptions:
         normalized_module = normalize_module_name(module)
         normalized_date = normalize_run_date(date)
         validate_run_date_usage(normalized_module, normalized_date)
+        validate_markdown_path_usage(normalized_module, markdown_path)
         normalized_stop = normalize_stage_name(stop_after_stage)
         should_save_intermediate = bool(save_intermediate or normalized_stop)
         if no_save_intermediate:
@@ -139,6 +148,7 @@ class PipelineRunOptions:
             briefs=normalize_brief_selection(brief),
             module=normalized_module,
             date=normalized_date,
+            markdown_path=str(markdown_path or "").strip(),
             skip_modules=normalize_skip_modules(skip_modules),
             stop_after_stage=normalized_stop,
             save_intermediate=should_save_intermediate,

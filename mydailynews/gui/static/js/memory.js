@@ -3,6 +3,9 @@ import { byId, escapeHtml, setStatus } from "./dom.js";
 import { renderForm } from "./forms.js";
 import { defaultStoryIndex, state } from "./state.js";
 
+const TABLE_PREVIEW_LIMIT = 80;
+const WARNING_DETAIL_LIMIT = 8;
+
 export function renderMemory() {
   if (!state.memory) {
     return;
@@ -44,7 +47,7 @@ export function renderMemory() {
   const coverage = filterCoverage(state.memory.coverage_records || []).sort((a, b) => String(b.date).localeCompare(String(a.date)));
   renderTable(
     "coverageTable",
-    coverage.slice(0, 80),
+    coverage.slice(0, TABLE_PREVIEW_LIMIT),
     [
       ["date", "Date"],
       ["brief_name", "Brief"],
@@ -64,7 +67,7 @@ export function renderMemory() {
   const feedback = filterFeedback(state.memory.feedback_events || []).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
   renderTable(
     "feedbackTable",
-    feedback.slice(0, 80),
+    feedback.slice(0, TABLE_PREVIEW_LIMIT),
     [
       ["created_date", "Created"],
       ["action", "Action"],
@@ -375,7 +378,7 @@ function renderHealth() {
         .concat(warning.story_keys || [])
         .concat(warning.line_numbers || [])
         .concat((warning.events || []).map((event) => event.title || event.action || event.created_at || "event"))
-        .slice(0, 8)
+        .slice(0, WARNING_DETAIL_LIMIT)
         .join(", ");
       return `
         <div class="info-row warning-row">

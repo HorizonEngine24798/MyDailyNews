@@ -3,7 +3,6 @@ __pycache__/
 *.pyc.*
 config.json
 config.local*.json
-config.recommended.json
 !config.example.json
 output/
 state/
@@ -13,4 +12,4 @@ state/
 .codex_tmp*
 .pytest_tmp/
 models/
-docs/publish_ready_plan.md
+/tools/kokoro_openai_tts_server.py

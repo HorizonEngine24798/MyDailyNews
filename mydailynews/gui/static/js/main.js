@@ -12,6 +12,14 @@ import {
 import { bindRunEvents, loadRuns, renderRuns, setRunRefreshCallbacks } from "./runs.js";
 import { defaultStoryIndex, state } from "./state.js";
 
+const PIPELINE_MODULES = [
+  ["briefs", "Briefs"],
+  ["enrichment", "Enrichment"],
+  ["narrative_brief", "Narrative brief"],
+  ["tts", "TTS audio"],
+];
+const DEFAULT_PIPELINE_SERIES = ["briefs", "enrichment", "narrative_brief"];
+
 async function loadInitial() {
   try {
     state.app = await api("/api/state");
@@ -101,7 +109,6 @@ function setView(view) {
 
 function renderConfigForms() {
   state.configDraft.user_memory = state.configDraft.user_memory || {};
-  state.configDraft.memory = state.configDraft.memory || {};
   state.configDraft.sources = state.configDraft.sources || {};
   state.configDraft.general_topics = state.configDraft.general_topics || [];
   state.configDraft.topics_to_examine = state.configDraft.topics_to_examine || [];
@@ -109,16 +116,13 @@ function renderConfigForms() {
   state.configDraft.filtering = state.configDraft.filtering || {};
   state.configDraft.pipeline = state.configDraft.pipeline || {};
   state.userMemoryDraft = state.configDraft.user_memory;
-  renderForm("configForm", () => state.configDraft);
   renderForm("userMemoryForm", () => state.userMemoryDraft);
-  renderForm("settingsUserMemoryForm", () => state.configDraft.user_memory);
-  renderForm("settingsMemoryForm", () => state.configDraft.memory);
   renderForm("settingsSourcesForm", () => state.configDraft.sources);
   renderForm("settingsGeneralTopicsForm", () => state.configDraft.general_topics);
   renderForm("settingsDetailedTopicsForm", () => state.configDraft.topics_to_examine);
   renderForm("settingsGeneralFilteringForm", () => state.configDraft.general_filtering);
   renderForm("settingsFilteringForm", () => state.configDraft.filtering);
-  renderForm("settingsPipelineForm", () => state.configDraft.pipeline);
+  renderPipelineForm();
 }
 
 function renderLearnedForm() {
@@ -126,16 +130,33 @@ function renderLearnedForm() {
   renderForm("memoryLearnedForm", () => state.learnedDraft);
 }
 
-async function saveConfig() {
-  try {
-    state.config = await api("/api/config", { method: "PUT", body: JSON.stringify(state.configDraft) });
-    state.configDraft = clone(state.config.config || {});
-    state.userMemoryDraft = state.configDraft.user_memory || {};
-    renderConfigForms();
-    setStatus("Config saved");
-  } catch (error) {
-    setStatus(error.message, true);
+function renderPipelineForm() {
+  const host = byId("settingsPipelineForm");
+  if (!Array.isArray(state.configDraft.pipeline.default_series)) {
+    state.configDraft.pipeline.default_series = [...DEFAULT_PIPELINE_SERIES];
   }
+  const selected = new Set(state.configDraft.pipeline.default_series);
+  host.innerHTML = `<div class="form-grid">${PIPELINE_MODULES.map(([module, label]) => pipelineToggle(module, label, selected)).join("")}</div>`;
+  host.querySelectorAll("[data-pipeline-module]").forEach((input) => {
+    input.addEventListener("change", () => {
+      state.configDraft.pipeline.default_series = PIPELINE_MODULES.filter(([module]) => {
+        return byId(`pipelineModule-${module}`).value === "true";
+      }).map(([module]) => module);
+    });
+  });
+}
+
+function pipelineToggle(module, label, selected) {
+  const value = selected.has(module) ? "true" : "false";
+  return `
+    <label class="field-row boolean-row">
+      <span class="field-label">${label}</span>
+      <select id="pipelineModule-${module}" class="field-input boolean-input" data-pipeline-module="${module}">
+        <option value="true"${value === "true" ? " selected" : ""}>true</option>
+        <option value="false"${value === "false" ? " selected" : ""}>false</option>
+      </select>
+    </label>
+  `;
 }
 
 async function saveUserMemory() {
@@ -152,19 +173,6 @@ async function saveConfigSection(section, payload, label) {
     state.userMemoryDraft = state.configDraft.user_memory || {};
     renderConfigForms();
     setStatus(`${label} saved`);
-  } catch (error) {
-    setStatus(error.message, true);
-  }
-}
-
-async function previewUserMemory() {
-  try {
-    const payload = await api("/api/previews/user-memory", {
-      method: "POST",
-      body: JSON.stringify(state.userMemoryDraft || {}),
-    });
-    byId("userMemoryPreview").textContent = payload.prompt || "";
-    setStatus("Ground truth profile preview updated");
   } catch (error) {
     setStatus(error.message, true);
   }
@@ -280,29 +288,12 @@ function updatePaneButton(id, collapsed, label) {
   button.title = `${action} ${label}`;
 }
 
-function toggleSidebar() {
-  state.sidebarCollapsed = !state.sidebarCollapsed;
-  byId("appShell").classList.toggle("sidebar-collapsed", state.sidebarCollapsed);
-  byId("appSidebar").classList.toggle("collapsed", state.sidebarCollapsed);
-
-  const button = byId("toggleAppSidebar");
-  button.textContent = state.sidebarCollapsed ? ">" : "<";
-  button.setAttribute("aria-label", state.sidebarCollapsed ? "Expand menu" : "Collapse menu");
-}
-
 function bindEvents() {
   document.querySelectorAll(".nav-button").forEach((button) => {
     button.addEventListener("click", () => setView(button.dataset.view));
   });
   byId("refreshButton").addEventListener("click", refreshCurrent);
-  byId("saveConfigButton").addEventListener("click", saveConfig);
   byId("saveUserMemoryButton").addEventListener("click", saveUserMemory);
-  byId("saveSettingsUserMemoryButton").addEventListener("click", () =>
-    saveConfigSection("user_memory", state.configDraft.user_memory, "Ground truth profile")
-  );
-  byId("saveSettingsMemoryButton").addEventListener("click", () =>
-    saveConfigSection("memory", state.configDraft.memory, "Memory settings")
-  );
   byId("saveSettingsSourcesButton").addEventListener("click", () =>
     saveConfigSection("sources", state.configDraft.sources, "RSS sources")
   );
@@ -321,7 +312,6 @@ function bindEvents() {
   byId("saveSettingsPipelineButton").addEventListener("click", () =>
     saveConfigSection("pipeline", state.configDraft.pipeline, "Pipeline")
   );
-  byId("previewUserMemoryButton").addEventListener("click", previewUserMemory);
   byId("saveLearnedButton").addEventListener("click", saveLearned);
   byId("saveMemoryLearnedButton").addEventListener("click", saveLearned);
   byId("previewLearnedButton").addEventListener("click", () => previewLearned("learnedPreview"));
@@ -333,7 +323,6 @@ function bindEvents() {
   byId("runAutoconfigButton").addEventListener("click", runAutoconfig);
   byId("toggleReportContent").addEventListener("click", () => togglePane("content"));
   byId("toggleReportBrowser").addEventListener("click", () => togglePane("browser"));
-  byId("toggleAppSidebar").addEventListener("click", toggleSidebar);
   byId("reportTypeFilter").addEventListener("change", (event) => {
     state.reportType = event.target.value;
     renderReportList();

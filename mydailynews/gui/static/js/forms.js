@@ -6,7 +6,7 @@ export function renderForm(hostId, getRoot) {
 
   const grid = document.createElement("div");
   grid.className = "form-grid";
-  renderValue(grid, getRoot(), [], "root", getRoot, () => renderForm(hostId, getRoot));
+  renderValue(grid, getRoot(), [], "", getRoot, () => renderForm(hostId, getRoot));
   host.appendChild(grid);
 }
 
@@ -24,22 +24,27 @@ function renderValue(parent, value, path, label, getRoot, rerender) {
 
 function renderObject(parent, value, path, label, getRoot, rerender) {
   const isRoot = path.length === 0;
-  const card = document.createElement("div");
+  const card = document.createElement(isRoot ? "div" : "details");
   card.className = isRoot ? "form-node" : "form-card";
 
   if (!isRoot) {
-    const header = document.createElement("div");
+    card.open = true;
+    const header = document.createElement("summary");
     header.className = "form-card-header";
     header.innerHTML = `<h4>${escapeHtml(humanLabel(label))}</h4>`;
+    card.appendChild(header);
+
     if (canAddField(path)) {
+      const actions = document.createElement("div");
+      actions.className = "array-actions";
       const add = document.createElement("button");
       add.type = "button";
       add.className = "mini-button";
       add.textContent = "Add field";
       add.addEventListener("click", () => addObjectField(getRoot(), path, rerender));
-      header.appendChild(add);
+      actions.appendChild(add);
+      card.appendChild(actions);
     }
-    card.appendChild(header);
   }
 
   Object.keys(value).forEach((key) => {
@@ -56,37 +61,54 @@ function renderObject(parent, value, path, label, getRoot, rerender) {
 }
 
 function renderArray(parent, value, path, label, getRoot, rerender) {
-  const card = document.createElement("div");
-  card.className = "form-card";
+  const isRoot = path.length === 0;
+  const card = document.createElement(isRoot ? "div" : "details");
+  card.className = isRoot ? "form-node" : "form-card";
 
-  const header = document.createElement("div");
-  header.className = "form-card-header";
-  header.innerHTML = `<h4>${escapeHtml(humanLabel(label))}</h4><span class="muted small">${value.length} item(s)</span>`;
-  card.appendChild(header);
+  if (!isRoot) {
+    card.open = true;
+    const header = document.createElement("summary");
+    header.className = "form-card-header";
+    header.innerHTML = `<h4>${escapeHtml(humanLabel(label))}</h4><span class="muted small">${value.length} item(s)</span>`;
+    card.appendChild(header);
+  }
 
   value.forEach((item, index) => {
-    const row = document.createElement("div");
+    const itemPath = path.concat(index);
+    const remove = removeArrayButton(getRoot, path, index, rerender);
+
+    if (!item || typeof item !== "object") {
+      const row = document.createElement("div");
+      row.className = "array-item-row";
+      renderScalar(row, item, itemPath, "", getRoot);
+      row.appendChild(remove);
+      card.appendChild(row);
+      return;
+    }
+
+    const row = document.createElement("details");
     row.className = "form-card";
+    row.open = true;
 
-    const rowHeader = document.createElement("div");
+    const rowHeader = document.createElement("summary");
     rowHeader.className = "form-card-header";
-    rowHeader.innerHTML = `<span class="field-label">Item ${index + 1}</span>`;
-
-    const remove = document.createElement("button");
-    remove.type = "button";
-    remove.className = "mini-button";
-    remove.textContent = "Remove";
-    remove.addEventListener("click", () => {
-      const array = getPath(getRoot(), path);
-      array.splice(index, 1);
-      rerender();
-    });
-
-    rowHeader.appendChild(remove);
+    rowHeader.innerHTML = `<h4>${escapeHtml(arrayItemLabel(item, index))}</h4>`;
     row.appendChild(rowHeader);
-    renderValue(row, item, path.concat(index), `[${index + 1}]`, getRoot, rerender);
+
+    const rowActions = document.createElement("div");
+    rowActions.className = "array-actions";
+    rowActions.appendChild(remove);
+    row.appendChild(rowActions);
+    renderArrayItem(row, item, itemPath, arrayItemLabel(item, index), getRoot, rerender);
     card.appendChild(row);
   });
+
+  if (!value.length) {
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    empty.textContent = "No items.";
+    card.appendChild(empty);
+  }
 
   const actions = document.createElement("div");
   actions.className = "array-actions";
@@ -106,16 +128,34 @@ function renderArray(parent, value, path, label, getRoot, rerender) {
   parent.appendChild(card);
 }
 
+function renderArrayItem(parent, value, path, label, getRoot, rerender) {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    Object.keys(value).forEach((key) => {
+      renderValue(parent, value[key], path.concat(key), key, getRoot, rerender);
+    });
+    if (Object.keys(value).length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "empty";
+      empty.textContent = "No fields.";
+      parent.appendChild(empty);
+    }
+    return;
+  }
+  renderValue(parent, value, path, label, getRoot, rerender);
+}
+
 function renderScalar(parent, value, path, label, getRoot) {
   const row = document.createElement("label");
   row.className = "field-row";
-  row.innerHTML = `<span class="field-label">${escapeHtml(humanLabel(label))}</span>`;
+  row.innerHTML = label ? `<span class="field-label">${escapeHtml(humanLabel(label))}</span>` : "";
 
   if (typeof value === "boolean") {
-    const input = document.createElement("input");
-    input.type = "checkbox";
-    input.checked = value;
-    input.addEventListener("change", () => setPath(getRoot(), path, input.checked));
+    row.classList.add("boolean-row");
+    const input = document.createElement("select");
+    input.className = "field-input boolean-input";
+    input.innerHTML = `<option value="true">true</option><option value="false">false</option>`;
+    input.value = value ? "true" : "false";
+    input.addEventListener("change", () => setPath(getRoot(), path, input.value === "true"));
     row.appendChild(input);
   } else if (typeof value === "number") {
     const input = document.createElement("input");
@@ -138,6 +178,50 @@ function renderScalar(parent, value, path, label, getRoot) {
   }
 
   parent.appendChild(row);
+}
+
+function removeArrayButton(getRoot, path, index, rerender) {
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.className = "mini-button";
+  remove.textContent = "Remove";
+  remove.addEventListener("click", () => {
+    const array = getPath(getRoot(), path);
+    array.splice(index, 1);
+    rerender();
+  });
+  return remove;
+}
+
+function arrayItemLabel(value, index) {
+  return arrayItemText(value) || `Entry ${index + 1}`;
+}
+
+function arrayItemText(value) {
+  if (value == null) {
+    return "";
+  }
+  if (Array.isArray(value)) {
+    return value.map(arrayItemText).filter(Boolean).slice(0, 2).join(", ");
+  }
+  if (typeof value !== "object") {
+    return String(value).trim();
+  }
+
+  const preferred = ["title", "headline", "name", "label", "source", "topic", "story_key", "id", "url"];
+  for (const key of preferred) {
+    const text = arrayItemText(value[key]);
+    if (text) {
+      return text;
+    }
+  }
+  for (const nested of Object.values(value)) {
+    const text = arrayItemText(nested);
+    if (text) {
+      return text;
+    }
+  }
+  return "";
 }
 
 function canAddField(path) {

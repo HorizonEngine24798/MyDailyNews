@@ -3,6 +3,9 @@ import { byId, escapeAttr, escapeHtml, ordinal, renderMarkdown, reportDisplayTit
 import { feedbackLabels, monthNames, state } from "./state.js";
 
 let reloadMemory = async () => {};
+const MISSING_DATE_SORT_KEY = "9999-99-99";
+const UNDATED_GROUP_DATE = "undated-00-00";
+const FEEDBACK_ITEM_LIMIT = 30;
 
 export function setReportMemoryReload(callback) {
   reloadMemory = typeof callback === "function" ? callback : async () => {};
@@ -110,7 +113,7 @@ function filteredReports() {
 }
 
 function compareReportDate(a, b) {
-  const dateCompare = String(a.date || "9999-99-99").localeCompare(String(b.date || "9999-99-99"));
+  const dateCompare = String(a.date || MISSING_DATE_SORT_KEY).localeCompare(String(b.date || MISSING_DATE_SORT_KEY));
   if (dateCompare !== 0) {
     return dateCompare;
   }
@@ -139,7 +142,7 @@ function dateGroupDetails(className, key, label, defaultOpen) {
 function groupReportsByDate(reports) {
   const yearMap = new Map();
   reports.forEach((report) => {
-    const parts = String(report.date || "undated-00-00").split("-");
+    const parts = String(report.date || UNDATED_GROUP_DATE).split("-");
     const year = parts[0] || "Undated";
     const month = monthNames[Number(parts[1] || 0) - 1] || "Undated";
     const day = Number(parts[2] || 0) || 0;
@@ -186,7 +189,7 @@ function renderFeedback(items) {
 
   const actions = (state.app && state.app.feedback_actions) || Object.keys(feedbackLabels);
   panel.innerHTML = "";
-  items.slice(0, 30).forEach((item) => {
+  items.slice(0, FEEDBACK_ITEM_LIMIT).forEach((item) => {
     const row = document.createElement("div");
     row.className = "feedback-row";
 
