@@ -373,9 +373,19 @@ details[open] > .date-summary::before {
 
 .viewer-header {
   display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
   gap: 6px;
   border-bottom: 1px solid var(--border);
   padding: var(--space);
+}
+
+.report-title-block {
+  min-width: 0;
+}
+
+.audio-button {
+  justify-self: end;
 }
 
 .feedback-panel {

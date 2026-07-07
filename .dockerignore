@@ -1,0 +1,14 @@
+.git
+.venv
+__pycache__/
+*.pyc
+*.pyc.*
+.cache/
+output/
+state/
+config.local*.json
+config.recommended.json
+.env
+.codex_tmp*
+.pytest_tmp/
+models/

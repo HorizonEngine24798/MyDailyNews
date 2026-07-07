@@ -10,11 +10,11 @@ python tools/autoconfig.py --config config.local.json --write config.recommended
 python main.py --config config.recommended.json
 ```
 
-In an interactive terminal, `autoconfig` can ask for an existing GGUF model path, then asks usage-preference questions after hardware detection. Those answers adjust the default module series, brief volume, evidence/delta depth, narrative length, managed-server behavior, and discovery cache mode. Add `--no-model-path-prompt` or `--no-preference-prompt` for scripted runs that should keep the standard defaults.
+In an interactive terminal, `autoconfig` asks usage-preference questions after hardware detection. Those answers adjust the default module series, brief volume, evidence/delta depth, narrative length, and discovery cache mode. Add `--no-preference-prompt` for scripted runs that should keep the standard defaults.
 
 ## Files
 
-- `config.example.json`: committed portable sample with placeholder paths.
+- `config.example.json`: committed portable sample for LM Studio's local server.
 - `config.local.json`: ignored local working config.
 - `config.local*.json`: ignored machine-specific variants.
 - `config.recommended.json`: ignored autoconfig output.
@@ -23,27 +23,27 @@ In an interactive terminal, `autoconfig` can ask for an existing GGUF model path
 
 ## AI Sections
 
-`ai_summary` and `ai_final` intentionally duplicate managed-server fields so each role can tune prompt and output limits separately while sharing the same server.
+`ai_summary` and `ai_final` intentionally duplicate AI fields so each role can tune prompt and output limits separately while sharing the same OpenAI-compatible server.
 
 Important fields:
 
 - `backend`: must be `llama_cpp_server`.
-- `base_url`: OpenAI-compatible endpoint exposed by `llama-server`.
-- `manage_server`: start and stop `llama-server` from the app.
-- `server_executable`: path to `llama-server`.
-- `server_model_path`: local GGUF path.
+- `base_url`: OpenAI-compatible endpoint, usually `http://127.0.0.1:1234/v1` for LM Studio.
+- `manage_server`: keep this `false` for LM Studio or Docker.
+- `server_executable`: only used when `manage_server=true`.
+- `server_model_path`: only used when `manage_server=true`.
 - `server_model`: model label sent to the endpoint.
-- `server_arguments`: llama.cpp launch arguments.
+- `server_arguments`: only used when `manage_server=true`.
 - `context_window_tokens`: app-side record of the effective context window.
 - `max_input_tokens` and `max_new_tokens`: prompt and output budgets.
 
-Keep `max_input_tokens + max_new_tokens` lower than the context window passed to llama.cpp with `-c`.
+Keep `max_input_tokens + max_new_tokens` lower than the context window configured in LM Studio.
 
 ## Coupled Limits
 
 Do not lower only one field when tuning for smaller hardware. Tune these together:
 
-- llama.cpp context size and GPU offload arguments
+- LM Studio model, context size, and GPU offload settings
 - `ai_summary` and `ai_final` token limits
 - headline batch sizes and headline token limits
 - selected article caps
@@ -97,7 +97,7 @@ Kokoro currently supports Python 3.10 through 3.12. If your base environment is 
 ```bash
 conda create -n mydailynews-tts python=3.12
 conda activate mydailynews-tts
-python -m pip install -r requirements-tts.txt
+python -m pip install -r requirements.txt
 ```
 
 Then run:
@@ -150,8 +150,6 @@ state/memory/recall_packets/YYYY-MM-DD_detailed.json
 ```
 
 The `memory` section is required in current configs. The memory layer does not add LLM calls and does not mutate `user_memory` preferences. Learned preferences live in `state/memory/learned_preferences.json`, are visible/editable in the GUI, are updated by supported feedback events, and are applied as bounded deterministic rank adjustments in later article selection. GUI repair tools create timestamped backups in `state/memory/backups/` before rewriting Story Index, Coverage Memory, or Feedback Events. The GUI Runs tab can also launch safe CLI-owned memory inspect, prune, and export commands.
-
-See [GUI, Settings, Memory, Profile, And Runs Status](gui_memory_profile_status.md) for the implemented GUI surfaces, feedback loop, health checks, Runs workflow, manual smoke checklist, and remaining work.
 
 Useful memory maintenance commands:
 
@@ -224,6 +222,6 @@ Removed keys and behaviors:
 
 ## Runtime Checks
 
-`main.py` validates runtime readiness before starting the pipeline. It reports placeholder paths, missing managed-server model files, unresolved `llama-server`, and token/context mismatches.
+`main.py` validates runtime readiness before starting the pipeline. In the default LM Studio mode it checks token/context mismatches; if `manage_server=true`, it also reports missing managed-server model files and unresolved `llama-server`.
 
 `load_config` remains a syntax and schema parser; runtime readiness checks live separately in `mydailynews.app.runtime_config`.

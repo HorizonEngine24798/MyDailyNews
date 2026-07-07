@@ -22,6 +22,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG = REPO_ROOT / "config.local.json"
 DEFAULT_WRITE = REPO_ROOT / "config.recommended.json"
 DEFAULT_MODEL_CATALOG = REPO_ROOT / "profiles" / "model_catalog.json"
+DEFAULT_EXTERNAL_BASE_URL = "http://127.0.0.1:1234/v1"
 STORY_ENRICHMENT_BUDGET_KEYS = (
     "max_context_chars_per_article",
     "max_story_threads",
@@ -109,19 +110,19 @@ class PipelinePreferences:
     brief_volume: str = "standard"
     analysis_depth: str = "balanced"
     narrative_length: str = "standard"
-    server_mode: str = "managed"
+    server_mode: str = "external"
     cache_mode: str = "fresh"
     tts_audio: str = "keep"
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Probe llama.cpp and write a local MyDailyNews config.")
+    parser = argparse.ArgumentParser(description="Detect local hardware and write a MyDailyNews config.")
     parser.add_argument("--config", default=str(DEFAULT_CONFIG), help="Input local config JSON.")
     parser.add_argument("--write", default=str(DEFAULT_WRITE), help="Output recommended config JSON.")
     parser.add_argument("--model-catalog", default=str(DEFAULT_MODEL_CATALOG), help="Model catalog JSON.")
     parser.add_argument("--download-dir", default="", help="Directory for prompted model downloads.")
     parser.add_argument("--detect-only", action="store_true", help="Print detected hardware and recommendation only.")
-    parser.add_argument("--print-launch-command", action="store_true", help="Print the llama-server command for the written config.")
+    parser.add_argument("--print-launch-command", action="store_true", help="Print the model server target for the written config.")
     parser.add_argument("--no-hardware-detect", action="store_true", help="Skip hardware detection and use conservative CPU settings.")
     parser.add_argument("--no-server-probe", action="store_true", help="Do not launch or probe llama-server.")
     parser.add_argument("--no-json-probe", action="store_true", help="Do not run the JSON completion probe.")
@@ -161,20 +162,27 @@ def main(argv: list[str] | None = None) -> int:
         if preferences is not None:
             apply_pipeline_preferences(recommended, preferences)
 
-    download_dir = Path(args.download_dir) if args.download_dir else Path(catalog.get("download_dir", "models"))
-    model_path = existing_model_path(source_config)
-    if model_path:
-        set_model_path(recommended, model_path, str(source_config.get("ai_summary", {}).get("server_model") or model["model_label"]))
-    else:
-        prompted_path = "" if args.no_model_path_prompt else maybe_prompt_model_path(model)
-        if prompted_path:
-            set_model_path(recommended, prompted_path, str(model["model_label"]))
-        elif not args.no_download_prompt:
-            downloaded = maybe_prompt_download(model, download_dir)
-            if downloaded:
-                set_model_path(recommended, str(downloaded), str(model["model_label"]))
+    if uses_managed_server(recommended):
+        download_dir = Path(args.download_dir) if args.download_dir else Path(catalog.get("download_dir", "models"))
+        model_path = existing_model_path(source_config)
+        if model_path:
+            set_model_path(
+                recommended,
+                model_path,
+                str(source_config.get("ai_summary", {}).get("server_model") or model["model_label"]),
+            )
         else:
-            print("No local model path found; leaving server_model_path unchanged.")
+            prompted_path = "" if args.no_model_path_prompt else maybe_prompt_model_path(model)
+            if prompted_path:
+                set_model_path(recommended, prompted_path, str(model["model_label"]))
+            elif not args.no_download_prompt:
+                downloaded = maybe_prompt_download(model, download_dir)
+                if downloaded:
+                    set_model_path(recommended, str(downloaded), str(model["model_label"]))
+            else:
+                print("No local model path found; leaving server_model_path unchanged.")
+    else:
+        print(f"External model server mode: using {recommended['ai_summary']['base_url']}")
 
     report = ProbeReport()
     if not args.no_server_probe:
@@ -185,8 +193,12 @@ def main(argv: list[str] | None = None) -> int:
     write_path.write_text(json.dumps(recommended, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(f"Recommended config written to {write_path}")
     if args.print_launch_command:
-        print("Launch command:")
-        print(" ".join(build_launch_command(recommended["ai_summary"])))
+        command = build_launch_command(recommended["ai_summary"])
+        if command:
+            print("Launch command:")
+            print(" ".join(command))
+        else:
+            print(f"External model server: {recommended['ai_summary']['base_url']}")
     return 0
 
 
@@ -345,14 +357,17 @@ def build_recommended_config(config: dict[str, Any], tier: dict[str, Any], model
     for section in ("ai_summary", "ai_final"):
         ai = updated.setdefault(section, {})
         ai["backend"] = "llama_cpp_server"
+        ai["base_url"] = _external_base_url(ai.get("base_url"))
         ai["server_model"] = model["model_label"]
         ai["context_window_tokens"] = settings["context_window_tokens"]
         ai["max_input_tokens"] = settings["max_input_tokens"]
         ai["max_new_tokens"] = settings["max_new_tokens"]
         ai["request_timeout_seconds"] = settings["request_timeout_seconds"]
-        ai["server_arguments"] = settings["server_arguments"]
-        ai["manage_server"] = bool(ai.get("manage_server", True))
-        ai["server_auto_stop"] = bool(ai.get("server_auto_stop", True))
+        ai["server_arguments"] = []
+        ai["manage_server"] = False
+        ai["server_executable"] = ""
+        ai["server_model_path"] = ""
+        ai["server_auto_stop"] = False
 
     _apply_filtering(updated.setdefault("general_filtering", {}), settings, general=True)
     _apply_filtering(updated.setdefault("filtering", {}), settings, general=False)
@@ -415,14 +430,6 @@ def maybe_prompt_pipeline_preferences() -> PipelinePreferences | None:
         ],
         default="standard",
     )
-    server_mode = prompt_choice(
-        "llama-server management",
-        [
-            ("managed", "Managed", "autostart and stop llama-server from MyDailyNews"),
-            ("external", "External", "reuse a server you manage yourself"),
-        ],
-        default="managed",
-    )
     cache_mode = prompt_choice(
         "Discovery cache preference",
         [
@@ -445,7 +452,6 @@ def maybe_prompt_pipeline_preferences() -> PipelinePreferences | None:
         brief_volume=brief_volume,
         analysis_depth=analysis_depth,
         narrative_length=narrative_length,
-        server_mode=server_mode,
         cache_mode=cache_mode,
         tts_audio=tts_audio,
     )
@@ -569,11 +575,27 @@ def _apply_narrative_length_preference(config: dict[str, Any], narrative_length:
 
 
 def _apply_server_mode_preference(config: dict[str, Any], server_mode: str) -> None:
-    managed = str(server_mode or "managed").strip().lower() != "external"
+    managed = str(server_mode or "external").strip().lower() == "managed"
     for section_name in ("ai_summary", "ai_final"):
         ai = config.setdefault(section_name, {})
         ai["manage_server"] = managed
         ai["server_auto_stop"] = managed
+
+
+def _external_base_url(value: Any) -> str:
+    raw = str(value or "").strip().rstrip("/")
+    legacy_defaults = {
+        "",
+        "http://127.0.0.1:8080",
+        "http://127.0.0.1:8080/v1",
+        "http://localhost:8080",
+        "http://localhost:8080/v1",
+    }
+    return DEFAULT_EXTERNAL_BASE_URL if raw in legacy_defaults else raw
+
+
+def uses_managed_server(config: dict[str, Any]) -> bool:
+    return any(bool(config.get(section, {}).get("manage_server")) for section in ("ai_summary", "ai_final"))
 
 
 def _apply_cache_mode_preference(config: dict[str, Any], cache_mode: str) -> None:
@@ -800,12 +822,15 @@ def download_model(model: dict[str, Any], download_dir: Path) -> Path:
 def probe_config(config: dict[str, Any], *, run_json_probe: bool) -> ProbeReport:
     warnings: list[str] = []
     ai_config = config.get("ai_summary", {})
-    version_ok, version_output = check_llama_version(str(ai_config.get("server_executable", "")))
-    if not version_ok:
-        warnings.append(version_output or "Could not run llama-server --version.")
+    version_ok = False
+    version_output = ""
+    if ai_config.get("manage_server", False):
+        version_ok, version_output = check_llama_version(str(ai_config.get("server_executable", "")))
+        if not version_ok:
+            warnings.append(version_output or "Could not run llama-server --version.")
 
     with managed_probe_server(ai_config) as server:
-        ready = endpoint_ready(str(ai_config.get("base_url", "http://127.0.0.1:8080/v1")))
+        ready = endpoint_ready(str(ai_config.get("base_url", DEFAULT_EXTERNAL_BASE_URL)))
         json_ok = False
         if ready and run_json_probe:
             json_ok = run_json_completion_probe(ai_config)
@@ -837,7 +862,7 @@ def check_llama_version(executable: str) -> tuple[bool, str]:
 
 @contextmanager
 def managed_probe_server(ai_config: dict[str, Any]) -> Iterator[dict[str, str]]:
-    base_url = str(ai_config.get("base_url", "http://127.0.0.1:8080/v1"))
+    base_url = str(ai_config.get("base_url", DEFAULT_EXTERNAL_BASE_URL))
     if endpoint_ready(base_url):
         yield {"attached": "true", "log_path": ""}
         return
@@ -873,11 +898,13 @@ def managed_probe_server(ai_config: dict[str, Any]) -> Iterator[dict[str, str]]:
 
 
 def build_launch_command(ai_config: dict[str, Any]) -> list[str]:
+    if not ai_config.get("manage_server", False):
+        return []
     executable = resolve_executable(str(ai_config.get("server_executable", "")))
     model_path = str(ai_config.get("server_model_path", "")).strip()
     if not executable or not model_path or looks_like_placeholder(model_path):
         return []
-    host, port = host_port_from_base_url(str(ai_config.get("base_url", "http://127.0.0.1:8080/v1")))
+    host, port = host_port_from_base_url(str(ai_config.get("base_url", DEFAULT_EXTERNAL_BASE_URL)))
     return [
         executable,
         "-m",
@@ -942,7 +969,7 @@ def wait_for_endpoint_or_exit(base_url: str, process: subprocess.Popen, *, timeo
 
 
 def run_json_completion_probe(ai_config: dict[str, Any]) -> bool:
-    base_url = str(ai_config.get("base_url", "http://127.0.0.1:8080/v1")).rstrip("/")
+    base_url = str(ai_config.get("base_url", DEFAULT_EXTERNAL_BASE_URL)).rstrip("/")
     payload = {
         "model": ai_config.get("server_model") or ai_config.get("model_id") or "local-model",
         "messages": [
@@ -964,14 +991,14 @@ def run_json_completion_probe(ai_config: dict[str, Any]) -> bool:
 
 
 def probe_urls(base_url: str) -> list[str]:
-    base = str(base_url or "http://127.0.0.1:8080/v1").rstrip("/")
+    base = str(base_url or DEFAULT_EXTERNAL_BASE_URL).rstrip("/")
     parsed = urlparse(base)
     root = f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else base
     return [f"{base}/models", f"{base}/health", f"{root}/health", f"{root}/v1/health"]
 
 
 def host_port_from_base_url(base_url: str) -> tuple[str, int]:
-    parsed = urlparse(base_url or "http://127.0.0.1:8080/v1")
+    parsed = urlparse(base_url or DEFAULT_EXTERNAL_BASE_URL)
     host = parsed.hostname or "127.0.0.1"
     if parsed.port is not None:
         return host, int(parsed.port)
@@ -997,7 +1024,7 @@ def print_detection(hardware: HardwareInfo, tier: dict[str, Any], model: dict[st
 
 
 def print_probe_report(report: ProbeReport) -> None:
-    print(f"llama-server --version: {'ok' if report.version_ok else 'not confirmed'}")
+    print(f"Managed llama-server check: {'ok' if report.version_ok else 'not used'}")
     print(f"Server readiness probe: {'ok' if report.server_ready else 'failed'}")
     print(f"JSON completion probe: {'ok' if report.json_probe_ok else 'not confirmed'}")
     if report.log_path:

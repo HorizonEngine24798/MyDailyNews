@@ -1,6 +1,6 @@
 # MyDailyNews
 
-Local news briefing pipeline. It fetches headlines, scores and summarizes them with a local `llama-server`, then writes Markdown/JSON briefs. Optional TTS turns any saved Markdown brief into a WAV file.
+Local news briefing pipeline. It fetches headlines, scores and summarizes them through a local OpenAI-compatible server such as LM Studio, then writes Markdown/JSON briefs. Optional TTS turns any saved Markdown brief into a WAV file.
 
 Use Git Bash for the commands below.
 
@@ -16,20 +16,15 @@ test -f config.local.json || cp config.example.json config.local.json
 notepad config.local.json
 ```
 
-In `config.local.json`, set these four values to your real paths:
+Start LM Studio's local server, reachable at:
 
-```json
-"ai_summary": {
-  "server_executable": "PATH/TO/llama-server",
-  "server_model_path": "PATH/TO/model.gguf"
-},
-"ai_final": {
-  "server_executable": "PATH/TO/llama-server",
-  "server_model_path": "PATH/TO/model.gguf"
-}
+```text
+http://127.0.0.1:1234
 ```
 
-Then write the tuned config:
+Then write the tuned config. Autoconfig still detects your hardware and writes
+matching token/batch budgets, but MyDailyNews does not start or stop the model
+server:
 
 ```bash
 python tools/autoconfig.py --config config.local.json --write config.recommended.json
@@ -73,6 +68,17 @@ Open:
 ```text
 http://127.0.0.1:8765
 ```
+
+## Docker
+
+```bash
+docker compose build
+docker compose run --rm app
+docker compose up gui
+```
+
+Docker sets `MYDAILYNEWS_AI_BASE_URL=http://host.docker.internal:1234/v1`
+inside the container so it can reach LM Studio on the host. See `docs/docker.md`.
 
 ## Useful Commands
 
@@ -152,13 +158,13 @@ Validate JSON:
 python -m json.tool config.local.json >/tmp/mydailynews-config.json
 ```
 
-Print the managed llama-server command:
+Confirm the configured model server URL:
 
 ```bash
 python tools/autoconfig.py --config config.local.json --write config.recommended.json --print-launch-command --no-server-probe
 ```
 
-If the run says the config is not ready, fix `server_executable` and `server_model_path` in both `ai_summary` and `ai_final`, then rerun autoconfig.
+It should print `External model server: http://127.0.0.1:1234/v1`.
 
 ## License
 

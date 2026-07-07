@@ -1,9 +1,9 @@
 {
   "output_dir": "output",
-  "user_agent": "MyDailyNews/1.0 (+local llama.cpp news brief)",
+  "user_agent": "MyDailyNews/1.0 (+local OpenAI-compatible news brief)",
   "ai_summary": {
     "backend": "llama_cpp_server",
-    "base_url": "http://127.0.0.1:8080/v1",
+    "base_url": "http://127.0.0.1:1234/v1",
     "server_model": "Qwen3-8B-Q4_K_M",
     "context_window_tokens": 16384,
     "max_input_tokens": 12000,
@@ -21,7 +21,7 @@
   },
   "ai_final": {
     "backend": "llama_cpp_server",
-    "base_url": "http://127.0.0.1:8080/v1",
+    "base_url": "http://127.0.0.1:1234/v1",
     "server_model": "Qwen3-8B-Q4_K_M",
     "context_window_tokens": 16384,
     "max_input_tokens": 12000,

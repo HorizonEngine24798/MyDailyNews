@@ -10,6 +10,7 @@ import re
 import subprocess
 import sys
 from typing import Any, Dict, List
+from urllib.parse import quote
 
 from mydailynews.app.config import load_config
 from mydailynews.app.models import UserMemory
@@ -202,6 +203,8 @@ class GuiDataService:
             report_date=parsed["date"],
             brief_name=brief_name,
         )
+        audio_path = _report_audio_path(path)
+        has_audio = audio_path.exists() and audio_path.is_file()
         return {
             "id": path.name,
             "filename": path.name,
@@ -214,7 +217,16 @@ class GuiDataService:
             "json_error": json_error,
             "feedback_items": feedback_items,
             "feedback_history": feedback_history,
+            "has_audio": has_audio,
+            "audio_url": f"/api/reports/{quote(path.name, safe='')}/audio" if has_audio else "",
         }
+
+    def report_audio_path(self, report_id: str) -> Path:
+        path = _report_audio_path(self._report_path(report_id))
+        self._require_inside_root(path)
+        if not path.exists() or not path.is_file():
+            raise FileNotFoundError("Report audio not found.")
+        return path
 
     def memory_snapshot(self) -> Dict[str, Any]:
         config = self._load_config()
@@ -525,6 +537,10 @@ def _parse_report_name(filename: str) -> Dict[str, str]:
     if not match:
         return {"date": "", "kind": Path(str(filename or "")).stem}
     return {"date": match.group("date"), "kind": match.group("kind")}
+
+
+def _report_audio_path(report_path: Path) -> Path:
+    return report_path.with_suffix(".wav")
 
 
 def _brief_name_for_kind(kind: str) -> str:

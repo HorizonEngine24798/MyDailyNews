@@ -6,6 +6,7 @@ let reloadMemory = async () => {};
 const MISSING_DATE_SORT_KEY = "9999-99-99";
 const UNDATED_GROUP_DATE = "undated-00-00";
 const FEEDBACK_ITEM_LIMIT = 30;
+let reportAudio = null;
 
 export function setReportMemoryReload(callback) {
   reloadMemory = typeof callback === "function" ? callback : async () => {};
@@ -99,11 +100,32 @@ export function renderReportDetail() {
     return;
   }
   byId("reportHeader").innerHTML = `
-    <h2>${escapeHtml(reportDisplayTitle(report))}</h2>
-    <div class="muted small">${escapeHtml(report.date || "undated")} / ${escapeHtml(report.kind || "")}</div>
+    <div class="report-title-block">
+      <h2>${escapeHtml(reportDisplayTitle(report))}</h2>
+      <div class="muted small">${escapeHtml(report.date || "undated")} / ${escapeHtml(report.kind || "")}</div>
+    </div>
+    ${
+      report.audio_url
+        ? `<button id="playReportAudio" class="command audio-button" type="button" data-audio-url="${escapeAttr(report.audio_url)}">Play</button>`
+        : ""
+    }
   `;
+  const playButton = byId("playReportAudio");
+  if (playButton) {
+    playButton.addEventListener("click", () => playReportAudio(playButton.dataset.audioUrl));
+  }
   renderFeedback(report.feedback_items || []);
   byId("markdownView").innerHTML = renderMarkdown(report.markdown || "");
+}
+
+function playReportAudio(url) {
+  if (!url) {
+    return;
+  }
+  if (!reportAudio || reportAudio.src !== new URL(url, window.location.href).href) {
+    reportAudio = new Audio(url);
+  }
+  reportAudio.play().catch((error) => setStatus(error.message, true));
 }
 
 function filteredReports() {

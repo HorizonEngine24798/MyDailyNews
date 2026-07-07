@@ -1,6 +1,8 @@
 # llama.cpp Setup
 
-MyDailyNews expects a local `llama-server` binary and a local GGUF model file.
+MyDailyNews defaults to LM Studio's OpenAI-compatible local server at
+`http://127.0.0.1:1234/v1`. Use this page only if you intentionally want the
+older managed `llama-server` path.
 
 ## Install Options
 
@@ -37,7 +39,7 @@ If `llama-server` is not on `PATH`, set `server_executable` in `config.local.jso
 
 ## Managed Server Mode
 
-With `manage_server=true`, MyDailyNews starts `llama-server`, waits for the OpenAI-compatible endpoint, reuses the same process for summary and final model roles, and stops it when done if `server_auto_stop=true`.
+With `manage_server=true`, MyDailyNews starts `llama-server`, waits for the OpenAI-compatible endpoint, reuses the same process for summary and final model roles, and stops it when done if `server_auto_stop=true`. Keep `manage_server=false` when using LM Studio or Docker.
 
 The effective command is:
 
@@ -53,14 +55,14 @@ python tools/autoconfig.py --config config.local.json --write config.recommended
 
 ## External Server Mode
 
-If you already run a compatible server, use `profiles/config.remote-server.example.json` as a starting point and set:
+The default path is an already-running compatible server such as LM Studio:
 
 ```json
 {
   "manage_server": false,
-  "base_url": "http://127.0.0.1:8080/v1",
+  "base_url": "http://127.0.0.1:1234/v1",
   "server_model": "your-loaded-model-label"
 }
 ```
 
-This is useful for LM Studio, an already-running llama.cpp server, or another local OpenAI-compatible server. It remains a secondary path for v1.
+This is useful for LM Studio, an already-running llama.cpp server, or another local OpenAI-compatible server.

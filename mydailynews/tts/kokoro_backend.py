@@ -116,7 +116,7 @@ def _synthesize_audio_chunks(chunks: List[str], config: TTSConfig) -> tuple[int,
         from kokoro import KPipeline
     except ImportError as exc:
         raise RuntimeError(
-            "Kokoro TTS is not installed. Use Python 3.10-3.12 and install optional dependencies with requirements-tts.txt."
+            "Kokoro TTS is not installed. Use Python 3.10-3.12 and install dependencies with requirements.txt."
         ) from exc
 
     try:
@@ -134,7 +134,7 @@ def _synthesize_audio_chunks(chunks: List[str], config: TTSConfig) -> tuple[int,
         missing = f" ({exc.filename})" if exc.filename else ""
         raise RuntimeError(
             f"Kokoro TTS could not find a required runtime file{missing}. "
-            "Use Python 3.10-3.12, install requirements-tts.txt, and ensure espeak-ng is installed and on PATH."
+            "Use Python 3.10-3.12, install requirements.txt, and ensure espeak-ng is installed and on PATH."
         ) from exc
     return KOKORO_SAMPLE_RATE, audio_chunks
 

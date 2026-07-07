@@ -54,7 +54,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--save-intermediate",
-        "--save_intermediate",
         action="store_true",
         help="Write stage artifacts even when the run is not stopped at a checkpoint.",
     )

@@ -66,6 +66,8 @@ class GuiDataServiceTests(unittest.TestCase):
 
         detail = service.report_detail("2026-06-28_general_brief.md")
         self.assertEqual(detail["feedback_items"][0]["story_key"], "durable-story")
+        self.assertFalse(detail["has_audio"])
+        self.assertEqual(detail["audio_url"], "")
 
         result = service.record_feedback(
             {
@@ -85,6 +87,20 @@ class GuiDataServiceTests(unittest.TestCase):
         detail_after_feedback = service.report_detail("2026-06-28_general_brief.md")
         self.assertEqual(detail_after_feedback["feedback_items"][0]["feedback_count"], 1)
         self.assertEqual(detail_after_feedback["feedback_items"][0]["latest_feedback_action"], "more_like_this")
+
+    def test_report_detail_exposes_matching_wav_audio(self) -> None:
+        root = self._temp_root()
+        self._write_config(root)
+        self._write_report(root)
+        wav_path = root / "output" / "2026-06-28_general_brief.wav"
+        wav_path.write_bytes(b"RIFF....WAVEfmt ")
+        service = GuiDataService(root, "config.local.json")
+
+        detail = service.report_detail("2026-06-28_general_brief.md")
+
+        self.assertTrue(detail["has_audio"])
+        self.assertEqual(detail["audio_url"], "/api/reports/2026-06-28_general_brief.md/audio")
+        self.assertEqual(service.report_audio_path("2026-06-28_general_brief.md"), wav_path)
 
     def test_record_feedback_updates_learned_preferences_not_user_memory(self) -> None:
         root = self._temp_root()

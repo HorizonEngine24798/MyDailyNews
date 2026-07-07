@@ -9,7 +9,7 @@ Install optional audio dependencies:
 ```bash
 conda create -n mydailynews-tts python=3.12
 conda activate mydailynews-tts
-python -m pip install -r requirements-tts.txt
+python -m pip install -r requirements.txt
 ```
 
 Enable the config block:

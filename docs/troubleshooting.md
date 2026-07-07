@@ -17,17 +17,15 @@ Then run:
 python main.py --config config.recommended.json
 ```
 
-## Placeholder Or Missing Paths
+## LM Studio Connection
 
-If the CLI reports `server_executable` or `server_model_path`, edit your local config or rerun autoconfig.
+Make sure LM Studio's local server is started and reachable at:
 
-Verify llama.cpp:
-
-```bash
-llama-server --version
+```text
+http://127.0.0.1:1234
 ```
 
-Verify the GGUF path points to an existing file.
+In Docker, Compose overrides the app to use `http://host.docker.internal:1234/v1`.
 
 ## Startup Timeout
 
@@ -41,9 +39,9 @@ Common causes:
 
 - model too large for VRAM or RAM
 - context window too large
-- wrong llama.cpp build for your GPU backend
+- wrong LM Studio GPU offload/runtime setting
 - port already in use
-- stale executable path
+- LM Studio local server not started
 
 ## Invalid JSON
 

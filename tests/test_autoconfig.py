@@ -129,9 +129,15 @@ class AutoconfigTests(unittest.TestCase):
         recommended = autoconfig.build_recommended_config(source, tier, model)
 
         self.assertEqual(source, source_before)
+        self.assertEqual(recommended["ai_summary"]["base_url"], "http://127.0.0.1:1234/v1")
         self.assertEqual(recommended["ai_summary"]["server_model"], "Qwen3-8B-Q4_K_M")
         self.assertEqual(recommended["ai_summary"]["context_window_tokens"], 8192)
         self.assertEqual(recommended["ai_summary"]["max_input_tokens"], 6000)
+        self.assertFalse(recommended["ai_summary"]["manage_server"])
+        self.assertFalse(recommended["ai_summary"]["server_auto_stop"])
+        self.assertEqual(recommended["ai_summary"]["server_executable"], "")
+        self.assertEqual(recommended["ai_summary"]["server_model_path"], "")
+        self.assertEqual(recommended["ai_summary"]["server_arguments"], [])
         self.assertEqual(recommended["ai_final"]["max_new_tokens"], 1024)
         self.assertEqual(recommended["general_filtering"]["max_headlines_per_ai_batch"], 6)
         self.assertEqual(recommended["filtering"]["max_selected_articles"], 5)
@@ -162,8 +168,6 @@ class AutoconfigTests(unittest.TestCase):
         source["enrichment"]["max_entities"] = 5
         source.setdefault("runtime", {})["max_enrichment_workers"] = 4
         source.setdefault("cache", {})["wikipedia_retention_days"] = 30
-        source["filtering"]["max_selected_per_event_cluster"] = 1
-        source["general_filtering"]["prefer_multi_source_clusters"] = True
         tier = next(item for item in catalog["tiers"] if item["id"] == "nvidia_12gb")
         model = autoconfig.model_for_tier(catalog, tier)
 
@@ -174,8 +178,6 @@ class AutoconfigTests(unittest.TestCase):
         self.assertNotIn("max_entities", recommended["enrichment"])
         self.assertNotIn("max_enrichment_workers", recommended["runtime"])
         self.assertNotIn("wikipedia_retention_days", recommended["cache"])
-        self.assertNotIn("max_selected_per_event_cluster", recommended["filtering"])
-        self.assertNotIn("prefer_multi_source_clusters", recommended["general_filtering"])
         self.assertEqual(recommended["enrichment"]["max_story_threads"], 10)
         self.assertEqual(recommended["enrichment"]["cache_ttl_seconds"], 604800)
 
@@ -293,7 +295,7 @@ class AutoconfigTests(unittest.TestCase):
 
     def test_prompt_pipeline_preferences_accepts_names_and_numbers(self) -> None:
         stdout = io.StringIO()
-        answers = ["research", "3", "deep", "long", "external", "cache", "yes"]
+        answers = ["research", "3", "deep", "long", "cache", "yes"]
 
         with patch("tools.autoconfig.sys.stdin", FakeInteractiveStdin()), patch(
             "builtins.input",
@@ -331,7 +333,7 @@ class AutoconfigTests(unittest.TestCase):
         self.assertEqual(config["ai_final"]["server_model_path"], str(model_path))
         self.assertEqual(config["ai_final"]["server_model"], "local-model")
 
-    def test_main_can_prompt_for_existing_model_path(self) -> None:
+    def test_main_skips_model_path_prompt_for_external_server(self) -> None:
         temp_dir = self._temp_dir()
         source_path = temp_dir / "config.local.json"
         target_path = temp_dir / "config.recommended.json"
@@ -342,7 +344,7 @@ class AutoconfigTests(unittest.TestCase):
         stdout = io.StringIO()
         with patch("tools.autoconfig.sys.stdin", FakeInteractiveStdin()), patch(
             "builtins.input",
-            return_value=str(model_path),
+            side_effect=AssertionError("model path prompt should not run in external-server mode"),
         ), patch(
             "tools.autoconfig.detect_hardware",
             return_value=autoconfig.HardwareInfo("test-os", 64, "RTX test", "nvidia", 12),
@@ -365,8 +367,10 @@ class AutoconfigTests(unittest.TestCase):
 
         self.assertEqual(rc, 0)
         written = json.loads(target_path.read_text(encoding="utf-8"))
-        self.assertEqual(written["ai_summary"]["server_model_path"], str(model_path))
-        self.assertEqual(written["ai_final"]["server_model_path"], str(model_path))
+        self.assertEqual(written["ai_summary"]["base_url"], "http://127.0.0.1:1234/v1")
+        self.assertFalse(written["ai_summary"]["manage_server"])
+        self.assertEqual(written["ai_summary"]["server_model_path"], "")
+        self.assertEqual(written["ai_final"]["server_model_path"], "")
 
     def test_download_model_streams_to_ignored_models_dir(self) -> None:
         temp_dir = self._temp_dir()

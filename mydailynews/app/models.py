@@ -10,7 +10,7 @@ class AIConfig:
     backend: str = "llama_cpp_server"
     model_id: str = "Qwen3-8B-Q4_K_M"
     server_model: str = "Qwen3-8B-Q4_K_M"
-    base_url: str = "http://127.0.0.1:8080/v1"
+    base_url: str = "http://127.0.0.1:1234/v1"
     context_window_tokens: int = 16384
     max_input_tokens: int = 12000
     max_new_tokens: int = 2048
@@ -22,13 +22,13 @@ class AIConfig:
     token_estimation_chars_per_token: float = 4.0
     enable_thinking: bool = False
     manage_server: bool = False
-    server_executable: str = "llama-server"
+    server_executable: str = ""
     server_model_path: str = ""
     server_arguments: List[str] = field(default_factory=list)
     server_log_dir: str = "output/diagnostics/llama_server"
     server_startup_timeout_seconds: int = 180
     server_shutdown_timeout_seconds: int = 15
-    server_auto_stop: bool = True
+    server_auto_stop: bool = False
 
     @property
     def effective_model_label(self) -> str:
@@ -366,7 +366,7 @@ class RSSSourceConfig:
 @dataclass
 class AppConfig:
     output_dir: str = "output"
-    user_agent: str = "MyDailyNews/1.0 (+local llama.cpp news brief)"
+    user_agent: str = "MyDailyNews/1.0 (+local OpenAI-compatible news brief)"
     ai_summary: AIConfig = field(default_factory=AIConfig)
     ai_final: AIConfig = field(default_factory=AIConfig)
     filtering: FilteringConfig = field(default_factory=FilteringConfig)

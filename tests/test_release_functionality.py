@@ -4,9 +4,11 @@ from copy import deepcopy
 import importlib.util
 import json
 from pathlib import Path
+import re
 import subprocess
 import sys
 import unittest
+from unittest.mock import patch
 
 from mydailynews.ai import create_ai_client
 from mydailynews.app.config import load_config
@@ -25,8 +27,6 @@ TEMP_ROOT = REPO_ROOT / ".codex_tmp_test" / "release_tests"
 
 
 class ReleaseSmokeTests(unittest.TestCase):
-    # Do not add tests that require Markdown guide files to exist. Those docs are
-    # user-guide material, not release-contract surface for automated tests.
     def _config_payload(self) -> dict:
         return json.loads((REPO_ROOT / "config.example.json").read_text(encoding="utf-8-sig"))
 
@@ -41,6 +41,10 @@ class ReleaseSmokeTests(unittest.TestCase):
 
         self.assertEqual(config.ai_summary.backend, "llama_cpp_server")
         self.assertEqual(config.ai_final.backend, "llama_cpp_server")
+        self.assertEqual(config.ai_summary.base_url, "http://127.0.0.1:1234/v1")
+        self.assertFalse(config.ai_summary.manage_server)
+        self.assertEqual(config.ai_summary.server_executable, "")
+        self.assertEqual(config.ai_summary.server_model_path, "")
         self.assertEqual(config.ai_summary.effective_model_label, "Qwen3-8B-Q4_K_M")
         self.assertEqual(config.ai_final.effective_model_label, "Qwen3-8B-Q4_K_M")
         self.assertEqual(config.ai_summary.context_window_tokens, 16384)
@@ -87,6 +91,13 @@ class ReleaseSmokeTests(unittest.TestCase):
         with self.subTest("factory trusts validated config"):
             with self.assertRaisesRegex(ValueError, "Unsupported ai backend: auto"):
                 create_ai_client(AIConfig(backend="auto"))
+
+    def test_config_env_can_override_ai_base_url(self) -> None:
+        with patch.dict("os.environ", {"MYDAILYNEWS_AI_BASE_URL": "http://host.docker.internal:1234/v1"}):
+            config = load_config(REPO_ROOT / "config.example.json")
+
+        self.assertEqual(config.ai_summary.base_url, "http://host.docker.internal:1234/v1")
+        self.assertEqual(config.ai_final.base_url, "http://host.docker.internal:1234/v1")
 
     def test_tts_backend_is_runtime_gated_not_parse_gated(self) -> None:
         payload = self._config_payload()
@@ -249,22 +260,53 @@ class ReleaseSmokeTests(unittest.TestCase):
                 self.assertTrue(config.topics_to_examine)
                 self.assertTrue(config.rss_sources)
 
+    def test_public_markdown_references_existing_setup_files(self) -> None:
+        markdown_paths = [REPO_ROOT / "README.md", *sorted((REPO_ROOT / "docs").glob("*.md"))]
+        missing: list[str] = []
+
+        for path in markdown_paths:
+            text = path.read_text(encoding="utf-8")
+            for match in re.finditer(r"\]\(([^)#]+)(?:#[^)]+)?\)", text):
+                target = match.group(1).strip()
+                if not target or "://" in target or target.startswith(("mailto:", "#")):
+                    continue
+                if not (path.parent / target).exists():
+                    missing.append(f"{path.relative_to(REPO_ROOT)} -> {target}")
+            for match in re.finditer(r"\brequirements[-\w]*\.txt\b", text):
+                name = match.group(0)
+                if not (REPO_ROOT / name).exists():
+                    missing.append(f"{path.relative_to(REPO_ROOT)} -> {name}")
+
+        self.assertEqual(missing, [])
+
     def test_runtime_config_readiness_reports_public_setup_issues(self) -> None:
         example_config = load_config(REPO_ROOT / "config.example.json")
-        issues = find_runtime_config_issues(example_config)
+        self.assertEqual(find_runtime_config_issues(example_config), [])
+
+        remote_config = load_config(REPO_ROOT / "profiles" / "config.remote-server.example.json")
+        self.assertEqual(find_runtime_config_issues(remote_config), [])
+
+    def test_runtime_config_readiness_reports_managed_placeholder_paths(self) -> None:
+        payload = self._config_payload()
+        for section in ("ai_summary", "ai_final"):
+            payload[section]["manage_server"] = True
+            payload[section]["server_executable"] = "PATH/TO/llama-server"
+            payload[section]["server_model_path"] = "PATH/TO/model.gguf"
+        path = self._write_config_payload(TEMP_ROOT, payload, "managed_placeholders")
+        config = load_config(path)
+
+        issues = find_runtime_config_issues(config)
         messages = "\n".join(issue.message for issue in issues)
 
         self.assertIn("placeholder", messages)
         self.assertTrue(any(issue.field == "server_executable" for issue in issues))
         self.assertTrue(any(issue.field == "server_model_path" for issue in issues))
 
-        remote_config = load_config(REPO_ROOT / "profiles" / "config.remote-server.example.json")
-        self.assertEqual(find_runtime_config_issues(remote_config), [])
-
     def test_runtime_config_readiness_reports_missing_files_and_context_mismatch(self) -> None:
         payload = self._config_payload()
         missing_model_path = TEMP_ROOT / "missing-model.gguf"
         for section in ("ai_summary", "ai_final"):
+            payload[section]["manage_server"] = True
             payload[section]["server_executable"] = sys.executable
             payload[section]["server_model_path"] = str(missing_model_path)
             payload[section]["context_window_tokens"] = 1000
@@ -282,6 +324,7 @@ class ReleaseSmokeTests(unittest.TestCase):
     def test_runtime_config_readiness_reports_unresolved_executable(self) -> None:
         payload = self._config_payload()
         for section in ("ai_summary", "ai_final"):
+            payload[section]["manage_server"] = True
             payload[section]["server_executable"] = "definitely-not-a-llama-server"
             payload[section]["server_model_path"] = str(TEMP_ROOT / "missing-model.gguf")
         path = self._write_config_payload(TEMP_ROOT, payload, "missing_executable")
@@ -299,6 +342,7 @@ class ReleaseSmokeTests(unittest.TestCase):
         model_path.write_text("dummy", encoding="utf-8")
         executable = Path(sys.executable).resolve().as_posix()
         for section in ("ai_summary", "ai_final"):
+            payload[section]["manage_server"] = True
             payload[section]["server_executable"] = executable
             payload[section]["server_model_path"] = str(model_path)
         path = self._write_config_payload(TEMP_ROOT, payload, "absolute_executable")

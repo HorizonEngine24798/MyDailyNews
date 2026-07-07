@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, fields
 import json
+import os
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -403,7 +404,7 @@ def _load_ai(ai_raw: Dict[str, Any], section_name: str = "ai") -> AIConfig:
         backend=backend,
         model_id=default_model_id,
         server_model=default_server_model,
-        base_url=str(ai_raw.get("base_url", "http://127.0.0.1:8080/v1")),
+        base_url=str(ai_raw.get("base_url", "http://127.0.0.1:1234/v1")),
         context_window_tokens=int(ai_raw.get("context_window_tokens", DEFAULT_CONTEXT_WINDOW_TOKENS)),
         max_input_tokens=int(ai_raw.get("max_input_tokens", DEFAULT_MAX_INPUT_TOKENS)),
         max_new_tokens=int(ai_raw.get("max_new_tokens", DEFAULT_MAX_NEW_TOKENS)),
@@ -419,13 +420,13 @@ def _load_ai(ai_raw: Dict[str, Any], section_name: str = "ai") -> AIConfig:
             field_name=f"{section_name}.enable_thinking",
         ),
         manage_server=parse_bool(ai_raw.get("manage_server", False), default=False, field_name=f"{section_name}.manage_server"),
-        server_executable=str(ai_raw.get("server_executable", "llama-server")),
+        server_executable=str(ai_raw.get("server_executable", "")),
         server_model_path=str(ai_raw.get("server_model_path", ai_raw.get("gguf_model_path", ""))),
         server_arguments=_string_list(ai_raw.get("server_arguments", [])),
         server_log_dir=str(ai_raw.get("server_log_dir", "output/diagnostics/llama_server")),
         server_startup_timeout_seconds=max(10, int(ai_raw.get("server_startup_timeout_seconds", 180))),
         server_shutdown_timeout_seconds=max(1, int(ai_raw.get("server_shutdown_timeout_seconds", 15))),
-        server_auto_stop=parse_bool(ai_raw.get("server_auto_stop", True), default=True, field_name=f"{section_name}.server_auto_stop"),
+        server_auto_stop=parse_bool(ai_raw.get("server_auto_stop", False), default=False, field_name=f"{section_name}.server_auto_stop"),
     )
     _validate_ai_runtime(config, section_name)
     return config
@@ -833,7 +834,7 @@ def load_config(path: Path) -> AppConfig:
         section_name="general_filtering",
     )
 
-    return AppConfig(
+    config = AppConfig(
         output_dir=raw.get("output_dir", DEFAULT_OUTPUT_DIR),
         user_agent=raw.get("user_agent", DEFAULT_USER_AGENT),
         ai_summary=ai_summary,
@@ -1066,3 +1067,13 @@ def load_config(path: Path) -> AppConfig:
         tts=tts,
         pipeline=pipeline,
     )
+    _apply_environment_overrides(config)
+    return config
+
+
+def _apply_environment_overrides(config: AppConfig) -> None:
+    base_url = os.environ.get("MYDAILYNEWS_AI_BASE_URL", "").strip()
+    if not base_url:
+        return
+    config.ai_summary.base_url = base_url
+    config.ai_final.base_url = base_url

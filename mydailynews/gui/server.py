@@ -74,6 +74,10 @@ class GuiRequestHandler(BaseHTTPRequestHandler):
         if path == "/api/reports":
             self._send_json(self.service.list_reports())
             return
+        if path.startswith("/api/reports/") and path.endswith("/audio"):
+            report_id = unquote(path[len("/api/reports/") : -len("/audio")])
+            self._send_file(self.service.report_audio_path(report_id), "audio/wav")
+            return
         if path.startswith("/api/reports/"):
             report_id = unquote(path[len("/api/reports/") :])
             self._send_json(self.service.report_detail(report_id))
@@ -185,6 +189,15 @@ class GuiRequestHandler(BaseHTTPRequestHandler):
             raise FileNotFoundError("Static file not found.")
         content_type = _content_type(resolved)
         data = resolved.read_bytes()
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _send_file(self, path: Path, content_type: str) -> None:
+        data = path.read_bytes()
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(data)))
