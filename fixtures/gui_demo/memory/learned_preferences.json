@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-07-06T08:10:00+00:00",
+  "preferred_topics": ["Artificial intelligence"],
+  "avoided_topics": [],
+  "preferred_sources": ["South China Morning Post"],
+  "avoided_sources": [],
+  "topic_weights": {
+    "Artificial intelligence": 0.35
+  },
+  "source_weights": {
+    "South China Morning Post": 0.2,
+    "Politico": -0.2
+  },
+  "notes": "Demo fixture preferences so the GUI has visible learned-memory state."
+}

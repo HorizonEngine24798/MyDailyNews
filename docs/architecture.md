@@ -1,100 +1,116 @@
 # MyDailyNews Architecture
 
-MyDailyNews is a local-first news briefing pipeline. It fetches news inputs, scores and summarizes them through an OpenAI-compatible chat endpoint, writes Markdown/JSON outputs, and optionally adds enrichment, narrative briefing, memory, feedback, GUI control, and TTS audio.
+MyDailyNews is a local-first pipeline around an OpenAI-compatible chat endpoint. The app owns fetching, ranking, prompting, local state, and output files. The model server owns model loading, GPU offload, context size, and serving.
 
 ## Runtime Model
 
-By default, MyDailyNews expects an already-running OpenAI-compatible local server, usually LM Studio at `http://127.0.0.1:1234/v1`.
+Default runtime:
 
-It does not start LM Studio itself. LM Studio owns model loading, GPU offload, context size, and serving. MyDailyNews connects to that endpoint and sends `/chat/completions` requests.
+```text
+CLI or GUI -> config loader -> runtime checks -> NewsOrchestrator
+    -> retrieval, ranking, analysis, AI calls
+    -> output/, state/memory/, .cache/mydailynews/
+```
 
-The older managed local server path still exists for `llama-server`. If a config sets `manage_server=true` and provides `server_executable`, `server_model_path`, and `server_arguments`, MyDailyNews can start `llama-server`, wait for readiness, reuse it during the run, and stop it when `server_auto_stop=true`.
+By default, MyDailyNews expects an already-running local server such as LM Studio at `http://127.0.0.1:1234/v1`. It sends `/chat/completions` requests and leaves the server running.
+
+The managed `llama-server` path is still available for advanced users. Set `manage_server=true` with `server_executable`, `server_model_path`, and `server_arguments` to let MyDailyNews start and stop `llama-server`. See [managed llama-server mode](llama_cpp_setup.md).
+
+## Overall Flow
 
 ```mermaid
 flowchart LR
-    subgraph User_Surface[User surface]
-        CLI[main.py CLI]
-        GUI[gui.py local web GUI]
-        CFG[JSON config files]
-        AUTO[tools/autoconfig.py]
-    end
-
-    subgraph App_Core[Application core]
-        LOADER[Strict config loader]
-        ORCH[NewsOrchestrator]
-        STAGES[Pipeline stages]
-        REPORT[CLI reporter and debug logger]
-    end
-
-    subgraph Retrieval[Retrieval layer]
-        RSS[RSS scraper]
-        GNEWS[Google News retriever]
-        ARTICLE[Article text retriever]
-        PRIOR[Prior report reader]
-    end
-
-    subgraph AI_Runtime[AI runtime boundary]
-        CLIENT[OpenAI-compatible chat client]
-        EXT[External server LM Studio]
-        MANAGED[Optional managed llama-server]
-    end
-
-    subgraph State[Local state]
-        CACHE[HTTP and AI caches]
-        MEMORY[Coverage, story, feedback memory]
-        OUTPUT[Markdown, JSON, audio, diagnostics]
-    end
-
-    AUTO --> CFG
-    CLI --> LOADER
-    GUI --> LOADER
-    CFG --> LOADER
-    LOADER --> ORCH
-    ORCH --> STAGES
-    ORCH --> REPORT
-    STAGES --> RSS
-    STAGES --> GNEWS
-    STAGES --> ARTICLE
-    STAGES --> PRIOR
-    STAGES --> CLIENT
-    CLIENT -->|default| EXT
-    CLIENT -->|manage_server=true| MANAGED
-    RSS --> CACHE
-    GNEWS --> CACHE
-    ARTICLE --> CACHE
-    STAGES --> MEMORY
-    GUI --> MEMORY
-    STAGES --> OUTPUT
-    GUI --> OUTPUT
+    CONFIG["config + runtime checks"] --> BRIEFS["briefs module"]
+    SOURCES["feeds, searches,<br/>prior reports"] --> BRIEFS
+    MEMORY["state/memory<br/>coverage + preferences"] --> BRIEFS
+    BRIEFS --> BRIEF_CALLS["LLM calls:<br/>score, group, evidence,<br/>delta, final brief"]
+    BRIEF_CALLS --> STRUCTURED["structured briefs<br/>Markdown + JSON"]
+    BRIEF_CALLS --> HANDOFF["handoff<br/>selected articles"]
+    HANDOFF --> ENRICH["enrichment module"]
+    ENRICH --> ENRICH_CALLS["LLM calls:<br/>plan threads + synthesize<br/>per enriched story"]
+    ENRICH_CALLS --> ENRICHED["enrichment context<br/>Markdown + JSON"]
+    STRUCTURED --> NARRATIVE["narrative brief<br/>1 LLM call"]
+    ENRICHED --> NARRATIVE
+    MEMORY --> NARRATIVE
+    NARRATIVE --> TTS["optional TTS"]
+    STRUCTURED --> OUTPUT["output/"]
+    ENRICHED --> OUTPUT
+    NARRATIVE --> OUTPUT
+    TTS --> OUTPUT
+    BRIEFS --> MEMORY
+    BRIEFS --> CACHE[".cache/mydailynews"]
+    ENRICH --> CACHE
 ```
 
-## Top-Level Run Flow
+## Briefs Module
 
 ```mermaid
 flowchart TD
-    CFG[config.local.json or config.recommended.json] --> LOAD[load_config]
-    LOAD --> READY[Runtime readiness checks]
-    READY --> ORCH[NewsOrchestrator]
-
-    ORCH --> SUMMARY[summary AI client]
-    ORCH --> FINAL[final AI client]
-
-    SUMMARY --> LEASE{manage_server}
-    FINAL --> LEASE
-    LEASE -->|false| LM[LM Studio or compatible endpoint]
-    LEASE -->|true| LLAMA[Managed llama-server process]
-
-    LM --> CHAT["/v1/chat/completions"]
-    LLAMA --> CHAT
-    CHAT --> SUMMARY
-    CHAT --> FINAL
-
-    ORCH --> CLOSE[close clients]
-    CLOSE -->|external| KEEP[leave server running]
-    CLOSE -->|managed and auto_stop| STOP[stop llama-server]
+    SNAPSHOT["source snapshot<br/>feeds + searches + prior reports"] --> SCORE["headline scoring"]
+    SUMMARY["summary_ai_client"] --> SCORE_CALL["LLM: headline scoring<br/>ceil(candidates / batch_size)<br/>plus single-item replays on bad JSON"]
+    SCORE_CALL --> SCORE
+    SCORE --> SELECT["deterministic selection<br/>caps, novelty, learned prefs"]
+    MEMORY["state/memory"] --> SELECT
+    SELECT --> FETCH["article text fetch"]
+    FETCH --> GROUP["story grouping"]
+    SUMMARY --> GROUP_CALL["LLM: story grouping<br/>0..N planner calls"]
+    GROUP_CALL --> GROUP
+    GROUP --> EVIDENCE["evidence distillation"]
+    FETCH --> EVIDENCE
+    ANALYSIS["analysis client<br/>summary or final"] --> EVIDENCE_CALL["LLM: evidence<br/>0..N article batches"]
+    EVIDENCE_CALL --> EVIDENCE
+    EVIDENCE --> DELTA["delta extraction"]
+    SNAPSHOT --> DELTA
+    ANALYSIS --> DELTA_CALL["LLM: delta<br/>0..N article/prior batches"]
+    DELTA_CALL --> DELTA
+    EVIDENCE --> FINAL_BRIEF["final brief generation"]
+    DELTA --> FINAL_BRIEF
+    MEMORY --> FINAL_BRIEF
+    FINAL["final_ai_client"] --> FINAL_CALL["LLM: final brief<br/>1 call per brief<br/>general and detailed"]
+    FINAL_CALL --> FINAL_BRIEF
+    FINAL_BRIEF --> REPORTS["general + detailed<br/>Markdown/JSON"]
+    FINAL_BRIEF --> HANDOFF["handoff JSON"]
+    FINAL_BRIEF --> MEMORY
+    SCORE_CALL --> AI_CACHE["AI synth cache"]
+    GROUP_CALL --> AI_CACHE
+    EVIDENCE_CALL --> AI_CACHE
+    DELTA_CALL --> AI_CACHE
+    FETCH --> HTTP_CACHE["HTTP/article cache"]
+    REPORTS --> OUTPUT["output/"]
+    HANDOFF --> OUTPUT
 ```
 
-## Default Series Pipeline
+## Enrichment Module
+
+```mermaid
+flowchart TD
+    HANDOFF["brief handoff<br/>or same-day brief JSON"] --> INPUTS["selected articles"]
+    INPUTS --> TEXT["ensure article text"]
+    TEXT --> PLAN["story-thread planning"]
+    SUMMARY["summary_ai_client"] --> PLAN_CALL["LLM: plan story threads<br/>0..N planner calls<br/>skipped if shared grouping exists"]
+    PLAN_CALL --> PLAN
+    PLAN --> SEARCH["search for context<br/>DDG HTML retrieval"]
+    SEARCH --> FETCH["fetch research pages"]
+    FETCH --> SYNTH["synthesize compact<br/>story context"]
+    SUMMARY --> SYNTH_CALL["LLM: synthesize context<br/>1 call per enriched story thread"]
+    SYNTH_CALL --> SYNTH
+    SYNTH --> ATTACH["attach context<br/>to story threads"]
+    ATTACH --> ENRICHED["enrichment Markdown/JSON"]
+    ENRICHED --> NARRATIVE["narrative brief input"]
+    SEARCH --> HTTP_CACHE["enrichment HTTP cache"]
+    FETCH --> HTTP_CACHE
+    PLAN_CALL --> AI_CACHE["AI synth cache"]
+    SYNTH_CALL --> AI_CACHE
+    ENRICHED --> OUTPUT["output/"]
+```
+
+LLM call groups: headline scoring is batched, story grouping and enrichment planning can split into multiple planner calls, evidence and delta are optional batched analysis calls, final brief is normally one call per structured brief, narrative brief is normally one call, and enrichment synthesis is one call per enriched story thread. Cache hits skip eligible calls; JSON/transport retries can add attempts.
+
+AI roles: `summary_ai_client` scores and plans; the configurable analysis client runs evidence/delta; `final_ai_client` writes final and narrative briefs.
+
+Storage roles: `.cache/mydailynews/` stores network/article/enrichment fetches, `.cache/mydailynews/synth` stores reusable AI responses, `state/memory/` stores durable coverage/preferences, and `output/` stores reports, handoffs, diagnostics, and stage artifacts.
+
+## Module Flow
 
 The default module series is:
 
@@ -102,154 +118,28 @@ The default module series is:
 briefs -> enrichment -> narrative_brief
 ```
 
-TTS is available but disabled by default. Add `tts` after `narrative_brief` when audio should be part of normal runs.
+`tts` is available but disabled by default. Add it after `narrative_brief` when audio should be part of normal runs.
 
-```mermaid
-flowchart LR
-    subgraph Inputs[Inputs]
-        RSS[RSS feeds]
-        TOPICS[Topic searches]
-        PRIOR[Prior reports]
-        PROFILE[User memory and learned prefs]
-    end
+Modules:
 
-    subgraph Brief_Module[briefs module]
-        SNAP[Build shared snapshot]
-        SCORE[AI headline scoring]
-        SELECT[Deterministic selection]
-        FETCH[Fetch selected article text]
-        ANALYSIS[Story grouping, evidence, delta]
-        FINAL[AI final brief]
-        HANDOFF[Write brief handoff]
-    end
+- `briefs`: fetches candidates, scores headlines, selects articles, fetches article text, runs analysis, writes general and detailed briefs.
+- `enrichment`: groups selected articles into story threads, retrieves related context, and writes enrichment artifacts.
+- `narrative_brief`: turns structured brief and enrichment JSON into a narrative Markdown brief.
+- `tts`: turns a saved Markdown brief into WAV audio and audio metadata.
 
-    subgraph Downstream_Modules[Downstream modules]
-        ENRICH[Story enrichment]
-        NARRATIVE[AI narrative brief]
-        TTS[TTS audio]
-    end
+## State Boundaries
 
-    subgraph Stores[Stores]
-        CACHE[Discovery, article, enrichment, synth cache]
-        MEMORY[Coverage log, story index, feedback, learned prefs]
-        FILES[Markdown, JSON, WAV, diagnostics]
-    end
+- `output/`: generated Markdown, JSON, WAV, diagnostics, and stage artifacts.
+- `state/memory/`: durable coverage, story, feedback, learned-preference, recall, and backup files.
+- `.cache/mydailynews/`: discovery, article text, enrichment retrieval, and AI synthesis caches.
 
-    RSS --> SNAP
-    TOPICS --> SNAP
-    PRIOR --> SNAP
-    PROFILE --> SCORE
-    SNAP --> SCORE
-    SCORE --> SELECT
-    SELECT --> MEMORY
-    SELECT --> FETCH
-    FETCH --> CACHE
-    FETCH --> ANALYSIS
-    ANALYSIS --> FINAL
-    FINAL --> FILES
-    FINAL --> HANDOFF
-    HANDOFF --> ENRICH
-    ENRICH --> CACHE
-    ENRICH --> FILES
-    FILES --> NARRATIVE
-    ENRICH --> NARRATIVE
-    NARRATIVE --> FILES
-    NARRATIVE --> TTS
-    TTS --> FILES
-```
+Deleting `output/` removes generated reports. Deleting `state/memory/` resets local memory. Deleting `.cache/mydailynews/` only forces refetching or regeneration.
 
-## Data Movement
+## Stable Entrypoints
 
-```mermaid
-flowchart TD
-    subgraph Output_Dir["output/"]
-        BRIEF_MD[general and detailed Markdown]
-        BRIEF_JSON[general and detailed JSON]
-        HANDOFF_JSON[handoff JSON]
-        ENRICH_JSON[enrichment JSON and Markdown]
-        NARR_JSON[narrative JSON and Markdown]
-        AUDIO[WAV and audio JSON]
-        DIAG[diagnostics and stage artifacts]
-    end
-
-    subgraph Memory_Dir["state/memory/"]
-        COVERAGE[coverage_log.jsonl]
-        STORIES[story_index.json]
-        FEEDBACK[feedback_events.jsonl]
-        LEARNED[learned_preferences.json]
-        RECALL[recall_packets]
-        BACKUPS[backups]
-    end
-
-    subgraph Cache_Dir[".cache/mydailynews/"]
-        DISCOVERY[discovery responses]
-        ARTICLE_CACHE[article text and aliases]
-        ENRICH_CACHE[enrichment retrieval]
-        SYNTH_CACHE[AI synth cache]
-    end
-
-    PIPELINE[Pipeline stages] --> BRIEF_MD
-    PIPELINE --> BRIEF_JSON
-    PIPELINE --> HANDOFF_JSON
-    PIPELINE --> ENRICH_JSON
-    PIPELINE --> NARR_JSON
-    PIPELINE --> AUDIO
-    PIPELINE --> DIAG
-    PIPELINE --> COVERAGE
-    PIPELINE --> STORIES
-    PIPELINE --> RECALL
-    PIPELINE --> DISCOVERY
-    PIPELINE --> ARTICLE_CACHE
-    PIPELINE --> ENRICH_CACHE
-    PIPELINE --> SYNTH_CACHE
-    GUI[GUI memory and feedback tools] --> FEEDBACK
-    GUI --> LEARNED
-    GUI --> BACKUPS
-    LEARNED --> PIPELINE
-    COVERAGE --> PIPELINE
-    STORIES --> PIPELINE
-```
-
-## Main Files
-
-- `main.py`: CLI entrypoint.
-- `tools/autoconfig.py`: hardware detection, endpoint probing, and recommended config writer.
-- `mydailynews/app/config.py`: strict JSON config loader.
-- `mydailynews/ai/llama_cpp_server_client.py`: OpenAI-compatible chat client.
-- `mydailynews/ai/managed_llama_server.py`: optional managed `llama-server` lifecycle.
-- `mydailynews/pipeline/orchestrator.py`: top-level module orchestration.
-- `mydailynews/pipeline/stages.py`: module and stage names.
-- `mydailynews/gui/server.py`: local GUI HTTP server.
-- `mydailynews/gui/data.py`: GUI data, feedback, memory, and run management surface.
-
-## Outputs And State
-
-```text
-output/
-  YYYY-MM-DD_general_brief.md
-  YYYY-MM-DD_general_brief.json
-  YYYY-MM-DD_detailed_brief.md
-  YYYY-MM-DD_detailed_brief.json
-  YYYY-MM-DD_enrichment.md
-  YYYY-MM-DD_enrichment.json
-  YYYY-MM-DD_narrative_brief.md
-  YYYY-MM-DD_narrative_brief.json
-  *.wav
-  *_audio.json
-  diagnostics/
-
-state/memory/
-  coverage_log.jsonl
-  story_index.json
-  feedback_events.jsonl
-  learned_preferences.json
-  recall_packets/
-  backups/
-
-.cache/mydailynews/
-  discovery/
-  enrichment/
-  article_text/
-  article_aliases/
-  synth/
-```
+- `main.py`: CLI.
+- `gui.py`: local web GUI launcher.
+- `tools/autoconfig.py`: hardware detection and recommended config writer.
+- `mydailynews/app/config.py`: strict config loading.
+- `mydailynews/app/runtime_config.py`: runtime readiness checks.
+- `mydailynews/pipeline/orchestrator.py`: module orchestration.

@@ -19,6 +19,46 @@ const PIPELINE_MODULES = [
   ["tts", "TTS audio"],
 ];
 const DEFAULT_PIPELINE_SERIES = ["briefs", "enrichment", "narrative_brief"];
+const GUI_PREFS_KEY = "mydailynews.gui";
+const GUI_DEFAULTS = {
+  theme: "charcoal",
+  uiSize: "default",
+  reportSize: "default",
+};
+
+function readGuiPrefs() {
+  try {
+    return { ...GUI_DEFAULTS, ...JSON.parse(localStorage.getItem(GUI_PREFS_KEY) || "{}") };
+  } catch {
+    return { ...GUI_DEFAULTS };
+  }
+}
+
+function saveGuiPrefs(next) {
+  const prefs = { ...readGuiPrefs(), ...next };
+  localStorage.setItem(GUI_PREFS_KEY, JSON.stringify(prefs));
+  applyGuiPrefs(prefs);
+  setStatus("GUI preferences saved");
+}
+
+function applyGuiPrefs(prefs = readGuiPrefs()) {
+  document.body.dataset.theme = prefs.theme;
+  document.body.dataset.uiSize = prefs.uiSize;
+  document.body.dataset.reportSize = prefs.reportSize;
+  document.querySelectorAll("[data-gui-theme]").forEach((button) => {
+    const active = button.dataset.guiTheme === prefs.theme;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+  const uiFontSize = byId("uiFontSize");
+  const reportFontSize = byId("reportFontSize");
+  if (uiFontSize) {
+    uiFontSize.value = prefs.uiSize;
+  }
+  if (reportFontSize) {
+    reportFontSize.value = prefs.reportSize;
+  }
+}
 
 async function loadInitial() {
   try {
@@ -100,6 +140,7 @@ function setView(view) {
       settings: "Settings",
       profiles: "Profiles",
       memory: "Memory",
+      gui: "GUI",
       runs: "Runs",
     }[view] || "MyDailyNews";
   if (view === "runs") {
@@ -318,6 +359,11 @@ function bindEvents() {
   byId("previewMemoryLearnedButton").addEventListener("click", () => previewLearned("memoryLearnedPreview"));
   byId("saveStoryIndexButton").addEventListener("click", saveStoryIndex);
   byId("pruneMemoryButton").addEventListener("click", pruneMemory);
+  document.querySelectorAll("[data-gui-theme]").forEach((button) => {
+    button.addEventListener("click", () => saveGuiPrefs({ theme: button.dataset.guiTheme }));
+  });
+  byId("uiFontSize").addEventListener("change", (event) => saveGuiPrefs({ uiSize: event.target.value }));
+  byId("reportFontSize").addEventListener("change", (event) => saveGuiPrefs({ reportSize: event.target.value }));
   bindMemoryRepairEvents();
   bindRunEvents();
   byId("runAutoconfigButton").addEventListener("click", runAutoconfig);
@@ -353,6 +399,7 @@ function bindMemoryFilters() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  applyGuiPrefs();
   setReportMemoryReload(loadMemory);
   setRunRefreshCallbacks({ reports: loadReports, memory: loadMemory });
   bindEvents();

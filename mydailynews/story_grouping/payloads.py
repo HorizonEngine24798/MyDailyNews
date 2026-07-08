@@ -37,10 +37,6 @@ def story_group_artifact(story: StoryGroup) -> dict[str, Any]:
     return payload
 
 
-def story_thread_artifact(story: StoryGroup) -> dict[str, Any]:
-    return story_group_artifact(story)
-
-
 def article_disposition_artifacts(
     story_groups: list[StoryGroup],
     omitted_article_ids: list[str] | None = None,

@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "date": "2026-07-06",
+  "brief_name": "general",
+  "coverage_guidance": [
+    {
+      "story_key": "central-banks-push-global-gold-holdings",
+      "story_family_key": "economy",
+      "title": "Global Gold Reserves and Central Bank Strategy",
+      "recent_coverage": "Covered yesterday.",
+      "today_policy": "capsule_unless_material_update",
+      "reason": "Recently prominent and current headline signal appears incremental.",
+      "score_adjustment": -1.5,
+      "materiality": 0.3,
+      "selected": false,
+      "selection_reason_code": "skipped_below_cutoff"
+    },
+    {
+      "story_key": "leaders-know-uae-backs-massacres-sudan",
+      "story_family_key": "world",
+      "title": "Miscellaneous Geopolitical and Trade Updates",
+      "recent_coverage": "Covered yesterday.",
+      "today_policy": "capsule_unless_material_update",
+      "reason": "Recently prominent and current headline signal appears incremental.",
+      "score_adjustment": -0.9,
+      "materiality": 0.375,
+      "selected": false,
+      "selection_reason_code": "skipped_final_budget"
+    },
+    {
+      "story_key": "huge-crowds-mass-tehran-for-ayatollah",
+      "story_family_key": "iran-politics",
+      "title": "Funeral and Succession of Ayatollah Khamenei",
+      "recent_coverage": "Covered yesterday.",
+      "today_policy": "capsule_unless_material_update",
+      "reason": "Recently prominent and current headline signal appears incremental.",
+      "score_adjustment": -0.9,
+      "materiality": 0.35,
+      "selected": false,
+      "selection_reason_code": "skipped_source_cap"
+    },
+    {
+      "story_key": "europe-races-close-gap-com",
+      "story_family_key": "artificial-intelligence",
+      "title": "Global AI Governance and Market Shifts",
+      "recent_coverage": "Covered yesterday.",
+      "today_policy": "material_update_ok",
+      "reason": "Recently covered, but headline signals a material update.",
+      "score_adjustment": -0.09,
+      "materiality": 0.9,
+      "selected": true,
+      "selection_reason_code": "selected_high_score_memory_adjusted"
+    }
+  ],
+  "selection_summary": {
+    "story_count": 127,
+    "stories_reduced_for_recent_coverage": 4,
+    "stories_boosted_for_material_update": 0,
+    "stories_skipped_by_story_cap": 0,
+    "stories_skipped_by_story_family_cap": 0,
+    "learned_preference_adjusted_candidates": 0,
+    "learned_preference_positive_candidates": 0,
+    "learned_preference_negative_candidates": 0,
+    "learned_preference_topic_matches": 0,
+    "learned_preference_source_matches": 0
+  }
+}

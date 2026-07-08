@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 import unittest
 
 from mydailynews.app.models import HeadlineDecision, NewsCandidate, SelectedArticle
-from mydailynews.pipeline.story_enrichment_research import StoryResearchCollector
+from mydailynews.enrichment.research import StoryResearchCollector
 from mydailynews.retrieval.ddg import DDGSearchResult, DuckDuckGoSearchRetriever
 
 

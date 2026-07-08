@@ -8,8 +8,8 @@ import uuid
 
 from mydailynews.app.models import AppConfig, EnrichmentConfig, HeadlineDecision, NewsCandidate, SelectedArticle
 from mydailynews.common.cache import HTTPFetchResult, JSONCache
-from mydailynews.pipeline.enrichment import StoryThreadEnricher
-from mydailynews.pipeline.story_grouping_models import ResearchQuestion, StoryGroup
+from mydailynews.enrichment.runner import StoryThreadEnricher
+from mydailynews.story_grouping.models import ResearchQuestion, StoryGroup
 from mydailynews.retrieval.ddg import DuckDuckGoSearchRetriever
 
 

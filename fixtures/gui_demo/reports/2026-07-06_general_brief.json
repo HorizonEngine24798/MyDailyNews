@@ -1,0 +1,1205 @@
+{
+  "title": "Daily Brief - 2026-07-06",
+  "lead": "Global AI policy is pivoting from aggressive export controls to a 'stakeholder' model, with OpenAI endorsing congressional bills and Chinese giants disabling autonomous agents to navigate regulatory uncertainty. Simultaneously, the physical footprint of AI infrastructure is facing localized friction in Pennsylvania while the UAE economy remains resilient despite the succession crisis triggered by the death of Iran's Supreme Leader Khamenei.",
+  "knowns": [
+    "OpenAI is shifting from resistance to endorsement of multiple tech bills in Congress, signaling a 'stakeholder' regulatory model.",
+    "ByteDance and Alibaba are disabling AI agents in China to comply with new regulatory frameworks, creating a bifurcated global market.",
+    "Iran's designated successor, Mojtaba Khamenei, was conspicuously absent from funeral prayers, fueling speculation of a physical wound or political sidelining.",
+    "Mourners at the Tehran funeral chanted for the death of President Trump, indicating a hardening of public sentiment that could pressure the new leadership.",
+    "Morgan Stanley warns that massive AI capital expenditure may prevent central banks from lowering policy rates as quickly as markets expect.",
+    "Semiconductor stocks are sliding as investors question the sustainability of current AI spending levels."
+  ],
+  "unknowns": [
+    "The specific physical status of Mojtaba Khamenei and whether his absence signals a temporary wound or a permanent political removal.",
+    "The exact timeline for the US administration's pivot from export controls to the 'stakeholder' model and its impact on supply chains.",
+    "Whether the EU will successfully coordinate its AI gap-closing strategy with the US withdrawal of private models.",
+    "The long-term viability of the 'stakeholder' model versus the 'open source' alternative in the US market."
+  ],
+  "watch_signals": [
+    "US Congress passage of the specific tech bills endorsed by OpenAI.",
+    "Public appearance of Mojtaba Khamenei or an official announcement regarding his status.",
+    "Federal Reserve commentary on AI-driven inflation pressures.",
+    "Announcement of Anthropic's physical relocation to Austria or another EU host.",
+    "Legislative outcomes in Pennsylvania regarding data center zoning."
+  ],
+  "topic_reports": [
+    {
+      "topic": "AI Policy and Infrastructure",
+      "why_it_matters": "The shift from export controls to a 'stakeholder' model alters the risk profile for US-based infrastructure investments, while Chinese regulatory curbs create a distinct market bifurcation.",
+      "what_changed": "Major tech players are moving from resistance to embracing regulation, with OpenAI betting on legislative frameworks and Chinese giants scaling back autonomous agent deployment.",
+      "who_is_affected": [
+        "US-based AI infrastructure investors facing potential rate rigidity due to capital expenditure.",
+        "Global software supply chains impacted by Chinese agent restrictions.",
+        "European entities positioning to host models like Anthropic as US restrictions tighten."
+      ],
+      "narrative_summary": "Regulatory frameworks are becoming the primary driver of AI deployment strategies globally, with the US moving toward integration of private sector stakeholders.",
+      "narrative_changes": [
+        {
+          "narrative": "Global AI Regulatory Pivot",
+          "status": "escalating",
+          "summary": "Shift from resistance to endorsement of regulation by major players like OpenAI and compliance-driven scaling back by Chinese giants."
+        },
+        {
+          "narrative": "China Agent Restrictions",
+          "status": "new",
+          "summary": "ByteDance and Alibaba disabling AI agents to navigate regulatory uncertainty, signaling a shift from deployment to compliance."
+        }
+      ],
+      "what_to_watch": [
+        "US Congress passage of the specific tech bills endorsed by OpenAI.",
+        "Announcement of Anthropic's physical relocation to Europe."
+      ]
+    },
+    {
+      "topic": "Geopolitics and Regional Strategy",
+      "why_it_matters": "The succession crisis in Iran directly threatens the stability of Abu Dhabi's AI infrastructure strategy, while regional tensions impact the UAE's status as a resilient economic hub.",
+      "what_changed": "The funeral of Supreme Leader Khamenei has escalated from a strategic disruption to an active succession crisis, with the designated successor missing and public sentiment turning anti-US.",
+      "who_is_affected": [
+        "Abu Dhabi AI infrastructure strategy facing tangible supply chain friction.",
+        "US-Iran diplomatic talks potentially derailed by public anti-US sentiment.",
+        "UAE and Jordan facing heightened alert due to regional instability."
+      ],
+      "narrative_summary": "The UAE economy is showing resilience despite the geopolitical shock of Iran's leadership change, though regional tensions are driving military and diplomatic realignments.",
+      "narrative_changes": [
+        {
+          "narrative": "Iran Succession Crisis",
+          "status": "escalating",
+          "summary": "Absence of Mojtaba Khamenei creates a tangible succession crisis, potentially delaying or altering strategic alignment between UAE and Iran."
+        },
+        {
+          "narrative": "Regional Tensions",
+          "status": "new",
+          "summary": "Mourners chanting for Trump's death and attacks on UAE/Jordan territories indicate spillover instability."
+        }
+      ],
+      "what_to_watch": [
+        "Public appearance of Mojtaba Khamenei or official status announcement.",
+        "US diplomatic statements confirming resumption of peace talks."
+      ]
+    },
+    {
+      "topic": "Macroeconomics and Central Banks",
+      "why_it_matters": "AI-driven capital expenditure is becoming a variable that could prevent central banks from cutting rates, directly impacting borrowing costs for enterprise software and infrastructure.",
+      "what_changed": "Morgan Stanley warns that AI spending may keep policy rates higher for longer, while semiconductor stocks are sliding on sustainability concerns.",
+      "who_is_affected": [
+        "Enterprise software firms facing elevated borrowing costs.",
+        "Semiconductor investors reacting to spending sustainability questions.",
+        "US communities facing localized friction from data center expansion."
+      ],
+      "narrative_summary": "The AI boom is facing a reality check as spending concerns trigger market corrections and potential macroeconomic policy shifts.",
+      "narrative_changes": [
+        {
+          "narrative": "Rate Cut Delays",
+          "status": "challenged",
+          "summary": "AI-driven capex may prevent central banks from lowering rates as quickly as markets expect."
+        },
+        {
+          "narrative": "Local Infrastructure Friction",
+          "status": "new",
+          "summary": "Rapid data center expansion in Pennsylvania is mobilizing cross-partisan local resistance."
+        }
+      ],
+      "what_to_watch": [
+        "Federal Reserve commentary on AI-driven inflation pressures.",
+        "Semiconductor index movements following the reported slide."
+      ]
+    }
+  ],
+  "sections": [
+    {
+      "heading": "Market Correction Signals",
+      "summary": "Semiconductor stocks are sliding as investors question the sustainability of current AI spending levels, while Morgan Stanley warns that massive capital expenditure could keep policy rates elevated."
+    },
+    {
+      "heading": "Regional Stability Check",
+      "summary": "Despite the death of Iran's Supreme Leader, the UAE economy remains a resilient hub for investors, though the absence of the designated successor adds a layer of uncertainty to regional AI strategy."
+    }
+  ],
+  "major_headlines": [
+    {
+      "headline": "Are we human? Why ByteDance and Alibaba are disabling AI agents in China - South China Morning Post",
+      "source": "South China Morning Post",
+      "url": "https://news.google.com/rss/articles/CBMivwFBVV95cUxPT0xnWV8yeVV2YlgzeWZkNlV5a3g2SWFJemdKZTgzRlBRS0Vqb3JJOXN4NE02QkY1MFhLc21BRlJmOWNod29lTkEwNnNsc19qRTNuSlhTYjN3WmVONlZRc1FJMTVaUkE0Mk4xV1FpU0RONVFSZnJhSFpGT2ZzTUFuVGphMnc4NktHSTRyS1lyYV8zdjBBc2Mtck02R3RhOGU4dktEOHB3el9ucUh2MWRTdFlDTHJFLWlYaklWYW1YTdIBvwFBVV95cUxOOWFYYUcySUh5MkVWVXhSSHZyek9nWVdiRkZPRk1hTUltTXNpYlFLdUNqRmRfSkplUVRQUWVtbWlvejkzM1FWcE9DWjFNdWFnZFB1RG9ERjJVWmNqUFBoSU9vS1N1RzYyQnFmclFRNGxQZkZVVFo5b2h4SGhGcUs2bTM0WWxubzBNMjRjbjJ0b05Eei1EZXJmNThNQ0lXYWtHQm01U25TVF9Ic3Z1aW4tOXdLLS1PbEYxWXF2U1Judw?oc=5",
+      "score": 9.0,
+      "topic": "Artificial intelligence",
+      "story_threads": [],
+      "story_key": "human-bytedance-alibaba-disabling-agents-china"
+    },
+    {
+      "headline": "AI security questions loom over NATO summit - Politico",
+      "source": "Politico",
+      "url": "https://news.google.com/rss/articles/CBMifkFVX3lxTE9HUDRUeTFWZUxRRk96eWdGQVJsZjI5bC14YmFMRldxYlRSVHQyYllzX1VCczhyeGFqYV80M3RYZ0duV0l3dHlsY0dhbkJ0N1lPajk4NWdJZ3VEZm56Z25qa1ZJaUJGWVdTMXdoZkoxNkJPaUZMVmo3UVNrWmNmUQ?oc=5",
+      "score": 9.0,
+      "topic": "Artificial intelligence",
+      "story_threads": [],
+      "story_key": "security-questions-loom-nato-summit-politico"
+    },
+    {
+      "headline": "United Arab Emirates on heightened alert amid rising West Asia tensions - News On AIR",
+      "source": "News On AIR",
+      "url": "https://news.google.com/rss/articles/CBMingFBVV95cUxNVjZhVkxrSUhHdmwtbGw0blJjU0kyYU5rOHUtdndQek1UQ1VKRjFLX1hUM3VVaVI5NHZ5clR2TWxVOHVhZkNvQnpGM3drLU1FeWx4SG81QlY5VDFCVDVOMS1TU2I5RTQ2OHQ4WTdzNU8tWE9ZdHVKTEV0TWlJcGc4dGxWNjlTU2xMUm9uUmg1d1pQU1htWEJDMXZVQ19sZw?oc=5",
+      "score": 8.5,
+      "topic": "United Arab Emirates",
+      "story_threads": [],
+      "story_key": "united-arab-emirates-heightened-alert-rising"
+    },
+    {
+      "headline": "Trump restrictions on private AI models turns attention to open source - AOL.com",
+      "source": "AOL.com",
+      "url": "https://news.google.com/rss/articles/CBMihwFBVV95cUxPMFFnR2I2bW93UEY3azI1Z3NBLVZsRW9KbEM0UTctV3JSbGwtalpQZWE3Tk1wQ1l1aC02OHZOSWlKX1JkdnpkLXRjRTd1by16RXJuNG8tNDVFbW9PM3Iwd2plZlR0WXRZOFlueXFDYmNjaGRQYzZsYm5JdnNaQmk1bTVGdThuWE0?oc=5",
+      "score": 8.5,
+      "topic": "Artificial intelligence",
+      "story_threads": [],
+      "story_key": "trump-restrictions-private-models-turns-attention"
+    },
+    {
+      "headline": "AI poses ‘Hiroshima’-style threat to humanity without global rules, says Cooper - The Guardian",
+      "source": "The Guardian",
+      "url": "https://news.google.com/rss/articles/CBMirwFBVV95cUxPUGQyd3dNbWNWTEU3c3lHTTdVU0VqdkI4YWFaUjNWLWxlek8xb1dhaGt4ajBValFLUW81TVJOaXdOSWt5U0I2ajRPNjg1VDQ5dkVSWWVHNWhPejFWN2xWQ2JxQ2tyM3BoYkRmeFU1bi1uNFhUMTF1dlRyVEVrSEN5OWdROEpfejdmV0xWNWtObk9OcS1Vbzg0UVNBbUNkb3lUM1ctZFpBZHEwNl9FR0RZ?oc=5",
+      "score": 8.5,
+      "topic": "Artificial intelligence",
+      "story_threads": [],
+      "story_key": "poses-hiroshima-style-threat-humanity-without"
+    },
+    {
+      "headline": "China Raises Pressure on Taiwan With Expanded Coast Guard Patrols",
+      "source": "NYTimes World",
+      "url": "https://www.nytimes.com/2026/07/05/world/asia/china-taiwan-east-coast-guard-patrols.html",
+      "score": 8.5,
+      "topic": "Technology and science",
+      "story_threads": [],
+      "story_key": "china-raises-pressure-taiwan-expanded-coast"
+    },
+    {
+      "headline": "Morgan Stanley warns AI may not lead to lower policy rates - Crypto Briefing",
+      "source": "Crypto Briefing",
+      "url": "https://news.google.com/rss/articles/CBMijwFBVV95cUxNWExGTC1UUVV4a3ZIRF9CYnl0b1R6YjluNnZzM3JjR1hUaEprTW40UzBvVlNTSTNEN3VDWmdyZFcxMlRSc0VZaWdNTm9zZVdicnhfZ3VxLW5uajg0SjM0dmQ3aVBZQWZBaC1pR2xMWjdtZFR3T1NxQk81YWxBQnZtZ3k2d3V4eFVkNGlxTDlzdw?oc=5",
+      "score": 8.5,
+      "topic": "Business and economy",
+      "story_threads": [],
+      "story_key": "morgan-stanley-warns-lead-lower-policy"
+    },
+    {
+      "headline": "Semiconductor Stocks Slide Amid AI Spending Concerns - StartupHub.ai",
+      "source": "StartupHub.ai",
+      "url": "https://news.google.com/rss/articles/CBMirAFBVV95cUxQMjRkUTFRMzdEODBhT3NQamFVX04ySk5JU29jSlljcnFKMmt6b1h0b2M5RmVQcHVsRGFfcmdFMEp2VWxHNWZDcVc2c0syLWI5N1BnMUROWXo1ZjdiMTMwWUJudENzVEx6Z182ZWJGbTI4Q1UxYnhFejV3SlR0SXBRdWdCc0lpbWVXSWg5RC0xSUhzdWF1Nm9VNWEyZGs3c3dmMUZ3QUhTR3RHOEVL?oc=5",
+      "score": 8.5,
+      "topic": "Artificial intelligence",
+      "story_threads": [],
+      "story_key": "semiconductor-stocks-slide-spending-concerns-startuphub"
+    },
+    {
+      "headline": "Europe races to close AI gap with the US - DW.com",
+      "source": "DW.com",
+      "url": "https://news.google.com/rss/articles/CBMikwFBVV95cUxNZ3M1R2Q1ZENfdGxQZHJIZXlFb0NEVExUVm5aTjc3aVlXUjk4VkRVTVNqNlVFaXJfTDBkMmpZdENRTGFVbE9pb2x5Ull1THZiY3VOTF9RMGVJa1ZVcERJd1JNZnRLRGRrMDM5bS1Gc3NDZjBSdVhYdVdkWXhWYTlFeEQ4SUh2WXIzR1E0blBjdE1ubknSAZMBQVVfeXFMTmUyOVUwblB1OWJ0dy1sbVNRYzRjU0ktQUgwUHlESE5BSF94WTViTmh4SlR3d2NjR0o2MkhKUFlSeVE0c0c2cEMyU1NIbkQ3SnEzU2hYZlMzanVrR24xMVQteTVLU2tzdDl2RVdUZjJoLXZBOTZLWmVPVV96UGNfZHFIOS01TGJ4dE44WC1sUjBxT1lZ?oc=5",
+      "score": 8.5,
+      "topic": "Artificial intelligence",
+      "story_threads": [],
+      "story_key": "europe-races-close-gap-com"
+    },
+    {
+      "headline": "Global investors bullish on UAE, GCC economy amid US-Iran talks, says new report - Khaleej Times",
+      "source": "Khaleej Times",
+      "url": "https://news.google.com/rss/articles/CBMivwFBVV95cUxPODViSzRvR2VTdnl2dXZ6ZmNtUTAxdlpHTXB6WVI3dTFQQjktN29abTVCTHZaUzYzS0lrSHdkNG1FU09aRTFrclJ1VFQ4YnBIRnRveDJROThIdXZ6TEtRYXZQRHFuakxBZzIzWi1GMFVnSmVrdm9mX3Zaa25rN0Y3R253TTZKVFpQaXNodkI1bHpzUnFoY3UyYlBZNXlscURQeXRIcVl0ekI5dW9rbDlRVlRwYzlUSDd1TGJOR0lMY9IBvwFBVV95cUxPODViSzRvR2VTdnl2dXZ6ZmNtUTAxdlpHTXB6WVI3dTFQQjktN29abTVCTHZaUzYzS0lrSHdkNG1FU09aRTFrclJ1VFQ4YnBIRnRveDJROThIdXZ6TEtRYXZQRHFuakxBZzIzWi1GMFVnSmVrdm9mX3Zaa25rN0Y3R253TTZKVFpQaXNodkI1bHpzUnFoY3UyYlBZNXlscURQeXRIcVl0ekI5dW9rbDlRVlRwYzlUSDd1TGJOR0lMYw?oc=5",
+      "score": 8.0,
+      "topic": "United Arab Emirates",
+      "story_threads": [],
+      "story_key": "global-investors-bullish-uae-gcc-economy"
+    },
+    {
+      "headline": "Israel sent IDF soldiers, Iron Dome system to Abu Dhabi during Iran war - The Jerusalem Post",
+      "source": "The Jerusalem Post",
+      "url": "https://news.google.com/rss/articles/CBMiXEFVX3lxTE9pcTg0bzdmQVY1NEFrU0pUc1FRWnhKY2lIRUljQXVIRUFkeXdQbE1tU1NESmpNQ2VaaGN5aTZMb1ZzOG5wRnJfTWduS2xOOUtXT2lRRVpnQjhKMWk2?oc=5",
+      "score": 8.0,
+      "topic": "United Arab Emirates",
+      "story_threads": [],
+      "story_key": "israel-sent-idf-soldiers-iron-dome"
+    },
+    {
+      "headline": "OpenAI endorses multiple tech bills in Congress as it bets on regulation over resistance - Crypto Briefing",
+      "source": "Crypto Briefing",
+      "url": "https://news.google.com/rss/articles/CBMigwFBVV95cUxOZjhDejU4UG1xTjAzdnhCZm1JVTNQQzk1bkJvQUFHQUk0b0s5b3RndzRZX0JQTVpSazFlUkFWaFNZQkxtZmJNeEtuRVd2cy0wQVdCbFRHT21QRTk1UENYZWc5ZW9nOWZ6bWNiLVkxWEVkd1hnUzZYS0ktTFp3UkM0UWxjTQ?oc=5",
+      "score": 8.0,
+      "topic": "Artificial intelligence",
+      "story_threads": [],
+      "story_key": "openai-endorses-multiple-tech-bills-congress"
+    },
+    {
+      "headline": "Israel’s Government Threatens to Ignore a Top Court Ruling",
+      "source": "NYTimes World",
+      "url": "https://www.nytimes.com/2026/07/05/world/middleeast/israel-court-netanyahu-clash.html",
+      "score": 8.0,
+      "topic": "World and politics",
+      "story_threads": [],
+      "story_key": "israel-government-threatens-ignore-top-court"
+    },
+    {
+      "headline": "Mourners Chant ‘Revenge’ at Funeral Prayers for Iran’s Slain Supreme Leader",
+      "source": "NYTimes World",
+      "url": "https://www.nytimes.com/2026/07/05/world/middleeast/iran-funeral-supreme-leader.html",
+      "score": 8.0,
+      "topic": "World and politics",
+      "story_threads": [],
+      "story_key": "mourners-chant-revenge-funeral-prayers-for"
+    },
+    {
+      "headline": "Austria wants Europe to host Anthropic after US AI curbs - Memeburn",
+      "source": "Memeburn",
+      "url": "https://news.google.com/rss/articles/CBMihAFBVV95cUxNc0NVb1VmSjdtMGUzMlFIeXl5MXh2NEhaV19Fd1Fvc19CRVRTeHB5M2ZtTTFLSFBxUFZNczh2U1AzT0NQZkI5dG9yeXhhSEZSX1ZrYmZoZl85UUlTVVRuVkI1T0tqWk9HUzJ4ME8wLUhQZ090X1pWUmJUbmV1eUVWcUV5RzE?oc=5",
+      "score": 8.0,
+      "topic": "Artificial intelligence",
+      "story_threads": [],
+      "story_key": "austria-wants-europe-host-anthropic-curbs"
+    },
+    {
+      "headline": "In San Francisco’s A.I. Era, Even $180,000 Tech Salaries Are No Longer Enough",
+      "source": "NYTimes Technology",
+      "url": "https://www.nytimes.com/2026/06/29/technology/san-francisco-tech-salaries.html",
+      "score": 8.0,
+      "topic": "World and politics",
+      "story_threads": [],
+      "story_key": "san-francisco-era-even-tech-salaries"
+    },
+    {
+      "headline": "Iran's supreme leader absent as senior officials attend ayatollah's funeral",
+      "source": "BBC World",
+      "url": "https://www.bbc.co.uk/news/articles/cevllyj9vv3o?at_medium=RSS&at_campaign=rss",
+      "score": 7.5,
+      "topic": "Technology and science",
+      "story_threads": [],
+      "story_key": "iran-supreme-leader-absent-senior-officials"
+    },
+    {
+      "headline": "Pennsylvania's proposed data centers are bringing strangers together in protest",
+      "source": "NPR",
+      "url": "https://www.npr.org/2026/07/05/nx-s1-5804732/proposed-data-centers-in-pennsylvania-are-leading-strangers-to-mobilize-in-protest",
+      "score": 7.5,
+      "topic": "Technology and science",
+      "story_threads": [],
+      "story_key": "pennsylvania-proposed-data-centers-bringing-strangers"
+    },
+    {
+      "headline": "How Iran's new regime is very different to what came before",
+      "source": "BBC World",
+      "url": "https://www.bbc.co.uk/news/articles/cg534ryp660o?at_medium=RSS&at_campaign=rss",
+      "score": 7.5,
+      "topic": "",
+      "story_threads": [],
+      "story_key": "iran-regime-very-different-came"
+    },
+    {
+      "headline": "UAE, Jordan Summon Iranian Envoys Over Attacks on Their Territories - News On AIR",
+      "source": "News On AIR",
+      "url": "https://news.google.com/rss/articles/CBMilwFBVV95cUxPRHBndkVnYWNPcnFnd2pOUjFtRkxUOGVzclE3My1mWnR5Sm5naVE5M3VOWWlhNmxVYUVZcWpuTnE5QUtWMHNScV9lQWxJdmhqOVJTNnJ0YXREUEw0ZlAtTnQwcHlzSnZPUWZxVzdBZjI3WERuLW92QkVoMkdWeWduX3lQTGVESE0tQkMyYjNkdkJKOWpWNkkw?oc=5",
+      "score": 7.5,
+      "topic": "United Arab Emirates",
+      "story_threads": [],
+      "story_key": "uae-jordan-summon-iranian-envoys-attacks"
+    }
+  ],
+  "selected_articles": [
+    {
+      "id": "08b9d77a66c996dd",
+      "headline": "Are we human? Why ByteDance and Alibaba are disabling AI agents in China - South China Morning Post",
+      "source": "South China Morning Post",
+      "url": "https://news.google.com/rss/articles/CBMivwFBVV95cUxPT0xnWV8yeVV2YlgzeWZkNlV5a3g2SWFJemdKZTgzRlBRS0Vqb3JJOXN4NE02QkY1MFhLc21BRlJmOWNod29lTkEwNnNsc19qRTNuSlhTYjN3WmVONlZRc1FJMTVaUkE0Mk4xV1FpU0RONVFSZnJhSFpGT2ZzTUFuVGphMnc4NktHSTRyS1lyYV8zdjBBc2Mtck02R3RhOGU4dktEOHB3el9ucUh2MWRTdFlDTHJFLWlYaklWYW1YTdIBvwFBVV95cUxOOWFYYUcySUh5MkVWVXhSSHZyek9nWVdiRkZPRk1hTUltTXNpYlFLdUNqRmRfSkplUVRQUWVtbWlvejkzM1FWcE9DWjFNdWFnZFB1RG9ERjJVWmNqUFBoSU9vS1N1RzYyQnFmclFRNGxQZkZVVFo5b2h4SGhGcUs2bTM0WWxubzBNMjRjbjJ0b05Eei1EZXJmNThNQ0lXYWtHQm01U25TVF9Ic3Z1aW4tOXdLLS1PbEYxWXF2U1Judw?oc=5",
+      "score": 9.0,
+      "topic": "Artificial intelligence",
+      "snippet": "Are we human? Why ByteDance and Alibaba are disabling AI agents in China South China Morning Post",
+      "story_threads": [],
+      "story_key": "human-bytedance-alibaba-disabling-agents-china",
+      "story_family_key": "human-bytedance"
+    },
+    {
+      "id": "7ee6044319de02fa",
+      "headline": "AI security questions loom over NATO summit - Politico",
+      "source": "Politico",
+      "url": "https://news.google.com/rss/articles/CBMifkFVX3lxTE9HUDRUeTFWZUxRRk96eWdGQVJsZjI5bC14YmFMRldxYlRSVHQyYllzX1VCczhyeGFqYV80M3RYZ0duV0l3dHlsY0dhbkJ0N1lPajk4NWdJZ3VEZm56Z25qa1ZJaUJGWVdTMXdoZkoxNkJPaUZMVmo3UVNrWmNmUQ?oc=5",
+      "score": 9.0,
+      "topic": "Artificial intelligence",
+      "snippet": "AI security questions loom over NATO summit Politico",
+      "story_threads": [],
+      "story_key": "security-questions-loom-nato-summit-politico",
+      "story_family_key": "security-questions"
+    },
+    {
+      "id": "71db6f85680c731e",
+      "headline": "United Arab Emirates on heightened alert amid rising West Asia tensions - News On AIR",
+      "source": "News On AIR",
+      "url": "https://news.google.com/rss/articles/CBMingFBVV95cUxNVjZhVkxrSUhHdmwtbGw0blJjU0kyYU5rOHUtdndQek1UQ1VKRjFLX1hUM3VVaVI5NHZ5clR2TWxVOHVhZkNvQnpGM3drLU1FeWx4SG81QlY5VDFCVDVOMS1TU2I5RTQ2OHQ4WTdzNU8tWE9ZdHVKTEV0TWlJcGc4dGxWNjlTU2xMUm9uUmg1d1pQU1htWEJDMXZVQ19sZw?oc=5",
+      "score": 8.5,
+      "topic": "United Arab Emirates",
+      "snippet": "United Arab Emirates on heightened alert amid rising West Asia tensions News On AIR",
+      "story_threads": [],
+      "story_key": "united-arab-emirates-heightened-alert-rising",
+      "story_family_key": "united-arab"
+    },
+    {
+      "id": "adbf42ee4f5ee45d",
+      "headline": "Trump restrictions on private AI models turns attention to open source - AOL.com",
+      "source": "AOL.com",
+      "url": "https://news.google.com/rss/articles/CBMihwFBVV95cUxPMFFnR2I2bW93UEY3azI1Z3NBLVZsRW9KbEM0UTctV3JSbGwtalpQZWE3Tk1wQ1l1aC02OHZOSWlKX1JkdnpkLXRjRTd1by16RXJuNG8tNDVFbW9PM3Iwd2plZlR0WXRZOFlueXFDYmNjaGRQYzZsYm5JdnNaQmk1bTVGdThuWE0?oc=5",
+      "score": 8.5,
+      "topic": "Artificial intelligence",
+      "snippet": "Trump restrictions on private AI models turns attention to open source AOL.com",
+      "story_threads": [],
+      "story_key": "trump-restrictions-private-models-turns-attention",
+      "story_family_key": "trump-restrictions"
+    },
+    {
+      "id": "a8162dbd09e8bf88",
+      "headline": "AI poses ‘Hiroshima’-style threat to humanity without global rules, says Cooper - The Guardian",
+      "source": "The Guardian",
+      "url": "https://news.google.com/rss/articles/CBMirwFBVV95cUxPUGQyd3dNbWNWTEU3c3lHTTdVU0VqdkI4YWFaUjNWLWxlek8xb1dhaGt4ajBValFLUW81TVJOaXdOSWt5U0I2ajRPNjg1VDQ5dkVSWWVHNWhPejFWN2xWQ2JxQ2tyM3BoYkRmeFU1bi1uNFhUMTF1dlRyVEVrSEN5OWdROEpfejdmV0xWNWtObk9OcS1Vbzg0UVNBbUNkb3lUM1ctZFpBZHEwNl9FR0RZ?oc=5",
+      "score": 8.5,
+      "topic": "Artificial intelligence",
+      "snippet": "AI poses ‘Hiroshima’-style threat to humanity without global rules, says Cooper The Guardian",
+      "story_threads": [],
+      "story_key": "poses-hiroshima-style-threat-humanity-without",
+      "story_family_key": "poses-hiroshima"
+    },
+    {
+      "id": "ed74075a62bea84e",
+      "headline": "China Raises Pressure on Taiwan With Expanded Coast Guard Patrols",
+      "source": "NYTimes World",
+      "url": "https://www.nytimes.com/2026/07/05/world/asia/china-taiwan-east-coast-guard-patrols.html",
+      "score": 8.5,
+      "topic": "Technology and science",
+      "snippet": "Beijing sent two ships to patrol the waters east of Taiwan, a new campaign to challenge the island’s control of waters crucial to any future invasion.",
+      "story_threads": [],
+      "story_key": "china-raises-pressure-taiwan-expanded-coast",
+      "story_family_key": "china-raises"
+    },
+    {
+      "id": "6cdf111389d8a8d1",
+      "headline": "Morgan Stanley warns AI may not lead to lower policy rates - Crypto Briefing",
+      "source": "Crypto Briefing",
+      "url": "https://news.google.com/rss/articles/CBMijwFBVV95cUxNWExGTC1UUVV4a3ZIRF9CYnl0b1R6YjluNnZzM3JjR1hUaEprTW40UzBvVlNTSTNEN3VDWmdyZFcxMlRSc0VZaWdNTm9zZVdicnhfZ3VxLW5uajg0SjM0dmQ3aVBZQWZBaC1pR2xMWjdtZFR3T1NxQk81YWxBQnZtZ3k2d3V4eFVkNGlxTDlzdw?oc=5",
+      "score": 8.5,
+      "topic": "Business and economy",
+      "snippet": "Morgan Stanley warns AI may not lead to lower policy rates Crypto Briefing",
+      "story_threads": [],
+      "story_key": "morgan-stanley-warns-lead-lower-policy",
+      "story_family_key": "morgan-stanley"
+    },
+    {
+      "id": "a5af8824b176289a",
+      "headline": "Semiconductor Stocks Slide Amid AI Spending Concerns - StartupHub.ai",
+      "source": "StartupHub.ai",
+      "url": "https://news.google.com/rss/articles/CBMirAFBVV95cUxQMjRkUTFRMzdEODBhT3NQamFVX04ySk5JU29jSlljcnFKMmt6b1h0b2M5RmVQcHVsRGFfcmdFMEp2VWxHNWZDcVc2c0syLWI5N1BnMUROWXo1ZjdiMTMwWUJudENzVEx6Z182ZWJGbTI4Q1UxYnhFejV3SlR0SXBRdWdCc0lpbWVXSWg5RC0xSUhzdWF1Nm9VNWEyZGs3c3dmMUZ3QUhTR3RHOEVL?oc=5",
+      "score": 8.5,
+      "topic": "Artificial intelligence",
+      "snippet": "Semiconductor Stocks Slide Amid AI Spending Concerns StartupHub.ai",
+      "story_threads": [],
+      "story_key": "semiconductor-stocks-slide-spending-concerns-startuphub",
+      "story_family_key": "semiconductor-stocks"
+    },
+    {
+      "id": "737023e9ef4b612d",
+      "headline": "Europe races to close AI gap with the US - DW.com",
+      "source": "DW.com",
+      "url": "https://news.google.com/rss/articles/CBMikwFBVV95cUxNZ3M1R2Q1ZENfdGxQZHJIZXlFb0NEVExUVm5aTjc3aVlXUjk4VkRVTVNqNlVFaXJfTDBkMmpZdENRTGFVbE9pb2x5Ull1THZiY3VOTF9RMGVJa1ZVcERJd1JNZnRLRGRrMDM5bS1Gc3NDZjBSdVhYdVdkWXhWYTlFeEQ4SUh2WXIzR1E0blBjdE1ubknSAZMBQVVfeXFMTmUyOVUwblB1OWJ0dy1sbVNRYzRjU0ktQUgwUHlESE5BSF94WTViTmh4SlR3d2NjR0o2MkhKUFlSeVE0c0c2cEMyU1NIbkQ3SnEzU2hYZlMzanVrR24xMVQteTVLU2tzdDl2RVdUZjJoLXZBOTZLWmVPVV96UGNfZHFIOS01TGJ4dE44WC1sUjBxT1lZ?oc=5",
+      "score": 8.5,
+      "topic": "Artificial intelligence",
+      "snippet": "Europe races to close AI gap with the US DW.com",
+      "story_threads": [],
+      "story_key": "europe-races-close-gap-com",
+      "story_family_key": "artificial-intelligence"
+    },
+    {
+      "id": "ffa71ae99851b98f",
+      "headline": "Global investors bullish on UAE, GCC economy amid US-Iran talks, says new report - Khaleej Times",
+      "source": "Khaleej Times",
+      "url": "https://news.google.com/rss/articles/CBMivwFBVV95cUxPODViSzRvR2VTdnl2dXZ6ZmNtUTAxdlpHTXB6WVI3dTFQQjktN29abTVCTHZaUzYzS0lrSHdkNG1FU09aRTFrclJ1VFQ4YnBIRnRveDJROThIdXZ6TEtRYXZQRHFuakxBZzIzWi1GMFVnSmVrdm9mX3Zaa25rN0Y3R253TTZKVFpQaXNodkI1bHpzUnFoY3UyYlBZNXlscURQeXRIcVl0ekI5dW9rbDlRVlRwYzlUSDd1TGJOR0lMY9IBvwFBVV95cUxPODViSzRvR2VTdnl2dXZ6ZmNtUTAxdlpHTXB6WVI3dTFQQjktN29abTVCTHZaUzYzS0lrSHdkNG1FU09aRTFrclJ1VFQ4YnBIRnRveDJROThIdXZ6TEtRYXZQRHFuakxBZzIzWi1GMFVnSmVrdm9mX3Zaa25rN0Y3R253TTZKVFpQaXNodkI1bHpzUnFoY3UyYlBZNXlscURQeXRIcVl0ekI5dW9rbDlRVlRwYzlUSDd1TGJOR0lMYw?oc=5",
+      "score": 8.0,
+      "topic": "United Arab Emirates",
+      "snippet": "Global investors bullish on UAE, GCC economy amid US-Iran talks, says new report Khaleej Times",
+      "story_threads": [],
+      "story_key": "global-investors-bullish-uae-gcc-economy",
+      "story_family_key": "global-investors"
+    },
+    {
+      "id": "c15e9f04ae725ba2",
+      "headline": "Israel sent IDF soldiers, Iron Dome system to Abu Dhabi during Iran war - The Jerusalem Post",
+      "source": "The Jerusalem Post",
+      "url": "https://news.google.com/rss/articles/CBMiXEFVX3lxTE9pcTg0bzdmQVY1NEFrU0pUc1FRWnhKY2lIRUljQXVIRUFkeXdQbE1tU1NESmpNQ2VaaGN5aTZMb1ZzOG5wRnJfTWduS2xOOUtXT2lRRVpnQjhKMWk2?oc=5",
+      "score": 8.0,
+      "topic": "United Arab Emirates",
+      "snippet": "Israel sent IDF soldiers, Iron Dome system to Abu Dhabi during Iran war The Jerusalem Post",
+      "story_threads": [],
+      "story_key": "israel-sent-idf-soldiers-iron-dome",
+      "story_family_key": "israel-sent"
+    },
+    {
+      "id": "b885496e1921382e",
+      "headline": "OpenAI endorses multiple tech bills in Congress as it bets on regulation over resistance - Crypto Briefing",
+      "source": "Crypto Briefing",
+      "url": "https://news.google.com/rss/articles/CBMigwFBVV95cUxOZjhDejU4UG1xTjAzdnhCZm1JVTNQQzk1bkJvQUFHQUk0b0s5b3RndzRZX0JQTVpSazFlUkFWaFNZQkxtZmJNeEtuRVd2cy0wQVdCbFRHT21QRTk1UENYZWc5ZW9nOWZ6bWNiLVkxWEVkd1hnUzZYS0ktTFp3UkM0UWxjTQ?oc=5",
+      "score": 8.0,
+      "topic": "Artificial intelligence",
+      "snippet": "OpenAI endorses multiple tech bills in Congress as it bets on regulation over resistance Crypto Briefing",
+      "story_threads": [],
+      "story_key": "openai-endorses-multiple-tech-bills-congress",
+      "story_family_key": "openai-endorses"
+    },
+    {
+      "id": "b65344fd55d4fa16",
+      "headline": "Israel’s Government Threatens to Ignore a Top Court Ruling",
+      "source": "NYTimes World",
+      "url": "https://www.nytimes.com/2026/07/05/world/middleeast/israel-court-netanyahu-clash.html",
+      "score": 8.0,
+      "topic": "World and politics",
+      "snippet": "A resolution by the country’s cabinet escalated a long-running conflict between Prime Minister Benjamin Netanyahu and the country’s judiciary. A senior government official later wa",
+      "story_threads": [],
+      "story_key": "israel-government-threatens-ignore-top-court",
+      "story_family_key": "israel-government"
+    },
+    {
+      "id": "d0f9d5ee26eff3d1",
+      "headline": "Mourners Chant ‘Revenge’ at Funeral Prayers for Iran’s Slain Supreme Leader",
+      "source": "NYTimes World",
+      "url": "https://www.nytimes.com/2026/07/05/world/middleeast/iran-funeral-supreme-leader.html",
+      "score": 8.0,
+      "topic": "World and politics",
+      "snippet": "On the second day of public mourning for Ayatollah Ali Khamenei, who was killed in February, there was still no sign of his son and successor, Mojtaba Khamenei.",
+      "story_threads": [],
+      "story_key": "mourners-chant-revenge-funeral-prayers-for",
+      "story_family_key": "mourners-chant"
+    },
+    {
+      "id": "66a65aea436a7096",
+      "headline": "Austria wants Europe to host Anthropic after US AI curbs - Memeburn",
+      "source": "Memeburn",
+      "url": "https://news.google.com/rss/articles/CBMihAFBVV95cUxNc0NVb1VmSjdtMGUzMlFIeXl5MXh2NEhaV19Fd1Fvc19CRVRTeHB5M2ZtTTFLSFBxUFZNczh2U1AzT0NQZkI5dG9yeXhhSEZSX1ZrYmZoZl85UUlTVVRuVkI1T0tqWk9HUzJ4ME8wLUhQZ090X1pWUmJUbmV1eUVWcUV5RzE?oc=5",
+      "score": 8.0,
+      "topic": "Artificial intelligence",
+      "snippet": "Austria wants Europe to host Anthropic after US AI curbs Memeburn",
+      "story_threads": [],
+      "story_key": "austria-wants-europe-host-anthropic-curbs",
+      "story_family_key": "austria-wants"
+    },
+    {
+      "id": "c73ef68b18b89b45",
+      "headline": "In San Francisco’s A.I. Era, Even $180,000 Tech Salaries Are No Longer Enough",
+      "source": "NYTimes Technology",
+      "url": "https://www.nytimes.com/2026/06/29/technology/san-francisco-tech-salaries.html",
+      "score": 8.0,
+      "topic": "World and politics",
+      "snippet": "As OpenAI and Anthropic prepare to go public, tech workers making six figures are grousing that they cannot compete with the new A.I. elite. Some doubt they can afford to stay.",
+      "story_threads": [],
+      "story_key": "san-francisco-era-even-tech-salaries",
+      "story_family_key": "san-francisco"
+    },
+    {
+      "id": "240b2e35675c95f5",
+      "headline": "Iran's supreme leader absent as senior officials attend ayatollah's funeral",
+      "source": "BBC World",
+      "url": "https://www.bbc.co.uk/news/articles/cevllyj9vv3o?at_medium=RSS&at_campaign=rss",
+      "score": 7.5,
+      "topic": "Technology and science",
+      "snippet": "Mojtaba Khamenei has not been seen in public since the attack which killed his father at the outset of the US-Israel war with Iran.",
+      "story_threads": [],
+      "story_key": "iran-supreme-leader-absent-senior-officials",
+      "story_family_key": "iran-supreme"
+    },
+    {
+      "id": "1c5569a41bc91a1f",
+      "headline": "Pennsylvania's proposed data centers are bringing strangers together in protest",
+      "source": "NPR",
+      "url": "https://www.npr.org/2026/07/05/nx-s1-5804732/proposed-data-centers-in-pennsylvania-are-leading-strangers-to-mobilize-in-protest",
+      "score": 7.5,
+      "topic": "Technology and science",
+      "snippet": "Proposals to build six data centers in the small community of Archbald, Pennsylvania, have brought strangers together to fight the plans there — and elsewhere in the state.",
+      "story_threads": [],
+      "story_key": "pennsylvania-proposed-data-centers-bringing-strangers",
+      "story_family_key": "pennsylvania-proposed"
+    },
+    {
+      "id": "997425027efb8f9e",
+      "headline": "How Iran's new regime is very different to what came before",
+      "source": "BBC World",
+      "url": "https://www.bbc.co.uk/news/articles/cg534ryp660o?at_medium=RSS&at_campaign=rss",
+      "score": 7.5,
+      "topic": "",
+      "snippet": "Khamenei's funeral is another reminder of the change Iran has seen, but what does its new leadership want?",
+      "story_threads": [],
+      "story_key": "iran-regime-very-different-came",
+      "story_family_key": "iran-regime"
+    },
+    {
+      "id": "bfa3868111d06167",
+      "headline": "UAE, Jordan Summon Iranian Envoys Over Attacks on Their Territories - News On AIR",
+      "source": "News On AIR",
+      "url": "https://news.google.com/rss/articles/CBMilwFBVV95cUxPRHBndkVnYWNPcnFnd2pOUjFtRkxUOGVzclE3My1mWnR5Sm5naVE5M3VOWWlhNmxVYUVZcWpuTnE5QUtWMHNScV9lQWxJdmhqOVJTNnJ0YXREUEw0ZlAtTnQwcHlzSnZPUWZxVzdBZjI3WERuLW92QkVoMkdWeWduX3lQTGVESE0tQkMyYjNkdkJKOWpWNkkw?oc=5",
+      "score": 7.5,
+      "topic": "United Arab Emirates",
+      "snippet": "UAE, Jordan Summon Iranian Envoys Over Attacks on Their Territories News On AIR",
+      "story_threads": [],
+      "story_key": "uae-jordan-summon-iranian-envoys-attacks",
+      "story_family_key": "uae-jordan"
+    }
+  ],
+  "references": [
+    {
+      "title": "Are we human? Why ByteDance and Alibaba are disabling AI agents in China - South China Morning Post",
+      "source": "South China Morning Post",
+      "url": "https://news.google.com/rss/articles/CBMivwFBVV95cUxPT0xnWV8yeVV2YlgzeWZkNlV5a3g2SWFJemdKZTgzRlBRS0Vqb3JJOXN4NE02QkY1MFhLc21BRlJmOWNod29lTkEwNnNsc19qRTNuSlhTYjN3WmVONlZRc1FJMTVaUkE0Mk4xV1FpU0RONVFSZnJhSFpGT2ZzTUFuVGphMnc4NktHSTRyS1lyYV8zdjBBc2Mtck02R3RhOGU4dktEOHB3el9ucUh2MWRTdFlDTHJFLWlYaklWYW1YTdIBvwFBVV95cUxOOWFYYUcySUh5MkVWVXhSSHZyek9nWVdiRkZPRk1hTUltTXNpYlFLdUNqRmRfSkplUVRQUWVtbWlvejkzM1FWcE9DWjFNdWFnZFB1RG9ERjJVWmNqUFBoSU9vS1N1RzYyQnFmclFRNGxQZkZVVFo5b2h4SGhGcUs2bTM0WWxubzBNMjRjbjJ0b05Eei1EZXJmNThNQ0lXYWtHQm01U25TVF9Ic3Z1aW4tOXdLLS1PbEYxWXF2U1Judw?oc=5"
+    },
+    {
+      "title": "AI security questions loom over NATO summit - Politico",
+      "source": "Politico",
+      "url": "https://news.google.com/rss/articles/CBMifkFVX3lxTE9HUDRUeTFWZUxRRk96eWdGQVJsZjI5bC14YmFMRldxYlRSVHQyYllzX1VCczhyeGFqYV80M3RYZ0duV0l3dHlsY0dhbkJ0N1lPajk4NWdJZ3VEZm56Z25qa1ZJaUJGWVdTMXdoZkoxNkJPaUZMVmo3UVNrWmNmUQ?oc=5"
+    },
+    {
+      "title": "United Arab Emirates on heightened alert amid rising West Asia tensions - News On AIR",
+      "source": "News On AIR",
+      "url": "https://news.google.com/rss/articles/CBMingFBVV95cUxNVjZhVkxrSUhHdmwtbGw0blJjU0kyYU5rOHUtdndQek1UQ1VKRjFLX1hUM3VVaVI5NHZ5clR2TWxVOHVhZkNvQnpGM3drLU1FeWx4SG81QlY5VDFCVDVOMS1TU2I5RTQ2OHQ4WTdzNU8tWE9ZdHVKTEV0TWlJcGc4dGxWNjlTU2xMUm9uUmg1d1pQU1htWEJDMXZVQ19sZw?oc=5"
+    },
+    {
+      "title": "Trump restrictions on private AI models turns attention to open source - AOL.com",
+      "source": "AOL.com",
+      "url": "https://news.google.com/rss/articles/CBMihwFBVV95cUxPMFFnR2I2bW93UEY3azI1Z3NBLVZsRW9KbEM0UTctV3JSbGwtalpQZWE3Tk1wQ1l1aC02OHZOSWlKX1JkdnpkLXRjRTd1by16RXJuNG8tNDVFbW9PM3Iwd2plZlR0WXRZOFlueXFDYmNjaGRQYzZsYm5JdnNaQmk1bTVGdThuWE0?oc=5"
+    },
+    {
+      "title": "AI poses ‘Hiroshima’-style threat to humanity without global rules, says Cooper - The Guardian",
+      "source": "The Guardian",
+      "url": "https://news.google.com/rss/articles/CBMirwFBVV95cUxPUGQyd3dNbWNWTEU3c3lHTTdVU0VqdkI4YWFaUjNWLWxlek8xb1dhaGt4ajBValFLUW81TVJOaXdOSWt5U0I2ajRPNjg1VDQ5dkVSWWVHNWhPejFWN2xWQ2JxQ2tyM3BoYkRmeFU1bi1uNFhUMTF1dlRyVEVrSEN5OWdROEpfejdmV0xWNWtObk9OcS1Vbzg0UVNBbUNkb3lUM1ctZFpBZHEwNl9FR0RZ?oc=5"
+    },
+    {
+      "title": "China Raises Pressure on Taiwan With Expanded Coast Guard Patrols",
+      "source": "NYTimes World",
+      "url": "https://www.nytimes.com/2026/07/05/world/asia/china-taiwan-east-coast-guard-patrols.html"
+    },
+    {
+      "title": "Morgan Stanley warns AI may not lead to lower policy rates - Crypto Briefing",
+      "source": "Crypto Briefing",
+      "url": "https://news.google.com/rss/articles/CBMijwFBVV95cUxNWExGTC1UUVV4a3ZIRF9CYnl0b1R6YjluNnZzM3JjR1hUaEprTW40UzBvVlNTSTNEN3VDWmdyZFcxMlRSc0VZaWdNTm9zZVdicnhfZ3VxLW5uajg0SjM0dmQ3aVBZQWZBaC1pR2xMWjdtZFR3T1NxQk81YWxBQnZtZ3k2d3V4eFVkNGlxTDlzdw?oc=5"
+    },
+    {
+      "title": "Semiconductor Stocks Slide Amid AI Spending Concerns - StartupHub.ai",
+      "source": "StartupHub.ai",
+      "url": "https://news.google.com/rss/articles/CBMirAFBVV95cUxQMjRkUTFRMzdEODBhT3NQamFVX04ySk5JU29jSlljcnFKMmt6b1h0b2M5RmVQcHVsRGFfcmdFMEp2VWxHNWZDcVc2c0syLWI5N1BnMUROWXo1ZjdiMTMwWUJudENzVEx6Z182ZWJGbTI4Q1UxYnhFejV3SlR0SXBRdWdCc0lpbWVXSWg5RC0xSUhzdWF1Nm9VNWEyZGs3c3dmMUZ3QUhTR3RHOEVL?oc=5"
+    },
+    {
+      "title": "Europe races to close AI gap with the US - DW.com",
+      "source": "DW.com",
+      "url": "https://news.google.com/rss/articles/CBMikwFBVV95cUxNZ3M1R2Q1ZENfdGxQZHJIZXlFb0NEVExUVm5aTjc3aVlXUjk4VkRVTVNqNlVFaXJfTDBkMmpZdENRTGFVbE9pb2x5Ull1THZiY3VOTF9RMGVJa1ZVcERJd1JNZnRLRGRrMDM5bS1Gc3NDZjBSdVhYdVdkWXhWYTlFeEQ4SUh2WXIzR1E0blBjdE1ubknSAZMBQVVfeXFMTmUyOVUwblB1OWJ0dy1sbVNRYzRjU0ktQUgwUHlESE5BSF94WTViTmh4SlR3d2NjR0o2MkhKUFlSeVE0c0c2cEMyU1NIbkQ3SnEzU2hYZlMzanVrR24xMVQteTVLU2tzdDl2RVdUZjJoLXZBOTZLWmVPVV96UGNfZHFIOS01TGJ4dE44WC1sUjBxT1lZ?oc=5"
+    },
+    {
+      "title": "Global investors bullish on UAE, GCC economy amid US-Iran talks, says new report - Khaleej Times",
+      "source": "Khaleej Times",
+      "url": "https://news.google.com/rss/articles/CBMivwFBVV95cUxPODViSzRvR2VTdnl2dXZ6ZmNtUTAxdlpHTXB6WVI3dTFQQjktN29abTVCTHZaUzYzS0lrSHdkNG1FU09aRTFrclJ1VFQ4YnBIRnRveDJROThIdXZ6TEtRYXZQRHFuakxBZzIzWi1GMFVnSmVrdm9mX3Zaa25rN0Y3R253TTZKVFpQaXNodkI1bHpzUnFoY3UyYlBZNXlscURQeXRIcVl0ekI5dW9rbDlRVlRwYzlUSDd1TGJOR0lMY9IBvwFBVV95cUxPODViSzRvR2VTdnl2dXZ6ZmNtUTAxdlpHTXB6WVI3dTFQQjktN29abTVCTHZaUzYzS0lrSHdkNG1FU09aRTFrclJ1VFQ4YnBIRnRveDJROThIdXZ6TEtRYXZQRHFuakxBZzIzWi1GMFVnSmVrdm9mX3Zaa25rN0Y3R253TTZKVFpQaXNodkI1bHpzUnFoY3UyYlBZNXlscURQeXRIcVl0ekI5dW9rbDlRVlRwYzlUSDd1TGJOR0lMYw?oc=5"
+    },
+    {
+      "title": "Israel sent IDF soldiers, Iron Dome system to Abu Dhabi during Iran war - The Jerusalem Post",
+      "source": "The Jerusalem Post",
+      "url": "https://news.google.com/rss/articles/CBMiXEFVX3lxTE9pcTg0bzdmQVY1NEFrU0pUc1FRWnhKY2lIRUljQXVIRUFkeXdQbE1tU1NESmpNQ2VaaGN5aTZMb1ZzOG5wRnJfTWduS2xOOUtXT2lRRVpnQjhKMWk2?oc=5"
+    },
+    {
+      "title": "OpenAI endorses multiple tech bills in Congress as it bets on regulation over resistance - Crypto Briefing",
+      "source": "Crypto Briefing",
+      "url": "https://news.google.com/rss/articles/CBMigwFBVV95cUxOZjhDejU4UG1xTjAzdnhCZm1JVTNQQzk1bkJvQUFHQUk0b0s5b3RndzRZX0JQTVpSazFlUkFWaFNZQkxtZmJNeEtuRVd2cy0wQVdCbFRHT21QRTk1UENYZWc5ZW9nOWZ6bWNiLVkxWEVkd1hnUzZYS0ktTFp3UkM0UWxjTQ?oc=5"
+    },
+    {
+      "title": "Israel’s Government Threatens to Ignore a Top Court Ruling",
+      "source": "NYTimes World",
+      "url": "https://www.nytimes.com/2026/07/05/world/middleeast/israel-court-netanyahu-clash.html"
+    },
+    {
+      "title": "Mourners Chant ‘Revenge’ at Funeral Prayers for Iran’s Slain Supreme Leader",
+      "source": "NYTimes World",
+      "url": "https://www.nytimes.com/2026/07/05/world/middleeast/iran-funeral-supreme-leader.html"
+    },
+    {
+      "title": "Austria wants Europe to host Anthropic after US AI curbs - Memeburn",
+      "source": "Memeburn",
+      "url": "https://news.google.com/rss/articles/CBMihAFBVV95cUxNc0NVb1VmSjdtMGUzMlFIeXl5MXh2NEhaV19Fd1Fvc19CRVRTeHB5M2ZtTTFLSFBxUFZNczh2U1AzT0NQZkI5dG9yeXhhSEZSX1ZrYmZoZl85UUlTVVRuVkI1T0tqWk9HUzJ4ME8wLUhQZ090X1pWUmJUbmV1eUVWcUV5RzE?oc=5"
+    },
+    {
+      "title": "In San Francisco’s A.I. Era, Even $180,000 Tech Salaries Are No Longer Enough",
+      "source": "NYTimes Technology",
+      "url": "https://www.nytimes.com/2026/06/29/technology/san-francisco-tech-salaries.html"
+    },
+    {
+      "title": "Iran's supreme leader absent as senior officials attend ayatollah's funeral",
+      "source": "BBC World",
+      "url": "https://www.bbc.co.uk/news/articles/cevllyj9vv3o?at_medium=RSS&at_campaign=rss"
+    },
+    {
+      "title": "Pennsylvania's proposed data centers are bringing strangers together in protest",
+      "source": "NPR",
+      "url": "https://www.npr.org/2026/07/05/nx-s1-5804732/proposed-data-centers-in-pennsylvania-are-leading-strangers-to-mobilize-in-protest"
+    },
+    {
+      "title": "How Iran's new regime is very different to what came before",
+      "source": "BBC World",
+      "url": "https://www.bbc.co.uk/news/articles/cg534ryp660o?at_medium=RSS&at_campaign=rss"
+    },
+    {
+      "title": "UAE, Jordan Summon Iranian Envoys Over Attacks on Their Territories - News On AIR",
+      "source": "News On AIR",
+      "url": "https://news.google.com/rss/articles/CBMilwFBVV95cUxPRHBndkVnYWNPcnFnd2pOUjFtRkxUOGVzclE3My1mWnR5Sm5naVE5M3VOWWlhNmxVYUVZcWpuTnE5QUtWMHNScV9lQWxJdmhqOVJTNnJ0YXREUEw0ZlAtTnQwcHlzSnZPUWZxVzdBZjI3WERuLW92QkVoMkdWeWduX3lQTGVESE0tQkMyYjNkdkJKOWpWNkkw?oc=5"
+    }
+  ],
+  "metadata": {
+    "schema_version": "2.0",
+    "generated_at": "2026-07-06T07:10:06.219174+04:00",
+    "date": "2026-07-06",
+    "brief_name": "general",
+    "model": "llama_cpp_server:Qwen3.5-35B-A3B-Q3_K_M -> llama_cpp_server:Qwen3.5-35B-A3B-Q3_K_M",
+    "topics": [
+      "World and politics",
+      "Business and economy",
+      "Technology and science"
+    ],
+    "prior_reports_count": 5,
+    "candidate_count": 130,
+    "selected_count": 20,
+    "warnings": [
+      "general: dynamic final-context budget raised effective headline score floor to 7.50; kept 20/33 selected articles (37246/38912 estimated input tokens), dropped: 15874a3e9baba768, 77838b4bf50ae526, 8017bfb5a4614f6f, 154f97cbebfe2866, 5cc933a230d2bde8, 9dbb903dbd673b32, a4916b174f55b099, d265548f7482fa68, 4de8e69bb124b7b8, ebbd878492271001, 559f57285b094477, cd4af04241d9d47a, 4ac0474f06372273",
+      "story grouping duplicate assignment ignored for article c73ef68b18b89b45",
+      "story grouping omitted selected article(s); skipped enrichment for: c15e9f04ae725ba2",
+      "shared evidence grouping omitted selected article(s); added singleton fallback group(s): c15e9f04ae725ba2",
+      "evidence distillation split selected articles into 2 estimated-fit batch(es).",
+      "evidence cluster story-004 crossed shared group boundary; trimmed article ids",
+      "evidence claim support ids crossed shared group boundary; trimmed",
+      "evidence cluster story-002 crossed shared group boundary; trimmed article ids",
+      "evidence cluster story-002 dropped after boundary trim"
+    ],
+    "selection_reason_codes": {
+      "selected": {
+        "selected_high_score": 19,
+        "selected_high_score_memory_adjusted": 1
+      },
+      "skipped": {
+        "skipped_below_cutoff": 90,
+        "skipped_final_budget": 13,
+        "skipped_source_cap": 6
+      }
+    },
+    "composite_ranking_enabled": false,
+    "memory": {
+      "enabled": true,
+      "recall_prompt_enabled": true,
+      "save_recall_packets": true,
+      "coverage_guidance_used": true,
+      "recall_packet_path": "state\\memory\\recall_packets\\2026-07-06_general.json",
+      "recall_packet": {
+        "schema_version": 1,
+        "date": "2026-07-06",
+        "brief_name": "general",
+        "coverage_guidance": [
+          {
+            "story_key": "central-banks-push-global-gold-holdings",
+            "story_family_key": "economy",
+            "title": "Global Gold Reserves and Central Bank Strategy",
+            "recent_coverage": "Covered yesterday.",
+            "today_policy": "capsule_unless_material_update",
+            "reason": "Recently prominent and current headline signal appears incremental.",
+            "score_adjustment": -1.5,
+            "materiality": 0.3,
+            "selected": false,
+            "selection_reason_code": "skipped_below_cutoff"
+          },
+          {
+            "story_key": "leaders-know-uae-backs-massacres-sudan",
+            "story_family_key": "world",
+            "title": "Miscellaneous Geopolitical and Trade Updates",
+            "recent_coverage": "Covered yesterday.",
+            "today_policy": "capsule_unless_material_update",
+            "reason": "Recently prominent and current headline signal appears incremental.",
+            "score_adjustment": -0.9,
+            "materiality": 0.375,
+            "selected": false,
+            "selection_reason_code": "skipped_final_budget"
+          },
+          {
+            "story_key": "huge-crowds-mass-tehran-for-ayatollah",
+            "story_family_key": "iran-politics",
+            "title": "Funeral and Succession of Ayatollah Khamenei",
+            "recent_coverage": "Covered yesterday.",
+            "today_policy": "capsule_unless_material_update",
+            "reason": "Recently prominent and current headline signal appears incremental.",
+            "score_adjustment": -0.9,
+            "materiality": 0.35,
+            "selected": false,
+            "selection_reason_code": "skipped_source_cap"
+          },
+          {
+            "story_key": "europe-races-close-gap-com",
+            "story_family_key": "artificial-intelligence",
+            "title": "Global AI Governance and Market Shifts",
+            "recent_coverage": "Covered yesterday.",
+            "today_policy": "material_update_ok",
+            "reason": "Recently covered, but headline signals a material update.",
+            "score_adjustment": -0.09,
+            "materiality": 0.9,
+            "selected": true,
+            "selection_reason_code": "selected_high_score_memory_adjusted"
+          }
+        ],
+        "selection_summary": {
+          "story_count": 127,
+          "stories_reduced_for_recent_coverage": 4,
+          "stories_boosted_for_material_update": 0,
+          "stories_skipped_by_story_cap": 0,
+          "stories_skipped_by_story_family_cap": 0,
+          "learned_preference_adjusted_candidates": 0,
+          "learned_preference_positive_candidates": 0,
+          "learned_preference_negative_candidates": 0,
+          "learned_preference_topic_matches": 0,
+          "learned_preference_source_matches": 0
+        }
+      },
+      "story_count": 127,
+      "stories_reduced_for_recent_coverage": 4,
+      "stories_boosted_for_material_update": 0,
+      "stories_skipped_by_story_cap": 0,
+      "stories_skipped_by_story_family_cap": 0,
+      "learned_preference_adjusted_candidates": 0,
+      "learned_preference_positive_candidates": 0,
+      "learned_preference_negative_candidates": 0,
+      "learned_preference_topic_matches": 0,
+      "learned_preference_source_matches": 0
+    },
+    "analysis_rollout": {
+      "enabled": true,
+      "profile": "safe_local",
+      "mode": "general",
+      "evidence_requested_enabled": false,
+      "evidence_enabled": true,
+      "delta_requested_enabled": false,
+      "delta_enabled": false
+    }
+  },
+  "analysis": {
+    "evidence_packet": {
+      "overview": "Global AI policy is shifting from aggressive export controls to a 'stakeholder' model, with major players like OpenAI embracing regulation while Chinese giants ByteDance and Alibaba scale back autonomous agents. Simultaneously, the UAE economy is showing resilience and attracting bullish investor sentiment despite regional tensions and the aftermath of Iran' The death of Iran's Supreme Leader Ali Khamenei has triggered a volatile succession crisis, marked by the conspicuous absence of his son and designated successor, Mojtaba Khamenei, during public funeral rites. This leadership vacuum is destabilizing regional dynamics, prompting diplomatic summons from the UAE and Jordan over cross-border attacks, while US Pr",
+      "story_clusters": [
+        {
+          "cluster_id": "story-002",
+          "topic": "Artificial Intelligence Policy",
+          "label": "Global AI Regulatory Pivot",
+          "summary": "A strategic shift is occurring where major tech players and governments are moving from resistance to embracing regulation, while China enforces tighter controls on AI agents. This creates a bifurcated market where open-source models gain traction in the US and Europe as private ",
+          "article_ids": [
+            "08b9d77a66c996dd",
+            "7ee6044319de02fa",
+            "adbf42ee4f5ee45d",
+            "a8162dbd09e8bf88",
+            "b885496e1921382e",
+            "737023e9ef4b612d",
+            "66a65aea436a7096"
+          ],
+          "key_claims": [
+            {
+              "claim": "ByteDance and Alibaba are disabling AI agents in China to navigate regulatory uncertainty, signaling a shift from deployment to compliance.",
+              "support_article_ids": [
+                "08b9d77a66c996dd"
+              ],
+              "confidence": "high"
+            },
+            {
+              "claim": "OpenAI is pivoting from resistance to endorsement of multiple tech bills in Congress, betting on regulation to secure market position.",
+              "support_article_ids": [
+                "b885496e1921382e"
+              ],
+              "confidence": "high"
+            },
+            {
+              "claim": "US private AI restrictions are driving a race for Europe to host major models like Anthropic, altering the US-EU AI competitive landscape.",
+              "support_article_ids": [
+                "66a65aea436a7096",
+                "737023e9ef4b612d"
+              ],
+              "confidence": "medium"
+            },
+            {
+              "claim": "AI security is a primary agenda item at the NATO summit, with calls for global rules to prevent 'Hiroshima-style' threats.",
+              "support_article_ids": [
+                "7ee6044319de02fa",
+                "a8162dbd09e8bf88"
+              ],
+              "confidence": "high"
+            }
+          ],
+          "consensus_points": [
+            "Regulatory frameworks are becoming the primary driver of AI deployment strategies globally.",
+            "China is actively curbing autonomous AI agent capabilities to manage systemic risk.",
+            "The US is moving from pure export controls to a model that integrates private sector stakeholders."
+          ],
+          "contested_points": [
+            "The extent to which 'open source' will become the dominant alternative to restricted private models remains uncertain.",
+            "Whether the 'stakeholder' model in the US will result in stricter or looser enforcement compared to the previous regime."
+          ],
+          "known_unknowns": [
+            "The specific impact of the 'stakeholder' model on US export controls for AI infrastructure.",
+            "How the EU will coordinate its AI gap-closing strategy with the US withdrawal of private models."
+          ],
+          "watch_signals": [
+            "US Congress passage of the specific tech bills endorsed by OpenAI.",
+            "Announcement of Anthropic's physical relocation to Austria or another EU host.",
+            "Further ByteDance/Alibaba policy updates regarding agent autonomy."
+          ]
+        },
+        {
+          "cluster_id": "story-003",
+          "topic": "Business & Economy",
+          "label": "AI Infrastructure Strain and Market Correction",
+          "summary": "The AI boom is facing a reality check as spending concerns trigger semiconductor stock slides and Morgan Stanley warns against immediate policy rate cuts. Concurrently, the physical footprint of AI infrastructure is sparking localized resistance in the US, creating friction betwe",
+          "article_ids": [
+            "6cdf111389d8a8d1",
+            "a5af8824b176289a",
+            "1c5569a41bc91a1f"
+          ],
+          "key_claims": [
+            {
+              "claim": "Morgan Stanley warns that AI-driven capital expenditure may prevent central banks from lowering policy rates as quickly as markets expect.",
+              "support_article_ids": [
+                "6cdf111389d8a8d1"
+              ],
+              "confidence": "high"
+            },
+            {
+              "claim": "Semiconductor stocks are sliding as investors question the sustainability of current AI spending levels.",
+              "support_article_ids": [
+                "a5af8824b176289a"
+              ],
+              "confidence": "high"
+            },
+            {
+              "claim": "Rapid data center expansion in Pennsylvania is mobilizing cross-partisan local resistance, challenging the 'stranger' status of community engagement.",
+              "support_article_ids": [
+                "1c5569a41bc91a1f"
+              ],
+              "confidence": "high"
+            }
+          ],
+          "consensus_points": [
+            "AI infrastructure spending is a significant variable in macroeconomic policy rate decisions.",
+            "Physical data center expansion is creating localized friction in US communities.",
+            "Market sentiment regarding semiconductor valuations is cooling."
+          ],
+          "contested_points": [
+            "Whether the 'Hiroshima' threat narrative will translate into immediate policy action or remain a rhetorical device.",
+            "The long-term viability of the 'stakeholder' model versus the 'open source' alternative."
+          ],
+          "known_unknowns": [
+            "The specific timeline for the US administration's pivot from export controls to the stakeholder model.",
+            "The exact regulatory framework the EU will adopt to host Anthropic."
+          ],
+          "watch_signals": [
+            "Federal Reserve commentary on AI-driven inflation pressures.",
+            "Semiconductor index movements following the reported slide.",
+            "Legislative outcomes in Pennsylvania regarding data center zoning."
+          ]
+        },
+        {
+          "cluster_id": "story-004",
+          "topic": "Middle East Economy",
+          "label": "UAE Resilience Amid Geopolitical Friction",
+          "summary": "Despite the death of Iran's Supreme Leader and rising regional tensions, the UAE economy is attracting bullish investor sentiment, with reports highlighting resilience during US-Iran diplomatic talks. However, the region faces active military and diplomatic shifts, including Isra",
+          "article_ids": [
+            "71db6f85680c731e",
+            "ffa71ae99851b98f"
+          ],
+          "key_claims": [
+            {
+              "claim": "Global investors remain bullish on the UAE and GCC economy despite US-Iran diplomatic talks and regional instability.",
+              "support_article_ids": [
+                "ffa71ae99851b98f"
+              ],
+              "confidence": "high"
+            },
+            {
+              "claim": "The UAE is on heightened alert as West Asia tensions rise, potentially impacting AI infrastructure strategy.",
+              "support_article_ids": [
+                "71db6f85680c731e"
+              ],
+              "confidence": "high"
+            }
+          ],
+          "consensus_points": [
+            "The UAE economy is showing resilience despite the geopolitical shock of Iran's leadership change.",
+            "Regional tensions are driving military and diplomatic realignments between Israel and the UAE."
+          ],
+          "contested_points": [
+            "The extent to which the 'stakeholder' model in the US will stabilize the region's AI supply chains.",
+            "Whether the Iran funeral disruption will lead to a long-term succession crisis or a quick stabilization."
+          ],
+          "known_unknowns": [
+            "The specific impact of the Iran succession crisis on Abu Dhabi's AI infrastructure supply chains.",
+            "The duration of the Israeli military presence in Abu Dhabi."
+          ],
+          "watch_signals": [
+            "UAE central bank announcements regarding reserve strategies.",
+            "Diplomatic statements from the US regarding Iran's new regime.",
+            "Supply chain status reports for Abu Dhabi's AI data centers."
+          ]
+        },
+        {
+          "cluster_id": "story-005",
+          "topic": "World Politics",
+          "label": "Regional Geopolitical Flashpoints",
+          "summary": "Geopolitical flashpoints are intensifying with Israel's government challenging its judiciary and China expanding coast guard patrols around Taiwan, creating a volatile backdrop for global markets and AI infrastructure.",
+          "article_ids": [
+            "ed74075a62bea84e",
+            "b65344fd55d4fa16"
+          ],
+          "key_claims": [
+            {
+              "claim": "China has sent ships to patrol waters east of Taiwan, challenging the island's control of crucial invasion waters.",
+              "support_article_ids": [
+                "ed74075a62bea84e"
+              ],
+              "confidence": "high"
+            },
+            {
+              "claim": "Israel's government is escalating a conflict with the judiciary, with the cabinet threatening to ignore a top court ruling.",
+              "support_article_ids": [
+                "b65344fd55d4fa16"
+              ],
+              "confidence": "high"
+            }
+          ],
+          "consensus_points": [
+            "China is actively testing Taiwan's maritime control.",
+            "Israel's executive and judicial branches are in a high-stakes conflict."
+          ],
+          "contested_points": [
+            "The ultimate outcome of the Israel court clash (whether the ruling stands or is ignored).",
+            "The strategic implication of the Taiwan patrols on future invasion timelines."
+          ],
+          "known_unknowns": [
+            "The specific timeline for the Israel court ruling enforcement.",
+            "The US response to the China-Taiwan patrol escalation."
+          ],
+          "watch_signals": [
+            "US diplomatic response to China's Taiwan patrols.",
+            "Israeli Supreme Court's reaction to the cabinet resolution.",
+            "Market reaction to the Israel judiciary crisis."
+          ]
+        },
+        {
+          "cluster_id": "story-001",
+          "topic": "Middle East Geopolitics",
+          "label": "Iran Succession Crisis and Regional Fallout",
+          "summary": "Iran is in the midst of a fragile transition following the death of Ali Khamenei, with the designated successor, Mojtaba Khamenei, missing from public view, raising questions about his physical condition and political authority. The funeral has galvanized anti-US sentiment, with ",
+          "article_ids": [
+            "d0f9d5ee26eff3d1",
+            "240b2e35675c95f5",
+            "997425027efb8f9e",
+            "bfa3868111d06167"
+          ],
+          "key_claims": [
+            {
+              "claim": "Mojtaba Khamenei, the designated successor, was conspicuously absent from the funeral prayers, fueling speculation that he was wounded in the same US-Israel strikes that killed his father.",
+              "support_article_ids": [
+                "d0f9d5ee26eff3d1",
+                "240b2e35675c95f5"
+              ],
+              "confidence": "medium"
+            },
+            {
+              "claim": "Public mourning has turned into a display of anti-US and anti-Israel sentiment, with specific calls for the death of President Trump and Prime Minister Netanyahu.",
+              "support_article_ids": [
+                "240b2e35675c95f5"
+              ],
+              "confidence": "high"
+            },
+            {
+              "claim": "The UAE and Jordan have summoned Iranian envoys to address recent attacks on their territories, indicating that regional instability is spilling beyond Iran's borders.",
+              "support_article_ids": [
+                "bfa3868111d06167"
+              ],
+              "confidence": "high"
+            },
+            {
+              "claim": "President Trump has paused peace talks for a week to monitor the funeral events, noting the surprising emotional response of the Iranian populace.",
+              "support_article_ids": [
+                "240b2e35675c95f5"
+              ],
+              "confidence": "high"
+            }
+          ],
+          "consensus_points": [
+            "The funeral of Ali Khamenei is a massive, multi-day event involving millions of mourners.",
+            "The absence of Mojtaba Khamenei is a significant anomaly in the succession narrative.",
+            "The ceasefire between the US/Israel and Iran remains fragile but currently holds."
+          ],
+          "contested_points": [
+            "The true physical condition of Mojtaba Khamenei: whether he is wounded, hiding, or simply absent for protocol reasons.",
+            "The authenticity of the public's grief: President Trump suggests the tears are 'fake,' while mourners insist on their sincerity."
+          ],
+          "known_unknowns": [
+            "The exact location and status of Mojtaba Khamenei.",
+            "Whether the new leadership will maintain the ceasefire or resume military action.",
+            "The long-term geopolitical alignment of the new Iranian regime compared to the old guard."
+          ],
+          "watch_signals": [
+            "Public appearance of Mojtaba Khamenei or an official announcement regarding his status.",
+            "US diplomatic statements confirming the resumption of peace talks.",
+            "Specific attribution of attacks on UAE/Jordan territories to Iranian proxies."
+          ]
+        }
+      ],
+      "global_watch_signals": [
+        "US-Iran diplomatic progress and its impact on UAE stability.",
+        "Federal Reserve policy rate adjustments in response to AI-driven inflation.",
+        "OpenAI's legislative strategy in Congress.",
+        "Anthropic's physical relocation to Europe.",
+        "Mojtaba Khamenei's public re-emergence or confirmation of his status.",
+        "US President Trump's official stance on resuming peace talks with Iran.",
+        "Tactical shifts in UAE/Jordan diplomatic relations with Tehran.",
+        "Valuation changes in US tech stocks relative to AI IPO expectations."
+      ],
+      "reader_qa": [
+        {
+          "question": "How does the US pivot to a 'stakeholder' model affect my AI infrastructure investments?",
+          "answer": "The pivot suggests a move away from aggressive export controls toward a model where the US government holds equity or influence, potentially stabilizing supply chains but introducing regulatory friction. This could benefit long-term infrastructure holders but may limit rapid global expansion for US firms.",
+          "article_ids": [
+            "b885496e1921382e",
+            "adbf42ee4f5ee45d"
+          ]
+        },
+        {
+          "question": "Will the AI boom keep interest rates high, and how does that impact my portfolio?",
+          "answer": "Morgan Stanley warns that massive AI capital expenditure could prevent central banks from cutting rates as expected, potentially keeping borrowing costs elevated for enterprise software and infrastructure projects longer than anticipated.",
+          "article_ids": [
+            "6cdf111389d8a8d1"
+          ]
+        },
+        {
+          "question": "Is the UAE economy a safe haven given the Iran leadership change?",
+          "answer": "Yes, despite the funeral disruptions and regional tensions, global investors remain bullish on the UAE and GCC economy, viewing it as a resilient hub amidst US-Iran talks and the succession crisis.",
+          "article_ids": [
+            "ffa71ae99851b98f",
+            "71db6f85680c731e"
+          ]
+        },
+        {
+          "question": "What is the risk of AI agents in China for global supply chains?",
+          "answer": "ByteDance and Alibaba are disabling AI agents to comply with new regulations, suggesting a near-term slowdown in autonomous AI deployment in China, which could impact global software integration and hardware demand.",
+          "article_ids": [
+            "08b9d77a66c996dd"
+          ]
+        },
+        {
+          "question": "How does the absence of Mojtaba Khamenei impact the stability of Abu Dhabi's AI infrastructure strategy?",
+          "answer": "The absence creates a tangible succession crisis, potentially delaying or altering the strategic alignment between the UAE and Iran. If Mojtaba is wounded or sidelined, the 'stakeholder' model the US is pivoting toward may face a more volatile counterpart, introducing supply chain friction and diplomatic uncertainty for UAE-based AI projects.",
+          "article_ids": [
+            "d0f9d5ee26eff3d1",
+            "240b2e35675c95f5"
+          ]
+        },
+        {
+          "question": "What is the immediate risk to US-Iran peace talks given the funeral atmosphere?",
+          "answer": "The funeral atmosphere, characterized by anti-US chants and specific threats against President Trump, suggests a hardening of public sentiment that could pressure the new leadership to reject the ceasefire terms. Trump's pause in talks indicates a strategic wait-and-see approach to gauge the new regime's resolve.",
+          "article_ids": [
+            "240b2e35675c95f5",
+            "997425027efb8f9e"
+          ]
+        },
+        {
+          "question": "Should an AI engineer in the UAE expect salary stagnation or a market correction?",
+          "answer": "Evidence suggests a market correction where traditional six-figure salaries are becoming obsolete. The 'new AI elite' is setting a higher bar for compensation, meaning engineers may need to pivot to equity-heavy roles or specialized AI infrastructure roles to remain competitive.",
+          "article_ids": [
+            "c73ef68b18b89b45"
+          ]
+        }
+      ]
+    },
+    "evidence_model_role": "summary",
+    "delta_packet": {
+      "baseline_coverage_note": "Compared 20 current selected article(s) against 26 prior headline anchor(s) from 5 report(s).",
+      "new": [
+        {
+          "item": "Are we human? Why ByteDance and Alibaba are disabling AI agents in China - South China Morning Post",
+          "summary": "No strong headline-level overlap found in prior report anchors.",
+          "article_ids": [
+            "08b9d77a66c996dd"
+          ]
+        },
+        {
+          "item": "AI security questions loom over NATO summit - Politico",
+          "summary": "No strong headline-level overlap found in prior report anchors.",
+          "article_ids": [
+            "7ee6044319de02fa"
+          ]
+        },
+        {
+          "item": "United Arab Emirates on heightened alert amid rising West Asia tensions - News On AIR",
+          "summary": "No strong headline-level overlap found in prior report anchors.",
+          "article_ids": [
+            "71db6f85680c731e"
+          ]
+        },
+        {
+          "item": "Trump restrictions on private AI models turns attention to open source - AOL.com",
+          "summary": "No strong headline-level overlap found in prior report anchors.",
+          "article_ids": [
+            "adbf42ee4f5ee45d"
+          ]
+        },
+        {
+          "item": "AI poses ‘Hiroshima’-style threat to humanity without global rules, says Cooper - The Guardian",
+          "summary": "No strong headline-level overlap found in prior report anchors.",
+          "article_ids": [
+            "a8162dbd09e8bf88"
+          ]
+        },
+        {
+          "item": "China Raises Pressure on Taiwan With Expanded Coast Guard Patrols",
+          "summary": "No strong headline-level overlap found in prior report anchors.",
+          "article_ids": [
+            "ed74075a62bea84e"
+          ]
+        }
+      ],
+      "escalated": [
+        {
+          "item": "Iran's supreme leader absent as senior officials attend ayatollah's funeral",
+          "summary": "Likely continuation of prior coverage (2026-07-05: The Funeral of Iran’s Supreme Leader, Ali Khamenei) with signs of escalation.",
+          "article_ids": [
+            "240b2e35675c95f5"
+          ]
+        }
+      ],
+      "weakened": [],
+      "reframed": [
+        {
+          "item": "Israel sent IDF soldiers, Iron Dome system to Abu Dhabi during Iran war - The Jerusalem Post",
+          "summary": "Partially overlaps prior coverage (2026-07-05: How the Iran war has disrupted Abu Dhabi’s AI strategy - The Business Standard) but appears reframed.",
+          "article_ids": [
+            "c15e9f04ae725ba2"
+          ]
+        },
+        {
+          "item": "How Iran's new regime is very different to what came before",
+          "summary": "Partially overlaps prior coverage (2026-07-05: The Funeral of Iran’s Supreme Leader, Ali Khamenei) but appears reframed.",
+          "article_ids": [
+            "997425027efb8f9e"
+          ]
+        }
+      ],
+      "unchanged_but_important": [
+        {
+          "item": "Europe races to close AI gap with the US - DW.com",
+          "summary": "Likely continuation of prior coverage (2026-07-05: Europe races to close AI gap with the US - DW.com).",
+          "article_ids": [
+            "737023e9ef4b612d"
+          ]
+        },
+        {
+          "item": "Mourners Chant ‘Revenge’ at Funeral Prayers for Iran’s Slain Supreme Leader",
+          "summary": "Likely continuation of prior coverage (2026-07-05: The Funeral of Iran’s Supreme Leader, Ali Khamenei).",
+          "article_ids": [
+            "d0f9d5ee26eff3d1"
+          ]
+        }
+      ],
+      "evidence_gaps": [],
+      "deterministic_scaffold": true
+    },
+    "delta_model_role": "deterministic_scaffold"
+  }
+}

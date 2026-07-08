@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "stories": [
+    {
+      "story_key": "human-bytedance-alibaba-disabling-agents-china",
+      "story_family_key": "human-bytedance",
+      "title": "China AI Agent Restrictions",
+      "topic": "Artificial intelligence",
+      "tokens": ["ai", "agents", "china", "bytedance", "alibaba"],
+      "first_seen": "2026-07-06",
+      "last_seen": "2026-07-06",
+      "status": "active"
+    },
+    {
+      "story_key": "security-questions-loom-nato-summit-politico",
+      "story_family_key": "security-questions",
+      "title": "AI Security Questions at NATO",
+      "topic": "Artificial intelligence",
+      "tokens": ["ai", "security", "nato", "summit"],
+      "first_seen": "2026-07-06",
+      "last_seen": "2026-07-06",
+      "status": "active"
+    },
+    {
+      "story_key": "united-arab-emirates-heightened-alert-rising",
+      "story_family_key": "united-arab",
+      "title": "UAE Regional Alert",
+      "topic": "United Arab Emirates",
+      "tokens": ["uae", "regional", "alert", "west", "asia"],
+      "first_seen": "2026-07-06",
+      "last_seen": "2026-07-06",
+      "status": "active"
+    },
+    {
+      "story_key": "morgan-stanley-warns-lead-lower-policy",
+      "story_family_key": "business-economy",
+      "title": "AI Capex and Rate Cut Pressure",
+      "topic": "Business and economy",
+      "tokens": ["ai", "capex", "rates", "morgan", "stanley"],
+      "first_seen": "2026-07-06",
+      "last_seen": "2026-07-06",
+      "status": "active"
+    }
+  ]
+}

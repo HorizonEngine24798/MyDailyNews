@@ -6,7 +6,7 @@ import unittest
 
 from mydailynews.analysis.evidence import EvidenceDistiller
 from mydailynews.app.models import EvidenceDistillationConfig, HeadlineDecision, NewsCandidate, SelectedArticle, UserMemory
-from mydailynews.pipeline.story_grouping_models import StoryGroup
+from mydailynews.story_grouping.models import StoryGroup
 
 
 PUBLISHED_AT = datetime(2099, 1, 1, tzinfo=timezone.utc)

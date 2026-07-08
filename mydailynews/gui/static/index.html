@@ -11,7 +11,7 @@
       <aside class="app-banner">
         <div class="banner-content">
           <div class="brand">
-            <div class="brand-mark" aria-hidden="true"></div>
+            <img class="brand-mark" src="/static/assets/MyDailyNewsLogo.png" alt="" aria-hidden="true">
             <div>
               <h1>MyDailyNews</h1>
               <div id="configPath" class="muted small"></div>
@@ -22,6 +22,7 @@
             <button class="nav-button" data-view="settings">Settings</button>
             <button class="nav-button" data-view="profiles">Profiles</button>
             <button class="nav-button" data-view="memory">Memory</button>
+            <button class="nav-button" data-view="gui">GUI</button>
             <button class="nav-button" data-view="runs">Runs</button>
           </nav>
         </div>
@@ -264,6 +265,72 @@
                     <button id="repairSplitButton" class="command primary" type="button">Split Story</button>
                   </section>
                 </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="guiView" class="view">
+          <div class="editor-pane">
+            <div class="pane-header">
+              <h3>Appearance</h3>
+            </div>
+            <div class="form-shell compact">
+              <div class="gui-options">
+                <section class="gui-option-group">
+                  <h4>Theme</h4>
+                  <div class="theme-grid" aria-label="Theme">
+                    <button class="theme-choice" type="button" data-gui-theme="charcoal">
+                      <span class="theme-swatches" aria-hidden="true">
+                        <span class="theme-swatch" style="background:#111418"></span>
+                        <span class="theme-swatch" style="background:#202731"></span>
+                        <span class="theme-swatch" style="background:#58d6a6"></span>
+                      </span>
+                      <strong>Charcoal Mint</strong>
+                      <span class="muted small">Neutral dark with a clean AI accent.</span>
+                    </button>
+                    <button class="theme-choice" type="button" data-gui-theme="editorial">
+                      <span class="theme-swatches" aria-hidden="true">
+                        <span class="theme-swatch" style="background:#07111f"></span>
+                        <span class="theme-swatch" style="background:#13263a"></span>
+                        <span class="theme-swatch" style="background:#5cc8ff"></span>
+                      </span>
+                      <strong>Crisp Editorial</strong>
+                      <span class="muted small">Cooler contrast for report browsing.</span>
+                    </button>
+                    <button class="theme-choice" type="button" data-gui-theme="morning">
+                      <span class="theme-swatches" aria-hidden="true">
+                        <span class="theme-swatch" style="background:#f3ead7"></span>
+                        <span class="theme-swatch" style="background:#fffaf0"></span>
+                        <span class="theme-swatch" style="background:#1f7a8c"></span>
+                      </span>
+                      <strong>Morning Brief</strong>
+                      <span class="muted small">Warm accent without the brown shell.</span>
+                    </button>
+                  </div>
+                </section>
+                <section class="gui-option-group">
+                  <h4>Font Size</h4>
+                  <div class="font-size-grid">
+                    <label class="field-row">
+                      <span class="field-label">Interface</span>
+                      <select id="uiFontSize" class="field-input">
+                        <option value="small">Small</option>
+                        <option value="default">Default</option>
+                        <option value="large">Large</option>
+                      </select>
+                    </label>
+                    <label class="field-row">
+                      <span class="field-label">Reports</span>
+                      <select id="reportFontSize" class="field-input">
+                        <option value="small">Small</option>
+                        <option value="default">Default</option>
+                        <option value="large">Large</option>
+                        <option value="xlarge">Extra large</option>
+                      </select>
+                    </label>
+                  </div>
+                </section>
               </div>
             </div>
           </div>

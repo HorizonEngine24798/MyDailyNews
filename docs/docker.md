@@ -41,7 +41,6 @@ For normal Windows runs, `config.recommended.json` should point both
 }
 ```
 
-Why Docker still works: inside Docker, `127.0.0.1` means the container itself.
 The Compose file sets `MYDAILYNEWS_AI_BASE_URL=http://host.docker.internal:1234/v1`,
 which overrides the app's AI base URL only inside the container.
 

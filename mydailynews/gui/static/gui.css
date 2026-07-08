@@ -1,16 +1,21 @@
 :root {
   color-scheme: dark;
-  --bg: #151512;
-  --surface: #20201c;
-  --surface-2: #292821;
-  --surface-3: #343329;
-  --text: #f0eee6;
-  --muted: #aaa69a;
-  --border: #454235;
-  --accent: #78c59d;
-  --accent-soft: #20382e;
+  --bg: #111418;
+  --surface: #181d23;
+  --surface-2: #202731;
+  --surface-3: #2a3340;
+  --text: #edf2f7;
+  --muted: #9aa8b6;
+  --border: #334050;
+  --accent: #58d6a6;
+  --accent-soft: #18382f;
   --warn: #d9a856;
   --danger: #ef8c84;
+  --ui-font-size: 15px;
+  --report-font-size: 15px;
+  --report-h1-size: 28px;
+  --report-h2-size: 22px;
+  --report-h3-size: 18px;
   --shadow: 0 18px 32px rgba(0, 0, 0, 0.28);
   --space: clamp(0.75rem, 1.4vw, 1.25rem);
   --radius: 0.5rem;
@@ -29,8 +34,62 @@ body {
   min-height: 100vh;
   background: var(--bg);
   color: var(--text);
-  font-size: 15px;
+  font-size: var(--ui-font-size);
   letter-spacing: 0;
+}
+
+body[data-theme="editorial"] {
+  --bg: #07111f;
+  --surface: #0d1b2a;
+  --surface-2: #13263a;
+  --surface-3: #1b3652;
+  --text: #eef7ff;
+  --muted: #9eb6ca;
+  --border: #274b6c;
+  --accent: #5cc8ff;
+  --accent-soft: #0d344d;
+}
+
+body[data-theme="morning"] {
+  color-scheme: light;
+  --bg: #f3ead7;
+  --surface: #fffaf0;
+  --surface-2: #f0e3cb;
+  --surface-3: #e2d0ad;
+  --text: #1e2933;
+  --muted: #66717d;
+  --border: #cdbf9f;
+  --accent: #1f7a8c;
+  --accent-soft: #d9eef1;
+}
+
+body[data-ui-size="small"] {
+  --ui-font-size: 13px;
+}
+
+body[data-ui-size="large"] {
+  --ui-font-size: 18px;
+}
+
+body[data-report-size="small"] {
+  --report-font-size: 14px;
+  --report-h1-size: 24px;
+  --report-h2-size: 19px;
+  --report-h3-size: 16px;
+}
+
+body[data-report-size="large"] {
+  --report-font-size: 20px;
+  --report-h1-size: 34px;
+  --report-h2-size: 28px;
+  --report-h3-size: 23px;
+}
+
+body[data-report-size="xlarge"] {
+  --report-font-size: 26px;
+  --report-h1-size: 46px;
+  --report-h2-size: 36px;
+  --report-h3-size: 30px;
 }
 
 button,
@@ -80,8 +139,11 @@ button {
   width: var(--ribbon-size);
   height: var(--ribbon-size);
   border-radius: var(--radius);
-  border: 1px dashed var(--border);
+  border: 1px solid var(--border);
   background: var(--surface-2);
+  display: block;
+  object-fit: contain;
+  padding: 3px;
 }
 
 h1,
@@ -93,19 +155,19 @@ h4 {
 }
 
 h1 {
-  font-size: 18px;
+  font-size: 1.2rem;
 }
 
 h2 {
-  font-size: 24px;
+  font-size: 1.6rem;
 }
 
 h3 {
-  font-size: 15px;
+  font-size: 1rem;
 }
 
 h4 {
-  font-size: 13px;
+  font-size: 0.87rem;
 }
 
 .muted {
@@ -113,7 +175,7 @@ h4 {
 }
 
 .small {
-  font-size: 12px;
+  font-size: 0.8rem;
   overflow-wrap: anywhere;
 }
 
@@ -429,21 +491,22 @@ details[open] > .date-summary::before {
   padding: var(--space);
   padding-bottom: calc(var(--space) * 2);
   max-width: min(100%, 68rem);
+  font-size: var(--report-font-size);
   line-height: 1.58;
 }
 
 .markdown-body h1 {
-  font-size: 28px;
+  font-size: var(--report-h1-size);
   margin: 0 0 16px;
 }
 
 .markdown-body h2 {
-  font-size: 22px;
+  font-size: var(--report-h2-size);
   margin: 28px 0 10px;
 }
 
 .markdown-body h3 {
-  font-size: 18px;
+  font-size: var(--report-h3-size);
   margin: 22px 0 8px;
 }
 
@@ -726,6 +789,57 @@ details[open] > .form-card-header::before {
   padding: 12px;
 }
 
+.gui-options {
+  display: grid;
+  gap: 18px;
+}
+
+.gui-option-group {
+  display: grid;
+  gap: 10px;
+}
+
+.theme-grid,
+.font-size-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.font-size-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.theme-choice {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text);
+  min-height: 8rem;
+  padding: 12px;
+  text-align: left;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
+.theme-choice.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.theme-swatches {
+  display: flex;
+  gap: 6px;
+}
+
+.theme-swatch {
+  width: 1.4rem;
+  height: 1.4rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
 .code-textarea {
   font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
   font-size: 12px;
@@ -914,7 +1028,9 @@ td {
   .memory-layout,
   .runs-layout,
   .run-launcher,
-  .run-meta {
+  .run-meta,
+  .theme-grid,
+  .font-size-grid {
     grid-template-columns: 1fr;
   }
 

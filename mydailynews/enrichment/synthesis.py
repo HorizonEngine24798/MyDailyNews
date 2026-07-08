@@ -22,10 +22,10 @@ from mydailynews.enrichment.payloads import (
     research_sources_payload,
     selected_source_payload,
     story_enrichment_payload,
-    story_thread_artifact,
     string_list,
 )
-from mydailynews.story_grouping.models import StoryGroup as StoryThread
+from mydailynews.story_grouping.models import StoryGroup
+from mydailynews.story_grouping.payloads import story_group_artifact
 
 
 @dataclass
@@ -63,7 +63,7 @@ class StorySynthesizer:
 
     def synthesize(
         self,
-        story: StoryThread,
+        story: StoryGroup,
         story_articles: list[SelectedArticle],
         research_results: list[ResearchResult],
     ) -> tuple[StoryEnrichment | None, dict[str, Any]]:
@@ -122,7 +122,7 @@ class StorySynthesizer:
 
     def fit_prompt(
         self,
-        story: StoryThread,
+        story: StoryGroup,
         story_articles: list[SelectedArticle],
         research_results: list[ResearchResult],
     ) -> SynthesisPrompt | None:
@@ -190,7 +190,7 @@ class StorySynthesizer:
             )
         return None
 
-    def cache_key(self, story: StoryThread, fitted: SynthesisPrompt) -> str:
+    def cache_key(self, story: StoryGroup, fitted: SynthesisPrompt) -> str:
         fingerprint = {
             "v": STORY_ENRICHMENT_CACHE_VERSION,
             "stage": "story_enrichment_synthesis",
@@ -215,13 +215,13 @@ class StorySynthesizer:
                 "effective_input_budget_tokens": fitted.budget_tokens,
                 "effective_max_new_tokens": fitted.max_new_tokens,
             },
-            "story": story_thread_artifact(story),
+            "story": story_group_artifact(story),
             "selected_sources": fitted.selected_sources,
             "research_sources": fitted.research_sources,
         }
         return JSONCache.make_key(compact_json(fingerprint))
 
-    def parse_enrichment(self, raw: dict[str, Any], story: StoryThread) -> StoryEnrichment:
+    def parse_enrichment(self, raw: dict[str, Any], story: StoryGroup) -> StoryEnrichment:
         internal_articles: list[dict[str, Any]] = []
         for item in raw.get("internal_articles", []):
             if not isinstance(item, dict):
@@ -253,7 +253,7 @@ class StorySynthesizer:
 
     def _render_prompt(
         self,
-        story: StoryThread,
+        story: StoryGroup,
         *,
         selected_sources: list[dict[str, Any]],
         research_sources: list[dict[str, Any]],
@@ -292,7 +292,7 @@ class StorySynthesizer:
         return max(64, int(getattr(self.ai_client, "max_new_tokens", 0) or 0))
 
 
-def _story_terms(story: StoryThread, story_articles: list[SelectedArticle]) -> str:
+def _story_terms(story: StoryGroup, story_articles: list[SelectedArticle]) -> str:
     question_terms = [
         text
         for question in story.research_questions

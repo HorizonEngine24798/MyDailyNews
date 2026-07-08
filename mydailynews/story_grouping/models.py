@@ -21,8 +21,3 @@ class StoryGroup:
     fallback: bool = False
     topic: str = ""
     disposition: str = "group"
-
-
-# Backward-compatible name while enrichment migrates from story threads to
-# shared story groups.
-StoryThread = StoryGroup

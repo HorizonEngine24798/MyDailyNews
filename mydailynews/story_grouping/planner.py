@@ -25,27 +25,10 @@ from mydailynews.story_grouping.payloads import (
 )
 
 
-@dataclass(init=False)
+@dataclass
 class StoryGroupingResult:
     story_groups: list[StoryGroup]
     artifact: dict[str, Any]
-
-    def __init__(
-        self,
-        story_groups: list[StoryGroup] | None = None,
-        artifact: dict[str, Any] | None = None,
-        *,
-        story_threads: list[StoryGroup] | None = None,
-    ) -> None:
-        self.story_groups = list(story_groups if story_groups is not None else story_threads or [])
-        self.artifact = artifact or {}
-
-    @property
-    def story_threads(self) -> list[StoryGroup]:
-        return self.story_groups
-
-
-StoryPlanningResult = StoryGroupingResult
 
 
 @dataclass
@@ -371,6 +354,3 @@ class StoryGroupingPlanner:
         if requested is not None:
             return max(64, int(requested))
         return max(64, int(getattr(self.ai_client, "max_new_tokens", 0) or 0))
-
-
-StoryThreadPlanner = StoryGroupingPlanner

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from mydailynews.story_grouping.models import ResearchQuestion, StoryGroup, StoryThread
+from mydailynews.story_grouping.models import ResearchQuestion, StoryGroup
 from mydailynews.story_grouping.planner import StoryGroupingPlanner, StoryGroupingResult
 
 __all__ = [
@@ -8,5 +8,4 @@ __all__ = [
     "StoryGroup",
     "StoryGroupingPlanner",
     "StoryGroupingResult",
-    "StoryThread",
 ]

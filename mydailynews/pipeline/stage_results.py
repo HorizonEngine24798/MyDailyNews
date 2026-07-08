@@ -111,11 +111,6 @@ class StoryGroupingStageResult:
             warnings=list(warnings or []),
         )
 
-    @property
-    def story_threads(self) -> List[StoryGroup]:
-        return self.story_groups
-
-
 @dataclass
 class EnrichmentStageResult:
     selected: List[SelectedArticle]

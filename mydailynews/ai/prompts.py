@@ -105,9 +105,6 @@ Return:
   ]
 }}"""
 
-STORY_THREAD_PLANNER_SYSTEM = STORY_GROUPING_SYSTEM
-STORY_THREAD_PLANNER_USER = STORY_GROUPING_USER
-
 STORY_ENRICHMENT_SYSTEM = """You synthesize compact internal context for a news briefing story thread.
 Return exactly one valid JSON object.
 Do not use markdown fences.

@@ -12,17 +12,17 @@ from mydailynews.retrieval.article import ArticleRetriever
 from mydailynews.retrieval.ddg import DuckDuckGoSearchRetriever
 from mydailynews.common.utils import stable_id
 from mydailynews.enrichment.models import ResearchQuestion, ResearchResult, StoryEnrichment
-from mydailynews.enrichment.payloads import (
+from mydailynews.enrichment.payloads import context_story_id
+from mydailynews.story_grouping.payloads import (
+    article_disposition_artifacts,
     clean_text,
-    context_story_id,
     queries_for_story,
     selected_article_artifact,
-    story_thread_artifact,
+    story_group_artifact,
 )
-from mydailynews.story_grouping.payloads import article_disposition_artifacts
 from mydailynews.enrichment.research import StoryResearchCollector
 from mydailynews.enrichment.synthesis import StorySynthesizer
-from mydailynews.story_grouping.models import StoryGroup as StoryThread
+from mydailynews.story_grouping.models import StoryGroup
 from mydailynews.story_grouping.normalization import normalize_story_groups
 from mydailynews.story_grouping.planner import StoryGroupingPlanner
 
@@ -102,7 +102,7 @@ class StoryThreadEnricher:
         self,
         articles: list[SelectedArticle],
         *,
-        story_groups: list[StoryThread] | None = None,
+        story_groups: list[StoryGroup] | None = None,
     ) -> None:
         self.warnings = []
         self.story_threads_created = 0
@@ -145,7 +145,7 @@ class StoryThreadEnricher:
         self,
         articles: list[SelectedArticle],
         *,
-        story_groups: list[StoryThread] | None = None,
+        story_groups: list[StoryGroup] | None = None,
     ) -> None:
         if self.ai_client is None:
             warning = "story LLM enrichment skipped: no AI client was provided"
@@ -164,7 +164,7 @@ class StoryThreadEnricher:
             story_threads = normalization.groups
             self.artifact["planner"] = {
                 "status": "shared_story_grouping",
-                "story_groups": [story_thread_artifact(story) for story in story_threads],
+                "story_groups": [story_group_artifact(story) for story in story_threads],
                 "omitted_article_ids": normalization.omitted_article_ids,
                 "misc_article_ids": normalization.misc_article_ids,
                 "article_dispositions": article_disposition_artifacts(
@@ -180,7 +180,7 @@ class StoryThreadEnricher:
             self._progress(f"Planning story threads for {len(articles)} selected articles...")
             planning = self.planner.plan(articles)
             self.artifact["planner"] = planning.artifact
-            story_threads = planning.story_threads
+            story_threads = planning.story_groups
         self.story_threads_created = len(story_threads)
         self._mark_omitted_articles(article_by_id, self.artifact["planner"].get("omitted_article_ids", []))
         if not story_threads:
@@ -251,10 +251,10 @@ class StoryThreadEnricher:
 
     def _rank_story_threads(
         self,
-        story_threads: list[StoryThread],
+        story_threads: list[StoryGroup],
         article_by_id: dict[str, SelectedArticle],
-    ) -> list[StoryThread]:
-        def key(story: StoryThread) -> tuple[int, int, float, float]:
+    ) -> list[StoryGroup]:
+        def key(story: StoryGroup) -> tuple[int, int, float, float]:
             articles = [article_by_id[article_id] for article_id in story.article_ids if article_id in article_by_id]
             sources = {str(article.candidate.source or "").strip().lower() for article in articles if article.candidate.source}
             scores = [float(article.decision.score) for article in articles]
@@ -269,7 +269,7 @@ class StoryThreadEnricher:
 
     def _normalize_shared_story_groups(
         self,
-        story_groups: list[StoryThread],
+        story_groups: list[StoryGroup],
         articles: list[SelectedArticle],
     ):
         result = normalize_story_groups(
@@ -288,7 +288,7 @@ class StoryThreadEnricher:
 
     def _enrich_story(
         self,
-        story: StoryThread,
+        story: StoryGroup,
         article_by_id: dict[str, SelectedArticle],
         *,
         queries: list[str],
@@ -366,7 +366,7 @@ class StoryThreadEnricher:
 
     def _retrieve_research_results(
         self,
-        story: StoryThread,
+        story: StoryGroup,
         story_articles: list[SelectedArticle],
         queries: list[str],
     ) -> list[ResearchResult]:
@@ -378,7 +378,7 @@ class StoryThreadEnricher:
             max_fetched_research_pages_per_story=self.config.enrichment.max_fetched_research_pages_per_story,
         )
 
-    def _queries_for_story(self, story: StoryThread) -> list[str]:
+    def _queries_for_story(self, story: StoryGroup) -> list[str]:
         queries = queries_for_story(story)
         cap = self.config.enrichment.max_queries_per_story
         if cap is None:
@@ -387,7 +387,7 @@ class StoryThreadEnricher:
 
     def _synthesize_story(
         self,
-        story: StoryThread,
+        story: StoryGroup,
         story_articles: list[SelectedArticle],
         research_results: list[ResearchResult],
     ) -> tuple[StoryEnrichment | None, dict[str, Any]]:
@@ -397,7 +397,7 @@ class StoryThreadEnricher:
 
     def _attach_story_context(
         self,
-        story: StoryThread,
+        story: StoryGroup,
         enrichment: StoryEnrichment,
         article_by_id: dict[str, SelectedArticle],
         fetched_urls: list[dict[str, Any]],
@@ -446,7 +446,7 @@ class StoryThreadEnricher:
 
     def _mark_story_articles(
         self,
-        story: StoryThread,
+        story: StoryGroup,
         article_by_id: dict[str, SelectedArticle],
         reason: str,
     ) -> None:
@@ -503,7 +503,7 @@ class StoryThreadEnricher:
         )
 
 
-def _story_should_be_enriched(story: StoryThread, config: AppConfig) -> bool:
+def _story_should_be_enriched(story: StoryGroup, config: AppConfig) -> bool:
     disposition = str(getattr(story, "disposition", "") or "").strip().lower()
     if disposition == "misc":
         return bool(config.enrichment.enrich_misc_story)
@@ -512,7 +512,7 @@ def _story_should_be_enriched(story: StoryThread, config: AppConfig) -> bool:
     return True
 
 
-def _skipped_story_status(story: StoryThread) -> str:
+def _skipped_story_status(story: StoryGroup) -> str:
     if str(getattr(story, "disposition", "") or "").strip().lower() == "misc":
         return "skipped_misc"
     if bool(getattr(story, "fallback", False)):
@@ -520,7 +520,7 @@ def _skipped_story_status(story: StoryThread) -> str:
     return "skipped_policy"
 
 
-def _skipped_story_entry(story: StoryThread, status: str) -> dict[str, Any]:
+def _skipped_story_entry(story: StoryGroup, status: str) -> dict[str, Any]:
     return {
         "story_id": story.story_id,
         "story_title": story.story_title,

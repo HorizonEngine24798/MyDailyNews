@@ -10,7 +10,7 @@ from mydailynews.pipeline.brief_stages import _story_grouping_stage
 from mydailynews.pipeline.stage_artifacts import next_stage_after
 from mydailynews.pipeline.stage_results import StoryGroupingStageResult
 from mydailynews.pipeline.stages import normalize_stage_name
-from mydailynews.pipeline.story_grouping_models import ResearchQuestion, StoryGroup
+from mydailynews.story_grouping.models import ResearchQuestion, StoryGroup
 from mydailynews.story_grouping.normalization import normalize_story_groups
 
 
@@ -110,7 +110,7 @@ class StoryGroupingStageResultTests(unittest.TestCase):
         self.assertTrue(result.artifact["cache_hit"])
         self.assertEqual(result.artifact["requests"], [{"request": 1, "status": "cache_hit"}])
         self.assertEqual(result.warnings, ["cached grouping reused"])
-        self.assertIs(result.story_threads[0], groups[0])
+        self.assertIs(result.story_groups[0], groups[0])
 
     def test_planned_artifact_records_fallback_groups(self) -> None:
         selected = [_selected("a", "Standalone antitrust case advances")]

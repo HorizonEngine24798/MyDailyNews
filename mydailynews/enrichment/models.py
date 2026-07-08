@@ -7,7 +7,6 @@ from mydailynews.story_grouping.models import (
     ResearchQuestion,
     STORY_GROUPING_CACHE_VERSION,
     StoryGroup,
-    StoryThread,
 )
 
 STORY_ENRICHMENT_CACHE_VERSION = 1

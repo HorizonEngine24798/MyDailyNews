@@ -1,0 +1,10 @@
+/cache/
+/reports/*
+!/reports/2026-07-06_general_brief.md
+!/reports/2026-07-06_general_brief.json
+!/reports/2026-07-06_narrative_brief.md
+!/reports/2026-07-06_narrative_brief.json
+!/reports/2026-07-06_narrative_brief.wav
+!/reports/2026-07-06_narrative_brief_audio.json
+/memory/backups/
+/memory/*.tmp

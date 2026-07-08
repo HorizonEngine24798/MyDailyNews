@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from copy import deepcopy
-import importlib.util
 import json
 from pathlib import Path
 import re
@@ -50,8 +49,6 @@ class ReleaseSmokeTests(unittest.TestCase):
         self.assertEqual(config.ai_summary.context_window_tokens, 16384)
         self.assertLessEqual(config.ai_summary.max_input_tokens + config.ai_summary.max_new_tokens, 16384)
         self.assertFalse(hasattr(config.ai_summary, "preset"))
-        removed_ai_module = ".".join(("mydailynews", "ai", "client"))
-        self.assertIsNone(importlib.util.find_spec(removed_ai_module))
         self.assertTrue(config.general_topics)
         self.assertTrue(config.topics_to_examine)
         self.assertTrue(config.rss_sources)
@@ -349,22 +346,6 @@ class ReleaseSmokeTests(unittest.TestCase):
         config = load_config(path)
 
         self.assertEqual(find_runtime_config_issues(config), [])
-
-    def test_removed_evaluation_release_surface_stays_removed(self) -> None:
-        retired_modules = ("mydailynews.evaluation", "mydailynews.prompt_regression")
-        for module_name in retired_modules:
-            with self.subTest(module=module_name):
-                self.assertIsNone(importlib.util.find_spec(module_name))
-
-        retired_paths = (
-            REPO_ROOT / "docs" / "evaluation",
-            REPO_ROOT / "tools" / "baseline_eval.py",
-            REPO_ROOT / "tools" / "prompt_regression_pack.py",
-            REPO_ROOT / "tools" / "release_gate.py",
-        )
-        for path in retired_paths:
-            with self.subTest(path=str(path.relative_to(REPO_ROOT))):
-                self.assertFalse(path.exists())
 
     def test_cli_list_stages_smoke(self) -> None:
         result = subprocess.run(

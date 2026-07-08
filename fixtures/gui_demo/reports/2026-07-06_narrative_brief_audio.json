@@ -1,0 +1,40 @@
+{
+  "schema_version": "tts_audio.v1",
+  "generated_at": "2026-07-06T07:22:13.311091+04:00",
+  "backend": "kokoro",
+  "model_id": "hexgrad/Kokoro-82M",
+  "voice": "af_heart",
+  "lang_code": "a",
+  "speed": 1.0,
+  "input_markdown_path": "output\\2026-07-06_narrative_brief.md",
+  "wav_path": "output\\2026-07-06_narrative_brief.wav",
+  "sample_rate": 24000,
+  "text_chars": 5410,
+  "chunk_count": 6,
+  "chunks": [
+    {
+      "index": 0,
+      "chars": 750
+    },
+    {
+      "index": 1,
+      "chars": 1189
+    },
+    {
+      "index": 2,
+      "chars": 1036
+    },
+    {
+      "index": 3,
+      "chars": 551
+    },
+    {
+      "index": 4,
+      "chars": 1200
+    },
+    {
+      "index": 5,
+      "chars": 674
+    }
+  ]
+}
