@@ -65,8 +65,6 @@ def _config(**overrides) -> EvidenceDistillationConfig:
         max_articles=10,
         max_articles_per_batch=5,
         max_article_chars=900,
-        max_story_clusters=10,
-        max_claims_per_cluster=6,
     )
     for key, value in overrides.items():
         setattr(config, key, value)

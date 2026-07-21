@@ -5,6 +5,7 @@ from typing import Any, Dict, List
 from mydailynews.ai.base import AIClient
 from mydailynews.ai.prompts import EVIDENCE_DISTILLATION_SYSTEM, EVIDENCE_DISTILLATION_USER
 from mydailynews.ai.schemas import EVIDENCE_DISTILLATION_JSON_SCHEMA
+from mydailynews.ai.token_budget import TokenBudget, resolve_client_token_budget
 from mydailynews.analysis.shared import (
     _append_headline_context,
     _article_ids,
@@ -34,17 +35,17 @@ def _article_sort_key(article: SelectedArticle) -> tuple[float, float, str]:
     )
 
 
-def _dedupe_article_ids(values: Any, *, max_items: int) -> List[str]:
+def _dedupe_article_ids(values: Any, *, max_items: int | None = None) -> List[str]:
     raw_values = values if isinstance(values, list) else [values]
     output: List[str] = []
     seen: set[str] = set()
     for raw in raw_values:
-        article_id = str(raw or "").strip()[:80]
+        article_id = str(raw or "").strip()
         if not article_id or article_id in seen:
             continue
         seen.add(article_id)
         output.append(article_id)
-        if len(output) >= max_items:
+        if max_items is not None and len(output) >= max_items:
             break
     return output
 
@@ -54,14 +55,14 @@ def _story_group_boundaries(story_groups: List[StoryGroup] | None) -> List[Dict[
         return []
     boundaries: List[Dict[str, Any]] = []
     for group in story_groups:
-        article_ids = set(_dedupe_article_ids(group.article_ids, max_items=100))
+        article_ids = set(_dedupe_article_ids(group.article_ids))
         if not article_ids:
             continue
         boundaries.append(
             {
-                "story_id": _short_text(group.story_id, 80),
-                "story_title": _short_text(group.story_title, 180),
-                "topic": _short_text(getattr(group, "topic", ""), 120),
+                "story_id": _short_text(group.story_id, None),
+                "story_title": _short_text(group.story_title, None),
+                "topic": _short_text(getattr(group, "topic", ""), None),
                 "article_ids": article_ids,
             }
         )
@@ -223,6 +224,7 @@ class EvidenceDistiller:
                 )
                 return self._normalize_result(cached)
 
+        budget = self._request_budget()
         self.debug.log(
             "analysis.evidence.batch",
             "running",
@@ -230,15 +232,15 @@ class EvidenceDistiller:
             articles=len(used_articles),
             prior_reports=len(used_reports),
             prompt_chars=len(prompt),
-            max_input_tokens=self.config.max_input_tokens,
-            max_new_tokens=self.config.max_new_tokens,
+            max_input_tokens=budget.input_tokens,
+            max_new_tokens=budget.output_tokens,
         )
         raw = self.client.complete_json(
             EVIDENCE_DISTILLATION_SYSTEM,
             prompt,
             label=label,
-            max_new_tokens=self.config.max_new_tokens,
-            input_token_limit=self.config.max_input_tokens,
+            max_new_tokens=budget.output_tokens,
+            input_token_limit=budget.input_tokens,
             json_schema=EVIDENCE_DISTILLATION_JSON_SCHEMA,
         )
         result = self._normalize_result(raw)
@@ -258,7 +260,7 @@ class EvidenceDistiller:
         headline_context_articles: List[SelectedArticle] | None = None,
         story_groups: List[StoryGroup] | None = None,
     ) -> tuple[str, List[SelectedArticle], List[PriorReport]]:
-        target_input_tokens = max(1024, min(int(self.config.max_input_tokens), int(self.client.max_input_tokens)))
+        target_input_tokens = self._request_budget().input_tokens
         prompt_budget_tokens = target_input_tokens
         ordered_articles = sorted(articles, key=lambda item: item.decision.score, reverse=True)[: self.config.max_articles]
         active_reports = prior_reports[:3]
@@ -349,7 +351,14 @@ class EvidenceDistiller:
         )
 
     def _input_token_limit(self) -> int:
-        return max(256, min(int(self.config.max_input_tokens), int(self.client.max_input_tokens)))
+        return self._request_budget().input_tokens
+
+    def _request_budget(self) -> TokenBudget:
+        return resolve_client_token_budget(
+            self.client,
+            input_tokens=self.config.max_input_tokens,
+            output_tokens=self.config.max_new_tokens,
+        )
 
     def _build_article_batches(
         self,
@@ -592,7 +601,7 @@ class EvidenceDistiller:
         story_groups: List[StoryGroup] | None = None,
     ) -> Dict[str, Any]:
         normalized = [self._normalize_result(item) for item in results if isinstance(item, dict)]
-        overview = " ".join(_short_text(item.get("overview", ""), 360) for item in normalized if item.get("overview"))
+        overview = " ".join(_short_text(item.get("overview", ""), None) for item in normalized if item.get("overview"))
         group_boundaries = _story_group_boundaries(story_groups)
         shared_grouping_mode = story_groups is not None
         selected_ids = set().union(*(boundary["article_ids"] for boundary in group_boundaries)) if group_boundaries else set()
@@ -608,7 +617,7 @@ class EvidenceDistiller:
                         "evidence cluster dropped because shared grouping supplied no usable story boundaries"
                     )
                     continue
-                article_ids = _dedupe_article_ids(raw.get("article_ids", []), max_items=8)
+                article_ids = _dedupe_article_ids(raw.get("article_ids", []))
                 boundary = self._boundary_for_cluster(raw, article_ids, group_boundaries)
                 if group_boundaries and boundary is None:
                     self._record_group_boundary_warning(
@@ -628,7 +637,7 @@ class EvidenceDistiller:
                         )
                         continue
                 key = (
-                    _short_text(raw.get("cluster_id") or raw.get("label"), 120).lower(),
+                    _short_text(raw.get("cluster_id") or raw.get("label"), None).lower(),
                     tuple(article_ids),
                 )
                 if key in seen_clusters:
@@ -637,28 +646,26 @@ class EvidenceDistiller:
                 claims = _dedupe_dicts_by_text(
                     raw.get("key_claims", []),
                     text_key="claim",
-                    max_items=max(1, int(self.config.max_claims_per_cluster)),
+                    max_items=None,
                 )
-                if boundary is not None:
-                    claims = self._trim_claims_to_boundary(claims, boundary["article_ids"])
+                claims = self._trim_claims_to_boundary(
+                    claims,
+                    boundary["article_ids"] if boundary is not None else set(article_ids),
+                )
                 clusters.append(
                     {
-                        "cluster_id": boundary["story_id"] if boundary is not None else _short_text(raw.get("cluster_id", ""), 80),
-                        "topic": _short_text(raw.get("topic") or (boundary["topic"] if boundary else ""), 80),
-                        "label": _short_text(raw.get("label") or (boundary["story_title"] if boundary else ""), 120),
-                        "summary": _short_text(raw.get("summary", ""), 280),
+                        "cluster_id": boundary["story_id"] if boundary is not None else _short_text(raw.get("cluster_id", ""), None),
+                        "topic": _short_text(raw.get("topic") or (boundary["topic"] if boundary else ""), None),
+                        "label": _short_text(raw.get("label") or (boundary["story_title"] if boundary else ""), None),
+                        "summary": _short_text(raw.get("summary", ""), None),
                         "article_ids": article_ids,
                         "key_claims": claims,
-                        "consensus_points": _dedupe_strings(raw.get("consensus_points", []), max_items=5, max_chars=160),
-                        "contested_points": _dedupe_strings(raw.get("contested_points", []), max_items=5, max_chars=160),
-                        "known_unknowns": _dedupe_strings(raw.get("known_unknowns", []), max_items=5, max_chars=160),
-                        "watch_signals": _dedupe_strings(raw.get("watch_signals", []), max_items=5, max_chars=160),
+                        "consensus_points": _dedupe_strings(raw.get("consensus_points", []), max_items=None, max_chars=None),
+                        "contested_points": _dedupe_strings(raw.get("contested_points", []), max_items=None, max_chars=None),
+                        "known_unknowns": _dedupe_strings(raw.get("known_unknowns", []), max_items=None, max_chars=None),
+                        "watch_signals": _dedupe_strings(raw.get("watch_signals", []), max_items=None, max_chars=None),
                     }
                 )
-                if len(clusters) >= max(1, int(self.config.max_story_clusters)):
-                    break
-            if len(clusters) >= max(1, int(self.config.max_story_clusters)):
-                break
 
         watch_signals: List[Any] = []
         reader_qa: List[Any] = []
@@ -669,13 +676,13 @@ class EvidenceDistiller:
 
         return self._normalize_result(
             {
-                "overview": overview[:900],
+                "overview": overview,
                 "story_clusters": clusters,
-                "global_watch_signals": _dedupe_strings(watch_signals, max_items=12, max_chars=160),
+                "global_watch_signals": _dedupe_strings(watch_signals, max_items=None, max_chars=None),
                 "reader_qa": _dedupe_dicts_by_text(
                     reader_qa,
                     text_key="question",
-                    max_items=max(0, int(self.config.max_questions)),
+                    max_items=None,
                 ),
             }
         )
@@ -716,8 +723,9 @@ class EvidenceDistiller:
         headline_context_articles: List[SelectedArticle],
         story_groups: List[StoryGroup] | None = None,
     ) -> str:
+        budget = self._request_budget()
         fingerprint = {
-            "v": 7,
+            "v": 8,
             "stage": "evidence_distillation",
             "story_grouping_mode": "shared" if story_groups is not None else "free_clustering",
             "backend": self.client.config.backend,
@@ -728,8 +736,10 @@ class EvidenceDistiller:
             "memory": memory.to_prompt(),
             "config": {
                 "include_reader_qa": self.config.include_reader_qa,
-                "max_input_tokens": self.config.max_input_tokens,
-                "max_new_tokens": self.config.max_new_tokens,
+                "context_tokens": budget.context_tokens,
+                "max_input_tokens": budget.input_tokens,
+                "max_new_tokens": budget.output_tokens,
+                "reserve_tokens": budget.reserve_tokens,
                 "max_articles": self.config.max_articles,
                 "max_articles_per_batch": self.config.max_articles_per_batch,
                 "max_article_chars": self.config.max_article_chars,
@@ -825,7 +835,7 @@ class EvidenceDistiller:
     ) -> List[Dict[str, Any]]:
         trimmed: List[Dict[str, Any]] = []
         for claim in claims:
-            original = _dedupe_article_ids(claim.get("support_article_ids", []), max_items=12)
+            original = _dedupe_article_ids(claim.get("support_article_ids", []))
             support_ids = [article_id for article_id in original if article_id in allowed_article_ids]
             if original != support_ids:
                 self._record_group_boundary_warning("evidence claim support ids crossed shared group boundary; trimmed")
@@ -833,6 +843,8 @@ class EvidenceDistiller:
                 continue
             item = dict(claim)
             item["support_article_ids"] = support_ids
+            origin_ids = _dedupe_article_ids(item.get("origin_article_ids", []))
+            item["origin_article_ids"] = [article_id for article_id in origin_ids if article_id in support_ids]
             trimmed.append(item)
         return trimmed
 
@@ -849,7 +861,7 @@ class EvidenceDistiller:
         for raw in items:
             if not isinstance(raw, dict):
                 continue
-            article_ids = _dedupe_article_ids(raw.get("article_ids", []), max_items=8)
+            article_ids = _dedupe_article_ids(raw.get("article_ids", []))
             trimmed_ids = [article_id for article_id in article_ids if article_id in selected_ids]
             if article_ids != trimmed_ids:
                 self._record_group_boundary_warning("evidence reader_qa referenced unknown article ids; trimmed")

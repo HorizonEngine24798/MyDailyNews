@@ -63,6 +63,7 @@ def synthesize_narrative_markdown(markdown_path: Path, output_path: Path, config
 
 
 def speech_text_from_markdown(markdown: str) -> str:
+    markdown = re.sub(r"<<\d+>>", "", str(markdown or ""))
     lines: List[str] = []
     skip_heading_level: int | None = None
     in_fence = False

@@ -6,6 +6,7 @@ from typing import Any, Callable
 from mydailynews.ai.base import AIClient
 from mydailynews.ai.prompts import STORY_GROUPING_SYSTEM, STORY_GROUPING_USER
 from mydailynews.ai.schemas import STORY_GROUPING_JSON_SCHEMA
+from mydailynews.ai.token_budget import TokenBudget, resolve_client_token_budget
 from mydailynews.app.models import AppConfig, SelectedArticle
 from mydailynews.common.cache import JSONCache
 from mydailynews.common.utils import compact_json
@@ -130,8 +131,9 @@ class StoryGroupingPlanner:
     def fit_request(self, articles: list[SelectedArticle]) -> PlannerRequest | None:
         if not articles:
             return None
-        budget_tokens = self._stage_input_budget()
-        max_new_tokens = self._stage_max_new_tokens()
+        budget = self._stage_token_budget()
+        budget_tokens = budget.input_tokens
+        max_new_tokens = budget.output_tokens
         excerpt_chars = max(0, int(self.config.enrichment.max_selected_article_excerpt_chars))
         payload = [planner_article_payload(article, excerpt_chars) for article in articles]
         prompt = STORY_GROUPING_USER.format(
@@ -314,7 +316,7 @@ class StoryGroupingPlanner:
             for raw in value:
                 if not isinstance(raw, dict):
                     continue
-                question = clean_text(raw.get("question"), 240)
+                question = clean_text(raw.get("question"), None)
                 queries = string_list(raw.get("queries", []), max_items=3, max_chars=140)
                 if not question and not queries:
                     continue
@@ -343,14 +345,9 @@ class StoryGroupingPlanner:
     def _estimate_chat_tokens(self, system: str, user: str) -> int:
         return self.ai_client.estimate_tokens(f"System:\n{system}\n\nUser:\n{user}\n\nAssistant:\n")
 
-    def _stage_input_budget(self) -> int:
-        requested = getattr(self.config.enrichment, "planner_max_input_tokens", None)
-        if requested is not None:
-            return max(0, int(requested))
-        return max(0, int(getattr(self.ai_client, "max_input_tokens", 0) or 0))
-
-    def _stage_max_new_tokens(self) -> int:
-        requested = getattr(self.config.enrichment, "planner_max_new_tokens", None)
-        if requested is not None:
-            return max(64, int(requested))
-        return max(64, int(getattr(self.ai_client, "max_new_tokens", 0) or 0))
+    def _stage_token_budget(self) -> TokenBudget:
+        return resolve_client_token_budget(
+            self.ai_client,
+            input_tokens=self.config.enrichment.planner_max_input_tokens,
+            output_tokens=self.config.enrichment.planner_max_new_tokens,
+        )

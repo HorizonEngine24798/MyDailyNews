@@ -9,12 +9,13 @@ from mydailynews.common.utils import compact_json, datetime_to_iso
 STORY_THREAD_CONTEXT_KINDS = {"story_llm_research_context", "story_thread_context"}
 
 
-def _short_text(value: Any, max_chars: int) -> str:
-    return " ".join(str(value or "").split())[:max_chars]
+def _short_text(value: Any, max_chars: int | None) -> str:
+    text = " ".join(str(value or "").split())
+    return text if max_chars is None else text[:max_chars]
 
 
-def _dedupe_strings(values: List[Any], *, max_items: int, max_chars: int) -> List[str]:
-    if max_items <= 0:
+def _dedupe_strings(values: List[Any], *, max_items: int | None, max_chars: int | None) -> List[str]:
+    if max_items is not None and max_items <= 0:
         return []
     output: List[str] = []
     seen: set[str] = set()
@@ -27,20 +28,20 @@ def _dedupe_strings(values: List[Any], *, max_items: int, max_chars: int) -> Lis
             continue
         seen.add(key)
         output.append(text)
-        if len(output) >= max_items:
+        if max_items is not None and len(output) >= max_items:
             break
     return output
 
 
-def _dedupe_dicts_by_text(items: List[Any], *, text_key: str, max_items: int) -> List[Dict[str, Any]]:
-    if max_items <= 0:
+def _dedupe_dicts_by_text(items: List[Any], *, text_key: str, max_items: int | None) -> List[Dict[str, Any]]:
+    if max_items is not None and max_items <= 0:
         return []
     output: List[Dict[str, Any]] = []
     seen: set[str] = set()
     for raw in items:
         if not isinstance(raw, dict):
             continue
-        text = _short_text(raw.get(text_key, ""), 220)
+        text = _short_text(raw.get(text_key, ""), None)
         if not text:
             continue
         key = text.lower()
@@ -48,7 +49,7 @@ def _dedupe_dicts_by_text(items: List[Any], *, text_key: str, max_items: int) ->
             continue
         seen.add(key)
         output.append(dict(raw))
-        if len(output) >= max_items:
+        if max_items is not None and len(output) >= max_items:
             break
     return output
 
@@ -68,10 +69,15 @@ def _article_group_key(article: SelectedArticle) -> str:
     return f"article:{article.candidate.id}"
 
 
-def story_thread_payloads(article: SelectedArticle, *, max_items: int = 3) -> List[Dict[str, Any]]:
+def story_thread_payloads(
+    article: SelectedArticle,
+    *,
+    max_items: int | None = 3,
+    compact: bool = True,
+) -> List[Dict[str, Any]]:
     payload: List[Dict[str, Any]] = []
     seen: set[str] = set()
-    if max_items <= 0:
+    if max_items is not None and max_items <= 0:
         return payload
     for source in article.context_sources:
         if str(source.kind or "").strip() not in STORY_THREAD_CONTEXT_KINDS:
@@ -95,13 +101,13 @@ def story_thread_payloads(article: SelectedArticle, *, max_items: int = 3) -> Li
         seen.add(key)
         payload.append(
             {
-                "story_id": story_id[:80],
-                "story_title": story_title[:180],
-                "context_title": str(source.title or "")[:180],
-                "context_summary": str(source.summary or "")[:220],
+                "story_id": story_id[:80] if compact else story_id,
+                "story_title": story_title[:180] if compact else story_title,
+                "context_title": str(source.title or "")[:180] if compact else str(source.title or ""),
+                "context_summary": str(source.summary or "")[:220] if compact else str(source.summary or ""),
             }
         )
-        if len(payload) >= max_items:
+        if max_items is not None and len(payload) >= max_items:
             break
     return payload
 
@@ -209,6 +215,18 @@ def prior_reports_payload(prior_reports: List[PriorReport]) -> List[dict]:
             "topics": report.topics[:4],
             "summary": report.summary[:320],
             "major_headlines": report.major_headlines[:4],
+            "story_baselines": [
+                {
+                    "story_key": str(item.get("story_key", ""))[:100],
+                    "story_family_key": str(item.get("story_family_key", ""))[:100],
+                    "title": str(item.get("title", ""))[:140],
+                    "change_type": str(item.get("change_type", ""))[:40],
+                    "summary": str(item.get("summary", "") or item.get("bullet", ""))[:240],
+                    "disposition": str(item.get("disposition", ""))[:40],
+                }
+                for item in (report.story_baselines or [])[:4]
+                if isinstance(item, dict)
+            ],
         }
         for report in prior_reports
     ]

@@ -78,7 +78,7 @@ def normalize_story_groups(
             story_id = _next_unused_story_id(len(groups) + 1, story_ids)
         story_ids.add(story_id)
 
-        story_title = clean_text(_raw_value(raw, "story_title", ""), 180) or _fallback_story_title(
+        story_title = clean_text(_raw_value(raw, "story_title", ""), None) or _fallback_story_title(
             article_by_id,
             article_ids,
         )
@@ -98,7 +98,7 @@ def normalize_story_groups(
                 article_ids=article_ids,
                 research_questions=research_questions,
                 fallback=fallback,
-                topic=clean_text(_raw_value(raw, "topic", ""), 120),
+                topic=clean_text(_raw_value(raw, "topic", ""), None),
                 disposition=disposition,
             )
         )
@@ -112,7 +112,7 @@ def normalize_story_groups(
             + ", ".join(article.candidate.id for article in omitted)
         )
         for article in omitted:
-            story_title = clean_text(article.candidate.title, 180)
+            story_title = clean_text(article.candidate.title, None)
             story_id = _next_unused_story_id(len(groups) + 1, story_ids)
             story_ids.add(story_id)
             groups.append(
@@ -122,7 +122,7 @@ def normalize_story_groups(
                     article_ids=[article.candidate.id],
                     research_questions=fallback_questions(story_title) if fallback_questions else [],
                     fallback=True,
-                    topic=clean_text(article.decision.topic or article.candidate.metadata.get("topic_name", ""), 120),
+                    topic=clean_text(article.decision.topic or article.candidate.metadata.get("topic_name", ""), None),
                     disposition="singleton",
                 )
             )
@@ -197,7 +197,7 @@ def _research_questions(
         if isinstance(item, ResearchQuestion):
             questions.append(item)
         elif isinstance(item, dict):
-            question = clean_text(item.get("question", ""), 240)
+            question = clean_text(item.get("question", ""), None)
             raw_queries = item.get("queries", [])
             queries = [
                 clean_text(query, 140)
@@ -222,4 +222,4 @@ def _fallback_story_title(article_by_id: dict[str, SelectedArticle], article_ids
     if not article_ids:
         return "Selected story group"
     first = article_by_id.get(article_ids[0])
-    return clean_text(first.candidate.title if first else "Selected story group", 180)
+    return clean_text(first.candidate.title if first else "Selected story group", None)

@@ -31,10 +31,20 @@ export function linkify(value) {
   });
 }
 
-export function renderMarkdown(markdown) {
+export function renderMarkdown(markdown, claimCards = []) {
   const lines = String(markdown || "").split(/\r?\n/);
   const html = [];
+  const cardRefs = new Set((Array.isArray(claimCards) ? claimCards : []).map((card) => Number(card.ref)));
   let inList = false;
+
+  function renderInline(value) {
+    return linkify(escapeHtml(value)).replace(/&lt;&lt;(\d+)&gt;&gt;/g, (marker, rawRef) => {
+      const ref = Number(rawRef);
+      return cardRefs.has(ref)
+        ? `<button class="claim-context-button" type="button" data-claim-ref="${ref}" aria-label="Open claim context ${ref}">${ref}</button>`
+        : marker;
+    });
+  }
 
   function closeList() {
     if (inList) {
@@ -51,22 +61,22 @@ export function renderMarkdown(markdown) {
     }
     if (text.startsWith("### ")) {
       closeList();
-      html.push(`<h3>${linkify(escapeHtml(text.slice(4)))}</h3>`);
+      html.push(`<h3>${renderInline(text.slice(4))}</h3>`);
     } else if (text.startsWith("## ")) {
       closeList();
-      html.push(`<h2>${linkify(escapeHtml(text.slice(3)))}</h2>`);
+      html.push(`<h2>${renderInline(text.slice(3))}</h2>`);
     } else if (text.startsWith("# ")) {
       closeList();
-      html.push(`<h1>${linkify(escapeHtml(text.slice(2)))}</h1>`);
+      html.push(`<h1>${renderInline(text.slice(2))}</h1>`);
     } else if (text.startsWith("- ")) {
       if (!inList) {
         html.push("<ul>");
         inList = true;
       }
-      html.push(`<li>${linkify(escapeHtml(text.slice(2)))}</li>`);
+      html.push(`<li>${renderInline(text.slice(2))}</li>`);
     } else {
       closeList();
-      html.push(`<p>${linkify(escapeHtml(text))}</p>`);
+      html.push(`<p>${renderInline(text)}</p>`);
     }
   });
   closeList();

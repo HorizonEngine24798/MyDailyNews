@@ -1,34 +1,36 @@
 import { byId, escapeHtml, humanLabel, shouldUseTextarea } from "./dom.js";
 
+const detailsOpen = {};
+
 export function renderForm(hostId, getRoot) {
   const host = byId(hostId);
   host.innerHTML = "";
 
   const grid = document.createElement("div");
   grid.className = "form-grid";
-  renderValue(grid, getRoot(), [], "", getRoot, () => renderForm(hostId, getRoot));
+  renderValue(grid, getRoot(), [], "", getRoot, () => renderForm(hostId, getRoot), hostId);
   host.appendChild(grid);
 }
 
-function renderValue(parent, value, path, label, getRoot, rerender) {
+function renderValue(parent, value, path, label, getRoot, rerender, hostId) {
   if (Array.isArray(value)) {
-    renderArray(parent, value, path, label, getRoot, rerender);
+    renderArray(parent, value, path, label, getRoot, rerender, hostId);
     return;
   }
   if (value && typeof value === "object") {
-    renderObject(parent, value, path, label, getRoot, rerender);
+    renderObject(parent, value, path, label, getRoot, rerender, hostId);
     return;
   }
   renderScalar(parent, value, path, label, getRoot);
 }
 
-function renderObject(parent, value, path, label, getRoot, rerender) {
+function renderObject(parent, value, path, label, getRoot, rerender, hostId) {
   const isRoot = path.length === 0;
   const card = document.createElement(isRoot ? "div" : "details");
   card.className = isRoot ? "form-node" : "form-card";
 
   if (!isRoot) {
-    card.open = true;
+    restoreDetailsOpen(card, hostId, path);
     const header = document.createElement("summary");
     header.className = "form-card-header";
     header.innerHTML = `<h4>${escapeHtml(humanLabel(label))}</h4>`;
@@ -48,7 +50,7 @@ function renderObject(parent, value, path, label, getRoot, rerender) {
   }
 
   Object.keys(value).forEach((key) => {
-    renderValue(card, value[key], path.concat(key), key, getRoot, rerender);
+    renderValue(card, value[key], path.concat(key), key, getRoot, rerender, hostId);
   });
 
   if (Object.keys(value).length === 0) {
@@ -60,13 +62,13 @@ function renderObject(parent, value, path, label, getRoot, rerender) {
   parent.appendChild(card);
 }
 
-function renderArray(parent, value, path, label, getRoot, rerender) {
+function renderArray(parent, value, path, label, getRoot, rerender, hostId) {
   const isRoot = path.length === 0;
   const card = document.createElement(isRoot ? "div" : "details");
   card.className = isRoot ? "form-node" : "form-card";
 
   if (!isRoot) {
-    card.open = true;
+    restoreDetailsOpen(card, hostId, path);
     const header = document.createElement("summary");
     header.className = "form-card-header";
     header.innerHTML = `<h4>${escapeHtml(humanLabel(label))}</h4><span class="muted small">${value.length} item(s)</span>`;
@@ -88,7 +90,7 @@ function renderArray(parent, value, path, label, getRoot, rerender) {
 
     const row = document.createElement("details");
     row.className = "form-card";
-    row.open = true;
+    restoreDetailsOpen(row, hostId, itemPath);
 
     const rowHeader = document.createElement("summary");
     rowHeader.className = "form-card-header";
@@ -99,7 +101,7 @@ function renderArray(parent, value, path, label, getRoot, rerender) {
     rowActions.className = "array-actions";
     rowActions.appendChild(remove);
     row.appendChild(rowActions);
-    renderArrayItem(row, item, itemPath, arrayItemLabel(item, index), getRoot, rerender);
+    renderArrayItem(row, item, itemPath, arrayItemLabel(item, index), getRoot, rerender, hostId);
     card.appendChild(row);
   });
 
@@ -128,10 +130,10 @@ function renderArray(parent, value, path, label, getRoot, rerender) {
   parent.appendChild(card);
 }
 
-function renderArrayItem(parent, value, path, label, getRoot, rerender) {
+function renderArrayItem(parent, value, path, label, getRoot, rerender, hostId) {
   if (value && typeof value === "object" && !Array.isArray(value)) {
     Object.keys(value).forEach((key) => {
-      renderValue(parent, value[key], path.concat(key), key, getRoot, rerender);
+      renderValue(parent, value[key], path.concat(key), key, getRoot, rerender, hostId);
     });
     if (Object.keys(value).length === 0) {
       const empty = document.createElement("div");
@@ -141,7 +143,7 @@ function renderArrayItem(parent, value, path, label, getRoot, rerender) {
     }
     return;
   }
-  renderValue(parent, value, path, label, getRoot, rerender);
+  renderValue(parent, value, path, label, getRoot, rerender, hostId);
 }
 
 function renderScalar(parent, value, path, label, getRoot) {
@@ -202,7 +204,7 @@ function arrayItemText(value) {
     return "";
   }
   if (Array.isArray(value)) {
-    return value.map(arrayItemText).filter(Boolean).slice(0, 2).join(", ");
+    return value.map(arrayItemText).filter(Boolean).join(", ");
   }
   if (typeof value !== "object") {
     return String(value).trim();
@@ -283,4 +285,18 @@ function setPath(root, path, value) {
   const last = path[path.length - 1];
   const parent = getPath(root, path.slice(0, -1));
   parent[last] = value;
+}
+
+function restoreDetailsOpen(node, hostId, path) {
+  const key = detailsKey(hostId, path);
+  node.open = Object.prototype.hasOwnProperty.call(detailsOpen, key) ? detailsOpen[key] : true;
+  node.addEventListener("toggle", (event) => {
+    if (event.target === node) {
+      detailsOpen[key] = node.open;
+    }
+  });
+}
+
+function detailsKey(hostId, path) {
+  return `${hostId}:${JSON.stringify(path)}`;
 }

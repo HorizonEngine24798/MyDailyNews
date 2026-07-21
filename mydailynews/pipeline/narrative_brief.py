@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from difflib import SequenceMatcher
 from pathlib import Path
+import re
 from typing import List
 
 from mydailynews.app.models import BriefOutput, NarrativeBriefOutput
@@ -27,6 +29,7 @@ def run_narrative_brief(
     enrichment_json_path: str = "",
     allow_disk_fallback: bool = True,
     use_enrichment: bool = True,
+    perspectives_json_path: str = "",
 ) -> NarrativeBriefOutput | None:
     config = orchestrator.config.narrative_briefing
     if not config.enabled:
@@ -65,6 +68,13 @@ def run_narrative_brief(
     else:
         enrichment_payload, enrichment_json_path, enrichment_warnings = None, "", []
     extend_warnings(run_warnings, enrichment_warnings)
+    perspectives_payload, claim_cards, perspectives_json_path, perspectives_warnings = _load_perspectives_source(
+        output_dir=Path(orchestrator.config.output_dir),
+        date=date,
+        perspectives_json_path=perspectives_json_path,
+        allow_disk_fallback=allow_disk_fallback,
+    )
+    extend_warnings(run_warnings, perspectives_warnings)
     enrichment_used = bool(enrichment_payload)
     memory_config = getattr(orchestrator.config, "memory", None)
     recall_prompt_enabled = memory_enabled(memory_config) and bool(
@@ -100,6 +110,9 @@ def run_narrative_brief(
                 enrichment_payload=enrichment_payload,
                 enrichment_json_path=enrichment_json_path,
                 recall_packet=recall_packet,
+                claim_cards=claim_cards,
+                perspectives_payload=perspectives_payload,
+                perspectives_json_path=perspectives_json_path,
             )
         extend_warnings(run_warnings, generator.warnings)
 
@@ -107,6 +120,7 @@ def run_narrative_brief(
         with orchestrator.debug.span("brief.narrative.write_output"):
             markdown_path, json_path = write_narrative_outputs(output_dir, date, narrative_brief)
 
+        perspectives_used = bool(narrative_brief.get("metadata", {}).get("perspectives_used"))
         orchestrator._record_stage_artifact(
             stage="narrative_brief",
             brief_name="pipeline",
@@ -118,6 +132,9 @@ def run_narrative_brief(
                     "enrichment_used": enrichment_used,
                     "enrichment_json_path": enrichment_json_path if enrichment_used else "",
                     "recall_guidance_used": bool(recall_packet.get("coverage_guidance")),
+                    "claim_cards_available": len(claim_cards),
+                    "perspectives_used": perspectives_used,
+                    "perspectives_json_path": perspectives_json_path if perspectives_used else "",
                     "markdown_path": str(markdown_path),
                     "json_path": str(json_path),
                     "segments": len(narrative_brief.get("segments", [])),
@@ -134,6 +151,7 @@ def run_narrative_brief(
                         for source in source_briefs
                     ],
                     "enrichment_json_path": enrichment_json_path if enrichment_used else "",
+                    "perspectives_json_path": perspectives_json_path if perspectives_used else "",
                     "markdown_path": str(markdown_path),
                     "json_path": str(json_path),
                 },
@@ -228,3 +246,46 @@ def _load_enrichment_source(
         return load_enrichment_payload(path), str(path), []
     except Exception as exc:
         return None, str(path), [f"narrative: enrichment JSON could not be loaded ({type(exc).__name__}: {exc})."]
+
+
+def _load_perspectives_source(
+    *,
+    output_dir: Path,
+    date: str,
+    perspectives_json_path: str = "",
+    allow_disk_fallback: bool = True,
+) -> tuple[dict | None, list[dict], str, List[str]]:
+    explicit = str(perspectives_json_path or "").strip()
+    path = Path(explicit) if explicit else output_dir / f"{date}_perspectives_report.json" if allow_disk_fallback else None
+    if path is None or not path.exists():
+        return None, [], str(path or ""), []
+    try:
+        payload = load_enrichment_payload(path)
+    except Exception as exc:
+        return None, [], str(path), [f"narrative: perspectives JSON could not be loaded ({type(exc).__name__}: {exc})."]
+    cards = _rank_claim_cards([
+        card
+        for story in payload.get("stories", [])
+        if isinstance(story, dict)
+        for card in story.get("claim_context_cards", [])
+        if isinstance(card, dict) and str(card.get("claim_id") or "").strip()
+    ])
+    return payload, cards, str(path), []
+
+
+def _rank_claim_cards(cards: list[dict]) -> list[dict]:
+    ranked = sorted(cards, key=lambda card: int(card.get("editorial_score", 0) or 0), reverse=True)
+    kept: list[dict] = []
+    normalized_claims: list[str] = []
+    for card in ranked:
+        claim = " ".join(re.findall(r"[a-z0-9]+", str(card.get("claim") or card.get("title") or "").lower()))
+        if not claim:
+            continue
+        # ponytail: quadratic comparison is bounded by the tiny per-run card set; index it only if card volume grows.
+        if any(SequenceMatcher(None, claim, previous).ratio() >= 0.82 for previous in normalized_claims):
+            continue
+        public_card = dict(card)
+        public_card.pop("editorial_score", None)
+        kept.append(public_card)
+        normalized_claims.append(claim)
+    return kept

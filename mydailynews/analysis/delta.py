@@ -5,6 +5,7 @@ from typing import Any, Dict, List
 from mydailynews.ai.base import AIClient
 from mydailynews.ai.prompts import DELTA_EXTRACTION_SYSTEM, DELTA_EXTRACTION_USER
 from mydailynews.ai.schemas import DELTA_EXTRACTION_JSON_SCHEMA
+from mydailynews.ai.token_budget import TokenBudget, resolve_client_token_budget
 from mydailynews.analysis.shared import (
     _append_headline_context,
     _article_ids,
@@ -21,6 +22,7 @@ from mydailynews.common.cache import JSONCache
 from mydailynews.diagnostics.debug import DebugLogger
 from mydailynews.app.models import DeltaExtractionConfig, PriorReport, SelectedArticle, TopicConfig, UserMemory
 from mydailynews.common.utils import compact_json, datetime_to_iso
+from mydailynews.domain.candidate_annotations import candidate_memory_annotation
 
 
 class DeltaExtractor:
@@ -52,10 +54,12 @@ class DeltaExtractor:
         brief_goal: str,
         date: str,
         evidence_packet: Dict[str, Any] | None = None,
+        story_memory: Dict[str, Any] | None = None,
         brief_name: str = "",
     ) -> Dict[str, Any]:
         self.warnings = []
         evidence_packet = evidence_packet or {}
+        story_memory = story_memory or {}
         if not self.config.enabled:
             self.debug.log("analysis.delta", "skipped_disabled")
             return {}
@@ -82,6 +86,7 @@ class DeltaExtractor:
                 brief_goal=brief_goal,
                 date=date,
                 evidence_packet=evidence_packet,
+                story_memory=story_memory,
             )
             if not batches and evidence_packet:
                 batches = [[]]
@@ -111,6 +116,7 @@ class DeltaExtractor:
                 brief_goal=brief_goal,
                 date=date,
                 evidence_packet=evidence_packet,
+                story_memory=story_memory,
                 headline_context_articles=headline_context_articles,
             )
             if not used_articles and not reduced_evidence:
@@ -132,6 +138,7 @@ class DeltaExtractor:
                     batch_index=batch_index,
                     total_batches=len(batches),
                     headline_context_articles=headline_context_articles,
+                    story_memory=story_memory,
                 )
             )
 
@@ -155,6 +162,7 @@ class DeltaExtractor:
         batch_index: int,
         total_batches: int,
         headline_context_articles: List[SelectedArticle],
+        story_memory: Dict[str, Any],
     ) -> Dict[str, Any]:
         label = f"delta extraction batch {batch_index}/{total_batches}"
         if brief_name:
@@ -168,6 +176,7 @@ class DeltaExtractor:
             brief_goal=brief_goal,
             date=date,
             headline_context_articles=headline_context_articles,
+            story_memory=story_memory,
         )
         if self.cache:
             cached = self.cache.get(cache_key, max_age_seconds=self.cache_ttl_seconds)
@@ -181,6 +190,7 @@ class DeltaExtractor:
                 )
                 return self._normalize_result(cached)
 
+        budget = self._request_budget()
         self.debug.log(
             "analysis.delta.batch",
             "running",
@@ -188,15 +198,15 @@ class DeltaExtractor:
             articles=len(used_articles),
             prior_reports=len(used_reports),
             prompt_chars=len(prompt),
-            max_input_tokens=self.config.max_input_tokens,
-            max_new_tokens=self.config.max_new_tokens,
+            max_input_tokens=budget.input_tokens,
+            max_new_tokens=budget.output_tokens,
         )
         raw = self.client.complete_json(
             DELTA_EXTRACTION_SYSTEM,
             prompt,
             label=label,
-            max_new_tokens=self.config.max_new_tokens,
-            input_token_limit=self.config.max_input_tokens,
+            max_new_tokens=budget.output_tokens,
+            input_token_limit=budget.input_tokens,
             json_schema=DELTA_EXTRACTION_JSON_SCHEMA,
         )
         result = self._normalize_result(raw)
@@ -214,9 +224,10 @@ class DeltaExtractor:
         brief_goal: str,
         date: str,
         evidence_packet: Dict[str, Any],
+        story_memory: Dict[str, Any] | None = None,
         headline_context_articles: List[SelectedArticle] | None = None,
     ) -> tuple[str, List[SelectedArticle], List[PriorReport], Dict[str, Any]]:
-        target_input_tokens = max(1024, min(int(self.config.max_input_tokens), int(self.client.max_input_tokens)))
+        target_input_tokens = self._request_budget().input_tokens
         prompt_budget_tokens = target_input_tokens
         ordered_articles = sorted(articles, key=lambda item: item.decision.score, reverse=True)
         used_articles = ordered_articles[: self.config.max_articles]
@@ -246,6 +257,7 @@ class DeltaExtractor:
                     brief_goal=brief_goal,
                     date=date,
                     evidence_packet=candidate_evidence,
+                    story_memory=story_memory or {},
                     headline_context_articles=headline_context_articles or [],
                 )
                 estimated_tokens = self.client.estimate_tokens(prompt)
@@ -299,7 +311,14 @@ class DeltaExtractor:
         return prompt, used_articles, used_reports[:1], reduced_evidence
 
     def _input_token_limit(self) -> int:
-        return max(256, min(int(self.config.max_input_tokens), int(self.client.max_input_tokens)))
+        return self._request_budget().input_tokens
+
+    def _request_budget(self) -> TokenBudget:
+        return resolve_client_token_budget(
+            self.client,
+            input_tokens=self.config.max_input_tokens,
+            output_tokens=self.config.max_new_tokens,
+        )
 
     def _build_article_batches(
         self,
@@ -311,6 +330,7 @@ class DeltaExtractor:
         brief_goal: str,
         date: str,
         evidence_packet: Dict[str, Any],
+        story_memory: Dict[str, Any],
     ) -> List[List[SelectedArticle]]:
         if not articles:
             return []
@@ -323,6 +343,7 @@ class DeltaExtractor:
             brief_goal=brief_goal,
             date=date,
             evidence_packet=evidence_packet,
+            story_memory=story_memory,
             batch_size=batch_size,
         )
         if single_batch is not None:
@@ -341,6 +362,7 @@ class DeltaExtractor:
                 brief_goal=brief_goal,
                 date=date,
                 evidence_packet=evidence_packet,
+                story_memory=story_memory,
                 batch_size=batch_size,
             ):
                 current.extend(group)
@@ -357,6 +379,7 @@ class DeltaExtractor:
                 brief_goal=brief_goal,
                 date=date,
                 evidence_packet=evidence_packet,
+                story_memory=story_memory,
                 batch_size=batch_size,
             ):
                 current = group[:]
@@ -371,6 +394,7 @@ class DeltaExtractor:
                     brief_goal=brief_goal,
                     date=date,
                     evidence_packet=evidence_packet,
+                    story_memory=story_memory,
                     batch_size=batch_size,
                 ):
                     batches.append(current)
@@ -391,6 +415,7 @@ class DeltaExtractor:
         brief_goal: str,
         date: str,
         evidence_packet: Dict[str, Any],
+        story_memory: Dict[str, Any],
         batch_size: int,
     ) -> List[SelectedArticle] | None:
         max_drop = min(max(0, int(self.config.max_articles_dropped_to_avoid_split)), max(0, len(articles) - 1))
@@ -405,6 +430,7 @@ class DeltaExtractor:
                 brief_goal=brief_goal,
                 date=date,
                 evidence_packet=evidence_packet,
+                story_memory=story_memory,
                 batch_size=batch_size,
                 include_headline_context=False,
             ):
@@ -438,6 +464,7 @@ class DeltaExtractor:
         brief_goal: str,
         date: str,
         evidence_packet: Dict[str, Any],
+        story_memory: Dict[str, Any],
         batch_size: int,
         include_headline_context: bool = True,
     ) -> bool:
@@ -458,6 +485,7 @@ class DeltaExtractor:
             brief_goal=brief_goal,
             date=date,
             evidence_packet=self._compact_evidence_packet(evidence_packet),
+            story_memory=story_memory,
             headline_context_articles=headline_context,
         )
         return self.client.estimate_tokens(prompt) <= self._input_token_limit()
@@ -466,27 +494,33 @@ class DeltaExtractor:
         normalized = [self._normalize_result(item) for item in results if isinstance(item, dict)]
         merged: Dict[str, Any] = {
             "baseline_coverage_note": " ".join(
-                _short_text(item.get("baseline_coverage_note", ""), 220)
+                _short_text(item.get("baseline_coverage_note", ""), None)
                 for item in normalized
                 if item.get("baseline_coverage_note")
-            )[:900],
+            ),
             "new": [],
             "escalated": [],
             "weakened": [],
             "reframed": [],
             "unchanged_but_important": [],
+            "story_decisions": [],
             "evidence_gaps": [],
         }
         for key in ("new", "escalated", "weakened", "reframed", "unchanged_but_important"):
             items: List[Any] = []
             for result in normalized:
                 items.extend(result.get(key, []))
-            merged[key] = _dedupe_dicts_by_text(items, text_key="item", max_items=16)
+            merged[key] = _dedupe_dicts_by_text(items, text_key="item", max_items=None)
+
+        decisions: List[Any] = []
+        for result in normalized:
+            decisions.extend(result.get("story_decisions", []))
+        merged["story_decisions"] = _dedupe_decisions(decisions)
 
         gaps: List[Any] = []
         for result in normalized:
             gaps.extend(result.get("evidence_gaps", []))
-        merged["evidence_gaps"] = _dedupe_dicts_by_text(gaps, text_key="gap", max_items=12)
+        merged["evidence_gaps"] = _dedupe_dicts_by_text(gaps, text_key="gap", max_items=None)
         return self._normalize_result(merged)
 
     def _render_prompt(
@@ -500,6 +534,7 @@ class DeltaExtractor:
         brief_goal: str,
         date: str,
         evidence_packet: Dict[str, Any],
+        story_memory: Dict[str, Any],
         headline_context_articles: List[SelectedArticle] | None = None,
     ) -> str:
         article_payload = [self._article_payload(item, excerpt_chars) for item in articles]
@@ -512,6 +547,7 @@ class DeltaExtractor:
             brief_goal=brief_goal,
             date=date,
             topics=compact_json(topics_payload(topics)),
+            story_memory=compact_json(_story_memory_for_articles(story_memory, articles)),
             prior_reports=compact_json(prior_reports_payload(prior_reports)),
             evidence_packet=compact_json(reduced_evidence),
             articles=compact_json(fallback_articles),
@@ -529,9 +565,11 @@ class DeltaExtractor:
         brief_goal: str,
         date: str,
         headline_context_articles: List[SelectedArticle],
+        story_memory: Dict[str, Any],
     ) -> str:
+        budget = self._request_budget()
         fingerprint = {
-            "v": 5,
+            "v": 8,
             "stage": "delta_extraction",
             "backend": self.client.config.backend,
             "model": self.client.config.effective_model_label,
@@ -542,8 +580,10 @@ class DeltaExtractor:
             "config": {
                 "input_source": self.config.input_source,
                 "require_prior_reports": self.config.require_prior_reports,
-                "max_input_tokens": self.config.max_input_tokens,
-                "max_new_tokens": self.config.max_new_tokens,
+                "context_tokens": budget.context_tokens,
+                "max_input_tokens": budget.input_tokens,
+                "max_new_tokens": budget.output_tokens,
+                "reserve_tokens": budget.reserve_tokens,
                 "max_articles": self.config.max_articles,
                 "max_articles_per_batch": self.config.max_articles_per_batch,
                 "max_article_chars": self.config.max_article_chars,
@@ -556,6 +596,7 @@ class DeltaExtractor:
             ],
             "prior_reports": prior_reports_payload(used_reports),
             "evidence_packet": reduced_evidence,
+            "story_memory": story_memory,
         }
         return JSONCache.make_key(compact_json(fingerprint))
 
@@ -573,15 +614,17 @@ class DeltaExtractor:
         if missing:
             raise ValueError(f"delta extraction: missing key(s): {', '.join(sorted(missing))}")
         normalized = dict(result)
-        for key in ("new", "escalated", "weakened", "reframed", "unchanged_but_important", "evidence_gaps"):
+        for key in ("new", "escalated", "weakened", "reframed", "unchanged_but_important", "evidence_gaps", "story_decisions"):
             if not isinstance(normalized.get(key), list):
                 normalized[key] = []
+        normalized["story_decisions"] = _normalize_story_decisions(normalized["story_decisions"])
         normalized["baseline_coverage_note"] = str(normalized.get("baseline_coverage_note", "")).strip()
         return normalized
 
     @staticmethod
     def _article_payload(article: SelectedArticle, excerpt_chars: int) -> Dict[str, Any]:
         topic = article.decision.topic or article.candidate.metadata.get("topic_name", "")
+        annotation = candidate_memory_annotation(article.candidate)
         return {
             "id": article.candidate.id,
             "topic": topic,
@@ -593,6 +636,16 @@ class DeltaExtractor:
             "article_text": (article.article_text or article.candidate.snippet)[:excerpt_chars],
             "snippet": (article.candidate.snippet or "")[:160],
             "story_threads": story_thread_payloads(article, max_items=2),
+            "memory": {
+                "story_key": annotation.story_key,
+                "story_family_key": annotation.story_family_key,
+                "match_confidence": round(float(annotation.match_confidence), 4),
+                "recent_coverage_count": int(annotation.recent_coverage_count),
+                "recent_lead_count": int(annotation.recent_lead_count),
+                "covered_yesterday": bool(annotation.covered_yesterday),
+                "today_policy": annotation.today_policy,
+                "materiality": round(float(annotation.materiality), 4),
+            } if annotation is not None else {},
         }
 
     @staticmethod
@@ -630,3 +683,92 @@ class DeltaExtractor:
             "global_watch_signals": [str(value)[:140] for value in packet.get("global_watch_signals", [])[:6]],
             "reader_qa": reader_qa,
         }
+
+
+_RELATIONSHIPS = {"same_story", "related_theme", "distinct_story", "uncertain"}
+_CHANGE_TYPES = {"new", "escalated", "weakened", "reframed", "unchanged", "uncertain"}
+_DISPOSITIONS = {"full_report", "continuing_bullet", "omit", "uncertain"}
+
+
+def _normalize_story_decisions(value: Any) -> List[Dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    rows: List[Dict[str, Any]] = []
+    for raw in value:
+        if not isinstance(raw, dict):
+            continue
+        story_key = str(raw.get("story_key", "") or "").strip()
+        article_ids = raw.get("article_ids", [])
+        if not story_key or not isinstance(article_ids, list):
+            continue
+        relationship = str(raw.get("relationship", "uncertain") or "uncertain").strip()
+        change_type = str(raw.get("change_type", "uncertain") or "uncertain").strip()
+        disposition = str(raw.get("disposition", "uncertain") or "uncertain").strip()
+        rows.append(
+            {
+                "story_key": story_key,
+                "article_ids": [str(item).strip() for item in article_ids if str(item).strip()],
+                "prior_story_key": str(raw.get("prior_story_key", "") or "").strip(),
+                "relationship": relationship if relationship in _RELATIONSHIPS else "uncertain",
+                "change_type": change_type if change_type in _CHANGE_TYPES else "uncertain",
+                "materiality": _bounded_float(raw.get("materiality"), 0.0),
+                "confidence": _bounded_float(raw.get("confidence"), 0.0),
+                "disposition": disposition if disposition in _DISPOSITIONS else "uncertain",
+                "summary": str(raw.get("summary", "") or "").strip(),
+                "bullet": str(raw.get("bullet", "") or "").strip(),
+                "reason": str(raw.get("reason", "") or "").strip(),
+                "knowns": _normalized_strings(raw.get("knowns", [])),
+                "unknowns": _normalized_strings(raw.get("unknowns", [])),
+                "watch_signals": _normalized_strings(raw.get("watch_signals", [])),
+            }
+        )
+    return rows
+
+
+def _dedupe_decisions(items: List[Any]) -> List[Dict[str, Any]]:
+    normalized = _normalize_story_decisions(items)
+    output: List[Dict[str, Any]] = []
+    seen: set[tuple[str, tuple[str, ...]]] = set()
+    for item in normalized:
+        key = (item["story_key"], tuple(item["article_ids"]))
+        if key in seen:
+            continue
+        seen.add(key)
+        output.append(item)
+    return output
+
+
+def _bounded_float(value: Any, default: float) -> float:
+    try:
+        return round(max(0.0, min(1.0, float(value))), 4)
+    except (TypeError, ValueError):
+        return default
+
+
+def _normalized_strings(value: Any) -> List[str]:
+    if isinstance(value, str):
+        value = [value]
+    if not isinstance(value, list):
+        return []
+    output: List[str] = []
+    for item in value:
+        text = " ".join(str(item or "").split()).strip()
+        if text and text not in output:
+            output.append(text)
+    return output
+
+
+def _story_memory_for_articles(packet: Dict[str, Any], articles: List[SelectedArticle]) -> Dict[str, Any]:
+    if not isinstance(packet, dict):
+        return {}
+    stories = packet.get("stories", [])
+    if not isinstance(stories, list) or not articles:
+        return packet
+    article_ids = {article.candidate.id for article in articles}
+    selected = [
+        story
+        for story in stories
+        if isinstance(story, dict)
+        and article_ids.intersection(str(item) for item in story.get("current_article_ids", []))
+    ]
+    return {**packet, "stories": selected}

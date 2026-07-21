@@ -3,7 +3,9 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+from types import SimpleNamespace
 import unittest
+from unittest.mock import MagicMock, patch
 import uuid
 
 from mydailynews.app.models import (
@@ -14,8 +16,9 @@ from mydailynews.app.models import (
     SelectedArticle,
     TopicConfig,
 )
-from mydailynews.pipeline.enrichment_module import collect_enrichment_inputs
+from mydailynews.pipeline.enrichment_module import collect_enrichment_inputs, run_enrichment
 from mydailynews.pipeline.handoff import load_brief_handoff, write_brief_handoff
+from mydailynews.story_grouping.models import ResearchQuestion, StoryGroup
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -53,10 +56,21 @@ def _selected(candidate_id: str, url: str, *, text: str = "Full article text.") 
     )
 
 
+def _group(story_id: str, article_ids: list[str]) -> StoryGroup:
+    return StoryGroup(
+        story_id=story_id,
+        story_title=f"Story {story_id}",
+        article_ids=article_ids,
+        research_questions=[ResearchQuestion(question="What changed?", queries=["story update"])],
+        topic="Technology policy",
+    )
+
+
 class HandoffAndEnrichmentModuleTests(unittest.TestCase):
     def test_handoff_round_trip_preserves_article_text_and_decision(self) -> None:
         output_dir = TEMP_ROOT / uuid.uuid4().hex
         article = _selected("a", "https://example.test/a", text="Full article text with enough context.")
+        story_group = _group("story-001", ["a"])
 
         path = write_brief_handoff(
             output_dir=output_dir,
@@ -69,6 +83,7 @@ class HandoffAndEnrichmentModuleTests(unittest.TestCase):
             brief_goal="Brief goal",
             filtering=FilteringConfig(),
             selected_articles=[article],
+            story_groups=[story_group],
         )
         loaded = load_brief_handoff(path)
 
@@ -80,6 +95,30 @@ class HandoffAndEnrichmentModuleTests(unittest.TestCase):
         self.assertEqual(round_tripped.decision.score, 8.4)
         self.assertEqual(round_tripped.selection_rank_mode, "composite")
         self.assertEqual(round_tripped.candidate.metadata["source_briefs"], ["general"])
+        self.assertEqual(loaded.story_groups[0]["article_ids"], ["a"])
+        self.assertEqual(loaded.story_groups[0]["research_questions"][0]["queries"], ["story update"])
+
+    def test_legacy_handoff_without_story_groups_still_loads_and_replans(self) -> None:
+        output_dir = TEMP_ROOT / uuid.uuid4().hex
+        date = "2026-06-14"
+        path = write_brief_handoff(
+            output_dir=output_dir,
+            date=date,
+            brief_name="general",
+            json_path=output_dir / f"{date}_general_brief.json",
+            markdown_path=output_dir / f"{date}_general_brief.md",
+            topics=[],
+            prior_reports=[],
+            brief_goal="Brief goal",
+            filtering=FilteringConfig(),
+            selected_articles=[_selected("a", "https://example.test/a")],
+        )
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload.pop("story_groups")
+        path.write_text(json.dumps(payload), encoding="utf-8")
+
+        self.assertEqual(load_brief_handoff(path).story_groups, [])
+        self.assertIsNone(collect_enrichment_inputs(output_dir=output_dir, date=date).story_groups)
 
     def test_enrichment_input_prefers_handoff_and_dedupes_rehydrated_brief_by_url(self) -> None:
         output_dir = TEMP_ROOT / uuid.uuid4().hex
@@ -97,6 +136,7 @@ class HandoffAndEnrichmentModuleTests(unittest.TestCase):
             brief_goal="Brief goal",
             filtering=FilteringConfig(),
             selected_articles=[handoff_article],
+            story_groups=[_group("story-001", ["a"])],
         )
         output_dir.mkdir(parents=True, exist_ok=True)
         (output_dir / f"{date}_detailed_brief.json").write_text(
@@ -127,6 +167,84 @@ class HandoffAndEnrichmentModuleTests(unittest.TestCase):
         self.assertEqual(inputs.selected_articles[0].candidate.id, "a")
         self.assertEqual(inputs.selected_articles[0].article_text, "Long handoff article text.")
         self.assertEqual(inputs.selected_articles[0].candidate.metadata["source_briefs"], ["general", "detailed"])
+        self.assertIsNone(inputs.story_groups)
+
+    def test_enrichment_input_reuses_and_normalizes_groups_from_all_handoffs(self) -> None:
+        output_dir = TEMP_ROOT / uuid.uuid4().hex
+        date = "2026-06-14"
+        for brief_name, article, group in (
+            (
+                "general",
+                _selected("a", "https://example.test/a"),
+                _group("story-001", ["a", "unknown"]),
+            ),
+            (
+                "detailed",
+                _selected("b", "https://example.test/b"),
+                _group("story-001", ["b"]),
+            ),
+        ):
+            write_brief_handoff(
+                output_dir=output_dir,
+                date=date,
+                brief_name=brief_name,
+                json_path=output_dir / f"{date}_{brief_name}_brief.json",
+                markdown_path=output_dir / f"{date}_{brief_name}_brief.md",
+                topics=[],
+                prior_reports=[],
+                brief_goal="Brief goal",
+                filtering=FilteringConfig(),
+                selected_articles=[article],
+                story_groups=[group],
+            )
+
+        inputs = collect_enrichment_inputs(output_dir=output_dir, date=date)
+
+        self.assertEqual([article.candidate.id for article in inputs.selected_articles], ["a", "b"])
+        self.assertIsNotNone(inputs.story_groups)
+        self.assertEqual([group.story_id for group in inputs.story_groups or []], ["story-001", "story-002"])
+        self.assertEqual([group.article_ids for group in inputs.story_groups or []], [["a"], ["b"]])
+        self.assertTrue(any("unknown article id unknown" in warning for warning in inputs.warnings))
+
+    def test_run_enrichment_passes_reusable_groups_to_enricher(self) -> None:
+        output_dir = TEMP_ROOT / uuid.uuid4().hex
+        date = "2026-06-14"
+        write_brief_handoff(
+            output_dir=output_dir,
+            date=date,
+            brief_name="general",
+            json_path=output_dir / f"{date}_general_brief.json",
+            markdown_path=output_dir / f"{date}_general_brief.md",
+            topics=[],
+            prior_reports=[],
+            brief_goal="Brief goal",
+            filtering=FilteringConfig(),
+            selected_articles=[_selected("a", "https://example.test/a")],
+            story_groups=[_group("story-001", ["a"])],
+        )
+        orchestrator = SimpleNamespace(
+            config=SimpleNamespace(
+                output_dir=str(output_dir),
+                enrichment=SimpleNamespace(enabled=True, mode="story_llm"),
+            ),
+            warnings=[],
+            debug=MagicMock(),
+            reporter=SimpleNamespace(phase=lambda _message: None),
+            summary_ai_client=object(),
+        )
+        enricher = MagicMock()
+        enricher.warnings = []
+        enricher.story_threads_created = 1
+        enricher.story_threads_enriched = 0
+        enricher.story_threads_skipped = 1
+        enricher.artifact = {"story_threads": []}
+
+        with patch("mydailynews.pipeline.enrichment_module.StoryThreadEnricher", return_value=enricher):
+            result = run_enrichment(orchestrator, date=date)
+
+        self.assertIsNotNone(result)
+        groups = enricher.enrich_many.call_args.kwargs["story_groups"]
+        self.assertEqual([group.article_ids for group in groups], [["a"]])
 
     def test_enrichment_input_consumes_single_existing_brief(self) -> None:
         output_dir = TEMP_ROOT / uuid.uuid4().hex

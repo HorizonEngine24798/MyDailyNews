@@ -87,8 +87,8 @@ def _best_overlap(current_tokens: set[str], prior_items: List[Dict[str, Any]]) -
 
 def _delta_entry(article: SelectedArticle, summary: str) -> Dict[str, Any]:
     return {
-        "item": str(article.candidate.title or "")[:100],
-        "summary": summary[:180],
+        "item": str(article.candidate.title or ""),
+        "summary": summary,
         "article_ids": [str(article.candidate.id)],
     }
 
@@ -221,11 +221,11 @@ def build_deterministic_delta_scaffold(
 
     return {
         "baseline_coverage_note": coverage_note,
-        "new": new_items[:6],
-        "escalated": escalated[:5],
-        "weakened": weakened[:5],
-        "reframed": reframed[:5],
-        "unchanged_but_important": unchanged[:6],
-        "evidence_gaps": evidence_gaps[:4],
+        "new": new_items,
+        "escalated": escalated,
+        "weakened": weakened,
+        "reframed": reframed,
+        "unchanged_but_important": unchanged,
+        "evidence_gaps": evidence_gaps,
         "deterministic_scaffold": True,
     }

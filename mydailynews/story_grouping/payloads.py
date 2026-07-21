@@ -11,8 +11,8 @@ from mydailynews.story_grouping.models import StoryGroup
 def selected_article_artifact(article: SelectedArticle) -> dict[str, Any]:
     return {
         "id": article.candidate.id,
-        "headline": article.candidate.title[:220],
-        "source": article.candidate.source[:120],
+        "headline": article.candidate.title,
+        "source": article.candidate.source,
         "url": article.candidate.url,
         "published_at": datetime_to_iso(article.candidate.published_at),
         "score": float(article.decision.score),
@@ -88,12 +88,12 @@ def planner_article_payload(article: SelectedArticle, excerpt_chars: int) -> dic
     return payload
 
 
-def clean_text(value: Any, max_chars: int) -> str:
+def clean_text(value: Any, max_chars: int | None) -> str:
     text = re.sub(r"\s+", " ", str(value or "")).strip()
-    return text[: max(0, int(max_chars))]
+    return text if max_chars is None else text[: max(0, int(max_chars))]
 
 
-def string_list(value: Any, *, max_items: int, max_chars: int) -> list[str]:
+def string_list(value: Any, *, max_items: int | None, max_chars: int | None) -> list[str]:
     raw_values = value if isinstance(value, list) else [value]
     output: list[str] = []
     seen: set[str] = set()
@@ -104,6 +104,6 @@ def string_list(value: Any, *, max_items: int, max_chars: int) -> list[str]:
             continue
         seen.add(key)
         output.append(text)
-        if len(output) >= max_items:
+        if max_items is not None and len(output) >= max_items:
             break
     return output

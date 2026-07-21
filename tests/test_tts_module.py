@@ -83,6 +83,9 @@ That is the brief.
         self.assertNotIn("https://", text)
         self.assertNotIn("Source link should not be spoken", text)
 
+    def test_markdown_cleanup_removes_claim_markers(self) -> None:
+        self.assertEqual(speech_text_from_markdown("# Brief\n\nThe date is confirmed. <<12>>"), "Brief\n\nThe date is confirmed.")
+
     def test_chunking_keeps_text_order_under_limit(self) -> None:
         text = "First sentence.\n\nSecond sentence has enough words to need its own chunk.\n\nThird sentence."
 

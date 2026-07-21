@@ -8,12 +8,14 @@ from typing import Any, Dict, List
 
 from mydailynews.analysis.rollout import ANALYSIS_ROLLOUT_PROFILE_NAMES
 from mydailynews.common.booleans import parse_bool, parse_optional_bool
+from mydailynews.perspectives.sources import load_source_registry
 from mydailynews.app.models import (
     AnalysisConfig,
     AnalysisRolloutConfig,
     AnalysisRolloutModeConfig,
     AIConfig,
     AppConfig,
+    PerspectivesReportConfig,
     CacheConfig,
     DeltaExtractionConfig,
     EvidenceDistillationConfig,
@@ -55,6 +57,7 @@ DEFAULT_CACHE = _defaults(CacheConfig())
 DEFAULT_RUNTIME = _defaults(RuntimeConfig())
 DEFAULT_NARRATIVE_BRIEFING = _defaults(NarrativeBriefingConfig())
 DEFAULT_TTS = _defaults(TTSConfig())
+DEFAULT_PERSPECTIVES_REPORT = _defaults(PerspectivesReportConfig())
 DEFAULT_PIPELINE = _defaults(PipelineConfig())
 DEFAULT_ANALYSIS_EVIDENCE = _defaults(EvidenceDistillationConfig())
 DEFAULT_ANALYSIS_DELTA = _defaults(DeltaExtractionConfig())
@@ -75,6 +78,7 @@ ROOT_CONFIG_KEYS = {
     "runtime",
     "narrative_briefing",
     "tts",
+    "perspectives_report",
     "pipeline",
     "analysis",
     "cache",
@@ -89,17 +93,25 @@ CACHE_CONFIG_KEYS = set(DEFAULT_CACHE.keys())
 RUNTIME_CONFIG_KEYS = set(DEFAULT_RUNTIME.keys())
 NARRATIVE_BRIEFING_CONFIG_KEYS = set(DEFAULT_NARRATIVE_BRIEFING.keys())
 TTS_CONFIG_KEYS = set(DEFAULT_TTS.keys())
+PERSPECTIVES_REPORT_CONFIG_KEYS = set(DEFAULT_PERSPECTIVES_REPORT.keys()) | {
+    "coverage_languages",
+    "minimum_languages",
+}
 PIPELINE_CONFIG_KEYS = set(DEFAULT_PIPELINE.keys())
-PIPELINE_MODULE_NAMES = {"briefs", "enrichment", "narrative_brief", "tts"}
+PIPELINE_MODULE_NAMES = {"briefs", "enrichment", "narrative_brief", "tts", "perspectives_report"}
+TTS_MODULE_NAMES = PIPELINE_MODULE_NAMES - {"tts"}
 ANALYSIS_CONFIG_KEYS = {"evidence_distillation", "delta_extraction", "rollout"}
-EVIDENCE_DISTILLATION_CONFIG_KEYS = set(DEFAULT_ANALYSIS_EVIDENCE.keys())
+EVIDENCE_DISTILLATION_CONFIG_KEYS = set(DEFAULT_ANALYSIS_EVIDENCE.keys()) | {
+    "max_story_clusters",
+    "max_claims_per_cluster",
+    "max_questions",
+}
 DELTA_EXTRACTION_CONFIG_KEYS = set(DEFAULT_ANALYSIS_DELTA.keys())
 ANALYSIS_ROLLOUT_CONFIG_KEYS = set(DEFAULT_ANALYSIS_ROLLOUT.keys())
 ANALYSIS_ROLLOUT_MODE_CONFIG_KEYS = {field.name for field in fields(AnalysisRolloutModeConfig)}
 USER_MEMORY_CONFIG_KEYS = {field.name for field in fields(UserMemory)}
 TOPIC_CONFIG_KEYS = {field.name for field in fields(TopicConfig)}
 SOURCES_CONFIG_KEYS = {"rss", "google_news", "prior_reports"}
-RSS_SOURCE_CONFIG_KEYS = {field.name for field in fields(RSSSourceConfig)}
 GOOGLE_NEWS_SOURCE_CONFIG_KEYS = {field.name for field in fields(GoogleNewsSourceConfig)}
 PRIOR_REPORTS_SOURCE_CONFIG_KEYS = {field.name for field in fields(PriorReportsSourceConfig)}
 
@@ -175,24 +187,29 @@ def _load_sources(raw: Dict[str, Any]) -> List[RSSSourceConfig]:
         raise ValueError("Config section sources.prior_reports must be an object")
     _reject_unknown_keys(google_news_raw, GOOGLE_NEWS_SOURCE_CONFIG_KEYS, "sources.google_news")
     _reject_unknown_keys(prior_reports_raw, PRIOR_REPORTS_SOURCE_CONFIG_KEYS, "sources.prior_reports")
-    source_items = sources_raw.get("rss", [])
-    if not isinstance(source_items, list):
-        raise ValueError("Config section sources.rss must be a list")
+    source_ids = sources_raw.get("rss", [])
+    if not isinstance(source_ids, list) or not all(isinstance(item, str) for item in source_ids):
+        raise ValueError("Config section sources.rss must be a list of source IDs")
 
+    registry = load_source_registry()
+    source_by_id = {str(source.get("source_id") or ""): source for source in registry}
     sources: List[RSSSourceConfig] = []
-    for item in source_items:
-        if not isinstance(item, dict):
-            raise ValueError("Each sources.rss item must be an object")
-        _reject_unknown_keys(item, RSS_SOURCE_CONFIG_KEYS, "sources.rss[]")
-        sources.append(
-            RSSSourceConfig(
-                name=item["name"],
-                url=item["url"],
-                category=item.get("category", "general"),
-                tags=_list(item.get("tags")),
-                enabled=parse_bool(item.get("enabled", True), default=True, field_name="sources.rss[].enabled"),
+    for source_id in source_ids:
+        source_id = str(source_id).strip()
+        source = source_by_id.get(source_id)
+        if source is None:
+            raise ValueError(f"sources.rss references unknown source_id: {source_id}")
+        for url in source.get("feed_urls") or []:
+            sources.append(
+                RSSSourceConfig(
+                    name=str(source["name"]),
+                    url=str(url),
+                    source_id=source_id,
+                    category=str(source["category"]),
+                    tags=_list(source["tags"]),
+                    enabled=bool(source.get("enabled", True)),
+                )
             )
-        )
     return sources
 
 
@@ -411,7 +428,7 @@ def _load_ai(ai_raw: Dict[str, Any], section_name: str = "ai") -> AIConfig:
         json_retries=int(ai_raw.get("json_retries", 1)),
         temperature=float(ai_raw.get("temperature", DEFAULT_TEMPERATURE)),
         top_p=float(ai_raw.get("top_p", DEFAULT_TOP_P)),
-        response_format=str(ai_raw.get("response_format", "json_object")),
+        response_format=str(ai_raw.get("response_format", "auto")),
         request_timeout_seconds=int(ai_raw.get("request_timeout_seconds", 300)),
         token_estimation_chars_per_token=float(ai_raw.get("token_estimation_chars_per_token", 4.0)),
         enable_thinking=parse_bool(
@@ -616,12 +633,6 @@ def _load_analysis(raw: Dict[str, Any]) -> AnalysisConfig:
                 1,
                 int(evidence_raw.get("max_context_sources_per_article", evidence_defaults["max_context_sources_per_article"])),
             ),
-            max_story_clusters=max(1, int(evidence_raw.get("max_story_clusters", evidence_defaults["max_story_clusters"]))),
-            max_claims_per_cluster=max(
-                1,
-                int(evidence_raw.get("max_claims_per_cluster", evidence_defaults["max_claims_per_cluster"])),
-            ),
-            max_questions=max(0, int(evidence_raw.get("max_questions", evidence_defaults["max_questions"]))),
             cache_ttl_seconds=max(0, int(evidence_raw.get("cache_ttl_seconds", evidence_defaults["cache_ttl_seconds"]))),
         ),
         delta_extraction=DeltaExtractionConfig(
@@ -699,18 +710,70 @@ def _load_tts(raw: Dict[str, Any]) -> TTSConfig:
     speed = float(tts_raw.get("speed", DEFAULT_TTS["speed"]))
     if speed <= 0:
         raise ValueError("tts.speed must be greater than 0")
+    modules_raw = tts_raw.get("modules", DEFAULT_TTS["modules"])
+    if not isinstance(modules_raw, list):
+        raise ValueError("tts.modules must be a list")
+    modules: List[str] = []
+    for item in modules_raw:
+        module = str(item or "").strip().lower().replace("-", "_")
+        if module not in TTS_MODULE_NAMES:
+            supported = ", ".join(sorted(TTS_MODULE_NAMES))
+            raise ValueError(f"Unsupported tts.modules entry '{item}'. Supported values: {supported}")
+        if module not in modules:
+            modules.append(module)
     return TTSConfig(
         enabled=parse_bool(
             tts_raw.get("enabled", DEFAULT_TTS["enabled"]),
             default=DEFAULT_TTS["enabled"],
             field_name="tts.enabled",
         ),
+        modules=modules,
         backend=backend,
         model_id=str(tts_raw.get("model_id", DEFAULT_TTS["model_id"]) or DEFAULT_TTS["model_id"]).strip(),
         voice=str(tts_raw.get("voice", DEFAULT_TTS["voice"]) or DEFAULT_TTS["voice"]).strip(),
         lang_code=str(tts_raw.get("lang_code", DEFAULT_TTS["lang_code"]) or DEFAULT_TTS["lang_code"]).strip(),
         speed=speed,
         max_chunk_chars=max(200, int(tts_raw.get("max_chunk_chars", DEFAULT_TTS["max_chunk_chars"]))),
+    )
+
+
+def _load_perspectives_report(raw: Dict[str, Any]) -> PerspectivesReportConfig:
+    perspectives_raw = raw.get("perspectives_report", {})
+    if perspectives_raw is None:
+        perspectives_raw = {}
+    if not isinstance(perspectives_raw, dict):
+        raise ValueError("Config section perspectives_report must be an object")
+    _reject_unknown_keys(perspectives_raw, PERSPECTIVES_REPORT_CONFIG_KEYS, "perspectives_report")
+    return PerspectivesReportConfig(
+        enabled=parse_bool(
+            perspectives_raw.get("enabled", DEFAULT_PERSPECTIVES_REPORT["enabled"]),
+            default=DEFAULT_PERSPECTIVES_REPORT["enabled"],
+            field_name="perspectives_report.enabled",
+        ),
+        gnews_api_key=str(perspectives_raw.get("gnews_api_key", DEFAULT_PERSPECTIVES_REPORT["gnews_api_key"]) or "").strip(),
+        coverage_scope=_string_list(perspectives_raw.get("coverage_scope", DEFAULT_PERSPECTIVES_REPORT["coverage_scope"])),
+        coverage_regions=_string_list(perspectives_raw.get("coverage_regions", DEFAULT_PERSPECTIVES_REPORT["coverage_regions"])),
+        coverage_timespan_days=max(
+            1,
+            int(perspectives_raw.get("coverage_timespan_days", DEFAULT_PERSPECTIVES_REPORT["coverage_timespan_days"])),
+        ),
+        coverage_max_records_per_story=max(
+            0,
+            min(250, int(perspectives_raw.get("coverage_max_records_per_story", DEFAULT_PERSPECTIVES_REPORT["coverage_max_records_per_story"]))),
+        ),
+        minimum_source_countries=max(
+            0,
+            int(perspectives_raw.get("minimum_source_countries", DEFAULT_PERSPECTIVES_REPORT["minimum_source_countries"])),
+        ),
+        verification_enabled=parse_bool(
+            perspectives_raw.get("verification_enabled", DEFAULT_PERSPECTIVES_REPORT["verification_enabled"]),
+            default=DEFAULT_PERSPECTIVES_REPORT["verification_enabled"],
+            field_name="perspectives_report.verification_enabled",
+        ),
+        verification_claims_per_story=max(0, min(2, int(perspectives_raw.get("verification_claims_per_story", 2)))),
+        verification_claims_per_run=max(0, min(12, int(perspectives_raw.get("verification_claims_per_run", 12)))),
+        verification_queries_per_claim=max(0, min(2, int(perspectives_raw.get("verification_queries_per_claim", 2)))),
+        verification_documents_per_claim=max(0, min(4, int(perspectives_raw.get("verification_documents_per_claim", 4)))),
     )
 
 
@@ -810,6 +873,7 @@ def load_config(path: Path) -> AppConfig:
     memory_config = _load_memory(raw)
     narrative_briefing = _load_narrative_briefing(raw)
     tts = _load_tts(raw)
+    perspectives_report = _load_perspectives_report(raw)
     pipeline = _load_pipeline(raw)
     if not isinstance(filtering_raw, dict):
         raise ValueError("Config section filtering must be an object")
@@ -1065,6 +1129,7 @@ def load_config(path: Path) -> AppConfig:
         analysis=analysis,
         narrative_briefing=narrative_briefing,
         tts=tts,
+        perspectives_report=perspectives_report,
         pipeline=pipeline,
     )
     _apply_environment_overrides(config)
@@ -1073,7 +1138,9 @@ def load_config(path: Path) -> AppConfig:
 
 def _apply_environment_overrides(config: AppConfig) -> None:
     base_url = os.environ.get("MYDAILYNEWS_AI_BASE_URL", "").strip()
-    if not base_url:
-        return
-    config.ai_summary.base_url = base_url
-    config.ai_final.base_url = base_url
+    if base_url:
+        config.ai_summary.base_url = base_url
+        config.ai_final.base_url = base_url
+    gnews_api_key = os.environ.get("MYDAILYNEWS_GNEWS_API_KEY", "").strip() or os.environ.get("GNEWS_API_KEY", "").strip()
+    if gnews_api_key:
+        config.perspectives_report.gnews_api_key = gnews_api_key

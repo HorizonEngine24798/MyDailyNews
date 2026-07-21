@@ -20,6 +20,8 @@
   --space: clamp(0.75rem, 1.4vw, 1.25rem);
   --radius: 0.5rem;
   --ribbon-size: clamp(2rem, 3.2vw, 2.75rem);
+  --audio-tab-height: 2.25rem;
+  --audio-player-height: 4.5rem;
   --report-browser-width: clamp(17rem, 28vw, 26rem);
   --topbar-min: clamp(4.25rem, 8dvh, 5.75rem);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -212,6 +214,19 @@ h4 {
   min-width: 0;
   display: flex;
   flex-direction: column;
+}
+
+body.audio-player-active .view {
+  padding-bottom: calc(var(--space) + var(--audio-tab-height));
+}
+
+body.audio-player-expanded .view {
+  padding-bottom: calc(var(--space) + var(--audio-tab-height) + var(--audio-player-height));
+}
+
+body.audio-player-expanded .reports-layout {
+  height: calc(100dvh - var(--topbar-min) - var(--audio-tab-height) - var(--audio-player-height) - (var(--space) * 3));
+  min-height: min(32rem, calc(100dvh - var(--topbar-min) - var(--audio-tab-height) - var(--audio-player-height)));
 }
 
 .topbar {
@@ -448,6 +463,109 @@ details[open] > .date-summary::before {
 
 .audio-button {
   justify-self: end;
+}
+
+.audio-player {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 8;
+  display: grid;
+  grid-template-rows: var(--audio-tab-height) var(--audio-player-height);
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  box-shadow: 0 -14px 28px rgba(0, 0, 0, 0.26);
+  transform: translateY(0);
+  transition: transform 140ms ease;
+}
+
+.audio-player[hidden] {
+  display: none;
+}
+
+.audio-player.collapsed {
+  transform: translateY(var(--audio-player-height));
+}
+
+.audio-player-tab {
+  justify-self: end;
+  align-self: end;
+  min-width: 5.5rem;
+  min-height: var(--audio-tab-height);
+  margin-right: var(--space);
+  border: 1px solid var(--border);
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
+  background: var(--surface-2);
+  color: var(--text);
+  font-weight: 800;
+}
+
+.audio-player-body {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(10rem, 1.3fr) auto auto auto auto minmax(14rem, 2fr) auto auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 10px var(--space);
+  border-top: 1px solid var(--border);
+}
+
+.audio-title {
+  min-width: 0;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.audio-control {
+  min-height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text);
+  padding: 6px 10px;
+  white-space: nowrap;
+}
+
+.audio-control.primary {
+  min-width: 4.5rem;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #10231d;
+  font-weight: 800;
+}
+
+.audio-control:disabled,
+.audio-seek:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.audio-progress {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.audio-seek {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.audio-time,
+.audio-speed {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.audio-speed {
+  min-width: 2.6rem;
+  text-align: center;
 }
 
 .feedback-panel {
@@ -1001,7 +1119,40 @@ td {
   padding: 16px;
 }
 
+.claim-context-button {
+  min-width: 1.6rem;
+  height: 1.6rem;
+  padding: 0 0.4rem;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.8rem;
+  vertical-align: baseline;
+}
+
+.claim-context-dialog {
+  width: min(38rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 2rem);
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  padding: 1.25rem;
+}
+
+.claim-context-dialog::backdrop {
+  background: rgb(0 0 0 / 45%);
+}
+
 @media (max-width: 1100px) {
+  :root {
+    --audio-player-height: 7rem;
+  }
+
   .nav-list {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
@@ -1037,9 +1188,22 @@ td {
   .summary-grid {
     grid-template-columns: repeat(2, minmax(120px, 1fr));
   }
+
+  .audio-player-body {
+    grid-template-columns: repeat(6, auto);
+  }
+
+  .audio-title,
+  .audio-progress {
+    grid-column: 1 / -1;
+  }
 }
 
 @media (max-width: 620px) {
+  :root {
+    --audio-player-height: 9rem;
+  }
+
   .topbar {
     align-items: flex-start;
     flex-direction: column;
@@ -1060,5 +1224,18 @@ td {
 
   .view {
     padding: 12px;
+  }
+
+  .audio-player-body {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .audio-control {
+    width: 100%;
+    padding-inline: 6px;
+  }
+
+  .audio-speed {
+    justify-self: center;
   }
 }

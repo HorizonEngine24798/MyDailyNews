@@ -66,6 +66,7 @@ Use [setup](docs/setup.md) for install, config, first run, GUI, Docker, TTS, and
 ## Docs
 
 - [Setup](docs/setup.md): environment, config, first run, GUI, Docker, TTS, and tests.
+- [CLI](docs/cli.md): normal runs, standalone module runs, and common flags.
 - [Configuration](docs/configuration.md): config sections and runtime rules.
 - [Architecture](docs/architecture.md): runtime model and module flow.
 - [Docker](docs/docker.md): container usage.

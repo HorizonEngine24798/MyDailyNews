@@ -1,4 +1,5 @@
 import { api, clone } from "./api.js";
+import { initAudioPlayer } from "./audio.js";
 import { byId, setStatus } from "./dom.js";
 import { renderForm } from "./forms.js";
 import { bindMemoryRepairEvents, renderMemory } from "./memory.js";
@@ -16,8 +17,10 @@ const PIPELINE_MODULES = [
   ["briefs", "Briefs"],
   ["enrichment", "Enrichment"],
   ["narrative_brief", "Narrative brief"],
-  ["tts", "TTS audio"],
+  ["perspectives_report", "Perspectives report"],
 ];
+const TTS_MODULES = [...PIPELINE_MODULES];
+const DEFAULT_TTS_MODULES = ["narrative_brief"];
 const DEFAULT_PIPELINE_SERIES = ["briefs", "enrichment", "narrative_brief"];
 const GUI_PREFS_KEY = "mydailynews.gui";
 const GUI_DEFAULTS = {
@@ -156,6 +159,10 @@ function renderConfigForms() {
   state.configDraft.general_filtering = state.configDraft.general_filtering || {};
   state.configDraft.filtering = state.configDraft.filtering || {};
   state.configDraft.pipeline = state.configDraft.pipeline || {};
+  state.configDraft.tts = state.configDraft.tts || {};
+  state.configDraft.tts.modules = Array.isArray(state.configDraft.tts.modules)
+    ? state.configDraft.tts.modules
+    : [...DEFAULT_TTS_MODULES];
   state.userMemoryDraft = state.configDraft.user_memory;
   renderForm("userMemoryForm", () => state.userMemoryDraft);
   renderForm("settingsSourcesForm", () => state.configDraft.sources);
@@ -164,6 +171,7 @@ function renderConfigForms() {
   renderForm("settingsGeneralFilteringForm", () => state.configDraft.general_filtering);
   renderForm("settingsFilteringForm", () => state.configDraft.filtering);
   renderPipelineForm();
+  renderTtsForm();
 }
 
 function renderLearnedForm() {
@@ -180,9 +188,13 @@ function renderPipelineForm() {
   host.innerHTML = `<div class="form-grid">${PIPELINE_MODULES.map(([module, label]) => pipelineToggle(module, label, selected)).join("")}</div>`;
   host.querySelectorAll("[data-pipeline-module]").forEach((input) => {
     input.addEventListener("change", () => {
-      state.configDraft.pipeline.default_series = PIPELINE_MODULES.filter(([module]) => {
+      const contentModules = PIPELINE_MODULES.filter(([module]) => {
         return byId(`pipelineModule-${module}`).value === "true";
       }).map(([module]) => module);
+      if (state.configDraft.pipeline.default_series.includes("tts")) {
+        contentModules.push("tts");
+      }
+      state.configDraft.pipeline.default_series = contentModules;
     });
   });
 }
@@ -198,6 +210,86 @@ function pipelineToggle(module, label, selected) {
       </select>
     </label>
   `;
+}
+
+function renderTtsForm() {
+  const host = byId("settingsTtsForm");
+  const selected = new Set(state.configDraft.tts.modules);
+  host.innerHTML = `<div class="form-grid">${TTS_MODULES.map(([module, label]) => ttsToggle(module, label, selected)).join("")}</div>`;
+  host.querySelectorAll("[data-tts-module]").forEach((input) => {
+    input.addEventListener("change", () => {
+      state.configDraft.tts.modules = TTS_MODULES.filter(([module]) => {
+        return byId(`ttsModule-${module}`).value === "true";
+      }).map(([module]) => module);
+    });
+  });
+}
+
+function ttsToggle(module, label, selected) {
+  const value = selected.has(module) ? "true" : "false";
+  return `
+    <label class="field-row boolean-row">
+      <span class="field-label">${label}</span>
+      <select id="ttsModule-${module}" class="field-input boolean-input" data-tts-module="${module}">
+        <option value="true"${value === "true" ? " selected" : ""}>true</option>
+        <option value="false"${value === "false" ? " selected" : ""}>false</option>
+      </select>
+    </label>
+  `;
+}
+
+async function savePipelineSettings() {
+  try {
+    const pipeline = state.configDraft.pipeline;
+    const tts = {
+      ...(state.configDraft.tts || {}),
+      enabled: pipeline.default_series.includes("tts") && state.configDraft.tts.modules.length > 0,
+    };
+    state.config = await api("/api/config/section/pipeline", {
+      method: "PUT",
+      body: JSON.stringify(pipeline),
+    });
+    state.config = await api("/api/config/section/tts", {
+      method: "PUT",
+      body: JSON.stringify(tts),
+    });
+    state.configDraft = clone(state.config.config || {});
+    state.userMemoryDraft = state.configDraft.user_memory || {};
+    renderConfigForms();
+    setStatus("Pipeline saved");
+  } catch (error) {
+    setStatus(error.message, true);
+  }
+}
+
+async function saveTtsSettings() {
+  try {
+    const modules = state.configDraft.tts.modules;
+    const pipeline = {
+      ...state.configDraft.pipeline,
+      default_series: [
+        ...PIPELINE_MODULES.filter(([module]) => state.configDraft.pipeline.default_series.includes(module)).map(
+          ([module]) => module
+        ),
+        ...(modules.length ? ["tts"] : []),
+      ],
+    };
+    const tts = { ...state.configDraft.tts, enabled: modules.length > 0 };
+    state.config = await api("/api/config/section/pipeline", {
+      method: "PUT",
+      body: JSON.stringify(pipeline),
+    });
+    state.config = await api("/api/config/section/tts", {
+      method: "PUT",
+      body: JSON.stringify(tts),
+    });
+    state.configDraft = clone(state.config.config || {});
+    state.userMemoryDraft = state.configDraft.user_memory || {};
+    renderConfigForms();
+    setStatus("TTS settings saved");
+  } catch (error) {
+    setStatus(error.message, true);
+  }
 }
 
 async function saveUserMemory() {
@@ -350,9 +442,8 @@ function bindEvents() {
   byId("saveSettingsFilteringButton").addEventListener("click", () =>
     saveConfigSection("filtering", state.configDraft.filtering, "Detailed filtering")
   );
-  byId("saveSettingsPipelineButton").addEventListener("click", () =>
-    saveConfigSection("pipeline", state.configDraft.pipeline, "Pipeline")
-  );
+  byId("saveSettingsPipelineButton").addEventListener("click", savePipelineSettings);
+  byId("saveSettingsTtsButton").addEventListener("click", saveTtsSettings);
   byId("saveLearnedButton").addEventListener("click", saveLearned);
   byId("saveMemoryLearnedButton").addEventListener("click", saveLearned);
   byId("previewLearnedButton").addEventListener("click", () => previewLearned("learnedPreview"));
@@ -402,6 +493,7 @@ document.addEventListener("DOMContentLoaded", () => {
   applyGuiPrefs();
   setReportMemoryReload(loadMemory);
   setRunRefreshCallbacks({ reports: loadReports, memory: loadMemory });
+  initAudioPlayer();
   bindEvents();
   togglePaneClasses();
   loadInitial();

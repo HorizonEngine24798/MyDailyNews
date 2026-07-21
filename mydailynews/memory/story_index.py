@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import date as date_type, timedelta
 import json
 from pathlib import Path
@@ -16,9 +16,25 @@ from mydailynews.memory.story_keys import (
 )
 
 
-STORY_INDEX_SCHEMA_VERSION = 1
+STORY_INDEX_SCHEMA_VERSION = 2
 MATCH_CONFIDENCE_THRESHOLD = 0.58
 STORY_STATUSES = {"active", "stale"}
+IDENTITY_WEAK_TOKENS = {
+    "ai",
+    "business",
+    "center",
+    "centers",
+    "data",
+    "economy",
+    "global",
+    "market",
+    "markets",
+    "model",
+    "models",
+    "policy",
+    "technology",
+    "world",
+}
 
 
 @dataclass(frozen=True)
@@ -31,6 +47,14 @@ class StoryIndexRecord:
     first_seen: str
     last_seen: str
     status: str = "active"
+    last_material_change_date: str = ""
+    last_change_type: str = ""
+    last_delta_summary: str = ""
+    last_knowns: List[str] = field(default_factory=list)
+    last_unknowns: List[str] = field(default_factory=list)
+    last_watch_signals: List[str] = field(default_factory=list)
+    last_disposition: str = ""
+    last_report_id: str = ""
 
 
 class StoryIndexStore:
@@ -51,10 +75,10 @@ class StoryIndexStore:
         base = story_identity_for_candidate(candidate)
         best: tuple[float, StoryIndexRecord] | None = None
         for record in self.records():
-            confidence = token_overlap_confidence(base.tokens, record.tokens)
+            confidence = _candidate_record_confidence(base, record)
             if confidence < MATCH_CONFIDENCE_THRESHOLD:
                 continue
-            if best is None or confidence > best[0]:
+            if best is None or (confidence, record.last_seen) > (best[0], best[1].last_seen):
                 best = (confidence, record)
         if best is None:
             return base
@@ -67,17 +91,30 @@ class StoryIndexStore:
             match_confidence=confidence,
         )
 
+    def candidate_baselines(self, candidate: NewsCandidate, *, limit: int = 3) -> List[tuple[float, StoryIndexRecord]]:
+        """Return likely prior records; semantic identity remains delta's job."""
+        base = story_identity_for_candidate(candidate)
+        matches: List[tuple[float, StoryIndexRecord]] = []
+        for record in self.records():
+            confidence = _candidate_record_confidence(base, record)
+            if confidence >= MATCH_CONFIDENCE_THRESHOLD:
+                matches.append((confidence, record))
+        matches.sort(key=lambda item: (item[0], item[1].last_seen, item[1].story_key), reverse=True)
+        return matches[: max(0, int(limit))]
+
     def update_selected(
         self,
         *,
         selected: List[SelectedArticle],
         date: str,
         story_groups: Iterable[Any] | None = None,
+        delta_packet: Dict[str, Any] | None = None,
         stale_after_days: int = 7,
         retention_days: int = 30,
     ) -> List[StoryIndexRecord]:
         existing: Dict[str, StoryIndexRecord] = {record.story_key: record for record in self.records()}
         group_by_article = _story_group_by_article_id(story_groups or [])
+        decisions = _story_decisions_by_key(delta_packet or {})
         updated: Dict[str, StoryIndexRecord] = dict(existing)
 
         for article in selected:
@@ -106,6 +143,7 @@ class StoryIndexStore:
                 first_seen=previous.first_seen if previous else str(date or ""),
                 last_seen=str(date or ""),
                 status="active",
+                **_semantic_baseline_fields(previous, decisions.get(annotation.story_key), date),
             )
 
         records = _refresh_lifecycle_records(
@@ -168,6 +206,18 @@ class StoryIndexStore:
         self.path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _candidate_record_confidence(base: StoryIdentity, record: StoryIndexRecord) -> float:
+    if record.story_key == base.story_key:
+        return 1.0
+    confidence = token_overlap_confidence(base.tokens, record.tokens)
+    left = set(base.story_key.split("-")).difference(IDENTITY_WEAK_TOKENS)
+    right = set(record.story_key.split("-")).difference(IDENTITY_WEAK_TOKENS)
+    overlap = left.intersection(right)
+    if len(overlap) >= 2 and len(overlap) / max(1, min(len(left), len(right))) >= 0.4:
+        confidence = max(confidence, 0.62)
+    return confidence
+
+
 def _record_from_payload(raw: Dict[str, Any]) -> StoryIndexRecord | None:
     story_key = str(raw.get("story_key", "") or "").strip()
     if not story_key:
@@ -187,6 +237,14 @@ def _record_from_payload(raw: Dict[str, Any]) -> StoryIndexRecord | None:
         first_seen=str(raw.get("first_seen", "") or "").strip(),
         last_seen=str(raw.get("last_seen", "") or "").strip(),
         status=status,
+        last_material_change_date=str(raw.get("last_material_change_date", "") or "").strip(),
+        last_change_type=str(raw.get("last_change_type", "") or "").strip(),
+        last_delta_summary=str(raw.get("last_delta_summary", "") or "").strip()[:400],
+        last_knowns=_string_list(raw.get("last_knowns", []), max_items=6, max_chars=180),
+        last_unknowns=_string_list(raw.get("last_unknowns", []), max_items=6, max_chars=180),
+        last_watch_signals=_string_list(raw.get("last_watch_signals", []), max_items=6, max_chars=180),
+        last_disposition=str(raw.get("last_disposition", "") or "").strip(),
+        last_report_id=str(raw.get("last_report_id", "") or "").strip(),
     )
 
 
@@ -219,6 +277,14 @@ def _refresh_lifecycle_records(
                 first_seen=record.first_seen,
                 last_seen=record.last_seen,
                 status=status,
+                last_material_change_date=record.last_material_change_date,
+                last_change_type=record.last_change_type,
+                last_delta_summary=record.last_delta_summary,
+                last_knowns=record.last_knowns,
+                last_unknowns=record.last_unknowns,
+                last_watch_signals=record.last_watch_signals,
+                last_disposition=record.last_disposition,
+                last_report_id=record.last_report_id,
             )
         )
     return sorted(refreshed, key=lambda item: item.story_key)
@@ -276,4 +342,64 @@ def _merged_tokens(*groups: Iterable[str]) -> List[str]:
                 continue
             seen.add(normalized)
             output.append(normalized)
+    return output
+
+
+def _story_decisions_by_key(delta_packet: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    rows = delta_packet.get("story_decisions", []) if isinstance(delta_packet, dict) else []
+    if not isinstance(rows, list):
+        return {}
+    output: Dict[str, Dict[str, Any]] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        key = str(row.get("story_key", "") or "").strip()
+        if key:
+            output[key] = row
+    return output
+
+
+def _semantic_baseline_fields(
+    previous: StoryIndexRecord | None,
+    decision: Dict[str, Any] | None,
+    date: str,
+) -> Dict[str, Any]:
+    if not decision:
+        return {
+            "last_material_change_date": previous.last_material_change_date if previous else "",
+            "last_change_type": previous.last_change_type if previous else "",
+            "last_delta_summary": previous.last_delta_summary if previous else "",
+            "last_knowns": list(previous.last_knowns) if previous else [],
+            "last_unknowns": list(previous.last_unknowns) if previous else [],
+            "last_watch_signals": list(previous.last_watch_signals) if previous else [],
+            "last_disposition": previous.last_disposition if previous else "",
+            "last_report_id": previous.last_report_id if previous else "",
+        }
+    change_type = str(decision.get("change_type", "") or "").strip()
+    material = change_type in {"new", "escalated", "weakened", "reframed"}
+    return {
+        "last_material_change_date": str(date or "") if material else (previous.last_material_change_date if previous else ""),
+        "last_change_type": change_type or (previous.last_change_type if previous else ""),
+        "last_delta_summary": str(decision.get("summary", "") or decision.get("bullet", "") or "").strip()[:400]
+        or (previous.last_delta_summary if previous else ""),
+        "last_knowns": _string_list(decision.get("knowns", previous.last_knowns if previous else []), max_items=6, max_chars=180),
+        "last_unknowns": _string_list(decision.get("unknowns", previous.last_unknowns if previous else []), max_items=6, max_chars=180),
+        "last_watch_signals": _string_list(decision.get("watch_signals", previous.last_watch_signals if previous else []), max_items=6, max_chars=180),
+        "last_disposition": str(decision.get("disposition", previous.last_disposition if previous else "") or "").strip(),
+        "last_report_id": str(decision.get("prior_report_id", previous.last_report_id if previous else "") or "").strip(),
+    }
+
+
+def _string_list(value: Any, *, max_items: int, max_chars: int) -> List[str]:
+    if isinstance(value, str):
+        value = [value]
+    if not isinstance(value, list):
+        return []
+    output: List[str] = []
+    for item in value:
+        text = " ".join(str(item or "").split()).strip()[:max_chars]
+        if text and text not in output:
+            output.append(text)
+        if len(output) >= max_items:
+            break
     return output

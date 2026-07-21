@@ -68,12 +68,27 @@ DEFAULT_MEMORY_CONFIG = {
 }
 DEFAULT_TTS_CONFIG = {
     "enabled": False,
+    "modules": ["narrative_brief"],
     "backend": "kokoro",
     "model_id": "hexgrad/Kokoro-82M",
     "voice": "af_heart",
     "lang_code": "a",
     "speed": 1.0,
     "max_chunk_chars": 1200,
+}
+DEFAULT_PERSPECTIVES_REPORT_CONFIG = {
+    "enabled": False,
+    "gnews_api_key": "",
+    "coverage_scope": [],
+    "coverage_regions": [],
+    "coverage_timespan_days": 7,
+    "coverage_max_records_per_story": 75,
+    "minimum_source_countries": 4,
+    "verification_enabled": True,
+    "verification_claims_per_story": 2,
+    "verification_claims_per_run": 12,
+    "verification_queries_per_claim": 2,
+    "verification_documents_per_claim": 4,
 }
 REMOVED_MEMORY_KEYS = ("recall_packet_enabled",)
 REMOVED_FILTERING_KEYS = (
@@ -113,6 +128,7 @@ class PipelinePreferences:
     server_mode: str = "external"
     cache_mode: str = "fresh"
     tts_audio: str = "keep"
+    perspectives_report: str = "keep"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -374,6 +390,7 @@ def build_recommended_config(config: dict[str, Any], tier: dict[str, Any], model
     _apply_narrative_briefing(updated.setdefault("narrative_briefing", {}))
     _apply_story_enrichment_budget(updated.setdefault("enrichment", {}), settings)
     _apply_tts(updated.setdefault("tts", {}))
+    _apply_perspectives_report(updated.setdefault("perspectives_report", {}))
     _apply_pipeline(updated.setdefault("pipeline", {}))
     _apply_analysis(updated.setdefault("analysis", {}), settings)
     _apply_runtime(updated.setdefault("runtime", {}))
@@ -442,8 +459,17 @@ def maybe_prompt_pipeline_preferences() -> PipelinePreferences | None:
         "TTS audio",
         [
             ("keep", "Use config setting", "leave the current tts setting alone"),
-            ("yes", "Yes", "add Kokoro audio after the narrative brief"),
+            ("yes", "Yes", "enable Kokoro audio for the configured report modules"),
             ("no", "No", "skip audio during default runs"),
+        ],
+        default="keep",
+    )
+    perspectives_report = prompt_choice(
+        "Perspectives report",
+        [
+            ("keep", "Use config setting", "leave the current perspectives report setting alone"),
+            ("yes", "Yes", "add claim-led perspectives before the narrative brief"),
+            ("no", "No", "skip perspectives reports during default runs"),
         ],
         default="keep",
     )
@@ -454,6 +480,7 @@ def maybe_prompt_pipeline_preferences() -> PipelinePreferences | None:
         narrative_length=narrative_length,
         cache_mode=cache_mode,
         tts_audio=tts_audio,
+        perspectives_report=perspectives_report,
     )
 
 
@@ -485,6 +512,8 @@ def apply_pipeline_preferences(config: dict[str, Any], preferences: PipelinePref
     _apply_server_mode_preference(config, preferences.server_mode)
     _apply_cache_mode_preference(config, preferences.cache_mode)
     _apply_tts_audio_preference(config, preferences.tts_audio)
+    _apply_perspectives_report_preference(config, preferences.perspectives_report)
+    _apply_pipeline(config.setdefault("pipeline", {}))
 
 
 def _apply_workflow_preference(config: dict[str, Any], workflow: str) -> None:
@@ -616,14 +645,34 @@ def _apply_tts_audio_preference(config: dict[str, Any], tts_audio: str) -> None:
     series = [str(item or "").strip().lower().replace("-", "_") for item in series]
     if choice in {"yes", "on", "true", "enabled"}:
         tts["enabled"] = True
-        config.setdefault("narrative_briefing", {})["enabled"] = True
-        if "narrative_brief" not in series:
-            series.append("narrative_brief")
-        if "tts" not in series:
-            series.append("tts")
+        series = [module for module in series if module != "tts"] + ["tts"]
     elif choice in {"no", "off", "false", "disabled"}:
         tts["enabled"] = False
         series = [module for module in series if module != "tts"]
+    pipeline["default_series"] = series
+
+
+def _apply_perspectives_report_preference(config: dict[str, Any], perspectives_report: str) -> None:
+    choice = str(perspectives_report or "keep").strip().lower()
+    if choice in {"keep", "config"}:
+        return
+    section = config.setdefault("perspectives_report", {})
+    _apply_perspectives_report(section)
+    pipeline = config.setdefault("pipeline", {})
+    series = pipeline.get("default_series")
+    if not isinstance(series, list) or not series:
+        series = ["briefs", "enrichment", "narrative_brief"]
+    series = [str(item or "").strip().lower().replace("-", "_") for item in series]
+    if choice in {"yes", "on", "true", "enabled"}:
+        section["enabled"] = True
+        if "perspectives_report" not in series:
+            insert_at = series.index("tts") if "tts" in series else len(series)
+            series.insert(insert_at, "perspectives_report")
+        if "tts" in series:
+            series = [module for module in series if module != "tts"] + ["tts"]
+    elif choice in {"no", "off", "false", "disabled"}:
+        section["enabled"] = False
+        series = [module for module in series if module != "perspectives_report"]
     pipeline["default_series"] = series
 
 
@@ -672,6 +721,14 @@ def _apply_tts(section: dict[str, Any]) -> None:
     section["enabled"] = bool(section.get("enabled", DEFAULT_TTS_CONFIG["enabled"]))
 
 
+def _apply_perspectives_report(section: dict[str, Any]) -> None:
+    section.pop("coverage_languages", None)
+    section.pop("minimum_languages", None)
+    for key, value in DEFAULT_PERSPECTIVES_REPORT_CONFIG.items():
+        section.setdefault(key, value)
+    section["enabled"] = bool(section.get("enabled", DEFAULT_PERSPECTIVES_REPORT_CONFIG["enabled"]))
+
+
 def _apply_pipeline(section: dict[str, Any]) -> None:
     default_series = ["briefs", "enrichment", "narrative_brief"]
     current = section.get("default_series")
@@ -679,18 +736,23 @@ def _apply_pipeline(section: dict[str, Any]) -> None:
         section["default_series"] = default_series
         return
     normalized: list[str] = []
-    allowed = {*default_series, "tts"}
+    allowed = {*default_series, "tts", "perspectives_report"}
     for item in current:
         module = str(item or "").strip().lower().replace("-", "_")
         if module in allowed and module not in normalized:
             normalized.append(module)
+    if "tts" in normalized:
+        normalized = [module for module in normalized if module != "tts"] + ["tts"]
+    if "perspectives_report" in normalized and "narrative_brief" in normalized:
+        normalized.remove("perspectives_report")
+        normalized.insert(normalized.index("narrative_brief"), "perspectives_report")
     section["default_series"] = normalized or default_series
 
 
 def _apply_runtime(section: dict[str, Any]) -> None:
     section.pop("max_enrichment_workers", None)
-    section.setdefault("max_http_workers", 1)
-    section.setdefault("max_article_workers", 1)
+    section.setdefault("max_http_workers", 4)
+    section.setdefault("max_article_workers", 4)
     section.setdefault("use_shared_snapshot", True)
 
 

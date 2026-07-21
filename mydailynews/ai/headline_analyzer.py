@@ -6,12 +6,15 @@ from typing import Any, Dict, List
 from .base import AIClient, AIJsonError, write_ai_json_artifact
 from .prompts import HEADLINE_ANALYSIS_SYSTEM, HEADLINE_ANALYSIS_USER
 from .schemas import HEADLINE_ANALYSIS_JSON_SCHEMA
+from .token_budget import TokenBudget, resolve_client_token_budget
 from mydailynews.common.cache import JSONCache
 from mydailynews.diagnostics.debug import DebugLogger
 from mydailynews.app.models import HeadlineDecision, NewsCandidate, TopicConfig, UserMemory
 from mydailynews.common.utils import compact_json, datetime_to_iso
 
-HEADLINE_DECISION_CACHE_FINGERPRINT_VERSION = 8
+HEADLINE_DECISION_CACHE_FINGERPRINT_VERSION = 10
+_HEADLINE_OUTPUT_BASE_TOKENS = 64
+_HEADLINE_OUTPUT_TOKENS_PER_DECISION = 128
 
 
 class HeadlineAnalyzer:
@@ -88,20 +91,19 @@ class HeadlineAnalyzer:
         total_batches: int,
     ) -> Dict[str, HeadlineDecision]:
         user_prompt = self._build_user_prompt(memory, topics, brief_goal, payload)
-        target_input_tokens = self._headline_input_token_limit()
-        dynamic_max_new_tokens = self._headline_batch_max_new_tokens(len(candidates))
+        budget = self._headline_batch_budget(len(candidates))
         self.debug.log(
             "headline.ai.batch",
             "scoring",
             batch=f"{batch_index}/{total_batches}",
             items=len(candidates),
             prompt_chars=len(user_prompt),
-            max_input_tokens=target_input_tokens,
-            max_new_tokens=dynamic_max_new_tokens,
+            max_input_tokens=budget.input_tokens,
+            max_new_tokens=budget.output_tokens,
         )
         brief_suffix = f" ({brief_name})" if brief_name else ""
         label = f"headline scoring batch {batch_index}/{total_batches}{brief_suffix}"
-        cache_key = self._batch_cache_key(payload, memory, topics, brief_goal)
+        cache_key = self._batch_cache_key(payload, memory, topics, brief_goal, budget)
         if self.cache:
             cached = self.cache.get(cache_key, max_age_seconds=self.cache_ttl_seconds)
             if cached is not None:
@@ -119,8 +121,8 @@ class HeadlineAnalyzer:
                 HEADLINE_ANALYSIS_SYSTEM,
                 user_prompt,
                 label=label,
-                max_new_tokens=dynamic_max_new_tokens,
-                input_token_limit=target_input_tokens,
+                max_new_tokens=budget.output_tokens,
+                input_token_limit=budget.input_tokens,
                 json_schema=HEADLINE_ANALYSIS_JSON_SCHEMA,
             )
         except AIJsonError as exc:
@@ -210,8 +212,6 @@ class HeadlineAnalyzer:
             urgency = self._clamp_0_to_10(raw.get("urgency"), default=5.0)
             actionability = self._clamp_0_to_10(raw.get("actionability"), default=5.0)
             confidence = self._clamp_0_to_10(raw.get("confidence"), default=5.0)
-            reason = self._short_text(raw.get("reason"), max_chars=180)
-            skip_reason = self._nullable_short_text(raw.get("skip_reason"), max_chars=180)
             angle_type = self._short_text(raw.get("angle_type"), max_chars=60)
             decisions[candidate_id] = HeadlineDecision(
                 candidate_id=candidate_id,
@@ -223,8 +223,6 @@ class HeadlineAnalyzer:
                 urgency=urgency,
                 actionability=actionability,
                 confidence=confidence,
-                reason=reason,
-                skip_reason=skip_reason,
                 angle_type=angle_type,
             )
             self._record_multifactor_row(
@@ -235,8 +233,6 @@ class HeadlineAnalyzer:
                 urgency=urgency,
                 actionability=actionability,
                 confidence=confidence,
-                reason=reason,
-                skip_reason=skip_reason,
                 angle_type=angle_type,
             )
 
@@ -264,6 +260,7 @@ class HeadlineAnalyzer:
         memory: UserMemory,
         topics: List[TopicConfig],
         brief_goal: str,
+        budget: TokenBudget,
     ) -> str:
         fingerprint = {
             "v": HEADLINE_DECISION_CACHE_FINGERPRINT_VERSION,
@@ -271,6 +268,12 @@ class HeadlineAnalyzer:
             "model": self.client.config.effective_model_label,
             "response_format": self.client.config.response_format,
             "brief_goal": brief_goal,
+            "token_budget": {
+                "context_tokens": budget.context_tokens,
+                "input_tokens": budget.input_tokens,
+                "output_tokens": budget.output_tokens,
+                "reserve_tokens": budget.reserve_tokens,
+            },
             "memory": memory.to_prompt(),
             "topics": self._topics_payload(topics),
             "items": payload,
@@ -290,18 +293,17 @@ class HeadlineAnalyzer:
     ) -> tuple[str, Dict[str, HeadlineDecision]]:
         results: List[Dict[str, Any]] = []
         recovered_decisions: Dict[str, HeadlineDecision] = {}
-        target_input_tokens = self._headline_input_token_limit()
         for item, item_payload in zip(candidates, payload):
             label = f"headline scoring single replay {batch_index}/{total_batches} ({brief_name or 'shared'}) [{item.id}]"
             user_prompt = self._build_user_prompt(memory, topics, brief_goal, [item_payload])
-            dynamic_max_new_tokens = self._headline_single_max_new_tokens()
+            budget = self._headline_single_budget()
             try:
                 result = self.client.complete_json(
                     HEADLINE_ANALYSIS_SYSTEM,
                     user_prompt,
                     label=label,
-                    max_new_tokens=dynamic_max_new_tokens,
-                    input_token_limit=target_input_tokens,
+                    max_new_tokens=budget.output_tokens,
+                    input_token_limit=budget.input_tokens,
                     json_schema=HEADLINE_ANALYSIS_JSON_SCHEMA,
                 )
                 parsed = self._parse_batch_result(
@@ -356,15 +358,31 @@ class HeadlineAnalyzer:
         except Exception:
             return "", recovered_decisions
 
-    def _headline_input_token_limit(self) -> int:
-        return max(256, int(self.input_token_limit or self.client.max_input_tokens))
-
     def _headline_batch_max_new_tokens(self, candidate_count: int) -> int:
-        _ = candidate_count
-        return max(64, int(self.max_new_tokens or self.client.max_new_tokens))
+        configured_limit = int(self.max_new_tokens or self.client.max_new_tokens)
+        ceiling = max(64, min(configured_limit, int(self.client.max_new_tokens)))
+        scaled = _HEADLINE_OUTPUT_BASE_TOKENS + (
+            _HEADLINE_OUTPUT_TOKENS_PER_DECISION * max(1, int(candidate_count))
+        )
+        return min(ceiling, scaled)
 
     def _headline_single_max_new_tokens(self) -> int:
-        return max(64, int(self.single_replay_max_new_tokens or self.max_new_tokens or self.client.max_new_tokens))
+        configured_limit = int(self.single_replay_max_new_tokens or self.max_new_tokens or self.client.max_new_tokens)
+        return max(64, min(configured_limit, int(self.client.max_new_tokens)))
+
+    def _headline_batch_budget(self, candidate_count: int) -> TokenBudget:
+        return resolve_client_token_budget(
+            self.client,
+            input_tokens=self.input_token_limit,
+            output_tokens=self._headline_batch_max_new_tokens(candidate_count),
+        )
+
+    def _headline_single_budget(self) -> TokenBudget:
+        return resolve_client_token_budget(
+            self.client,
+            input_tokens=self.input_token_limit,
+            output_tokens=self._headline_single_max_new_tokens(),
+        )
 
     def _build_user_prompt(
         self,
@@ -392,14 +410,13 @@ class HeadlineAnalyzer:
 
         base_prompt = self._build_user_prompt(memory, topics, brief_goal, [])
         base_tokens = self.client.estimate_tokens(base_prompt)
-        target_input_tokens = self._headline_input_token_limit()
-
         batches: List[List[tuple[NewsCandidate, Dict[str, Any]]]] = []
         current: List[tuple[NewsCandidate, Dict[str, Any]]] = []
         current_tokens = base_tokens
         for item, payload in payloads:
             payload_tokens = max(1, self.client.estimate_tokens(compact_json(payload)))
-            if current and (len(current) >= self.batch_size or current_tokens + payload_tokens > target_input_tokens):
+            input_limit = self._headline_batch_budget(len(current) + 1).input_tokens
+            if current and (len(current) >= self.batch_size or current_tokens + payload_tokens > input_limit):
                 batches.append(current)
                 current = [(item, payload)]
                 current_tokens = base_tokens + payload_tokens
@@ -478,8 +495,6 @@ class HeadlineAnalyzer:
         ]
         self._multifactor_totals = {name: 0.0 for name in numeric_dims}
         self._multifactor_presence = {name: 0 for name in numeric_dims}
-        self._multifactor_presence["reason"] = 0
-        self._multifactor_presence["skip_reason"] = 0
         self._multifactor_presence["angle_type"] = 0
         self._multifactor_count = 0
 
@@ -493,8 +508,6 @@ class HeadlineAnalyzer:
         urgency: float,
         actionability: float,
         confidence: float,
-        reason: str,
-        skip_reason: str | None,
         angle_type: str,
     ) -> None:
         self._multifactor_count += 1
@@ -510,10 +523,6 @@ class HeadlineAnalyzer:
             self._multifactor_totals[key] += float(value)
             if key in raw and raw.get(key) is not None:
                 self._multifactor_presence[key] += 1
-        if reason:
-            self._multifactor_presence["reason"] += 1
-        if skip_reason:
-            self._multifactor_presence["skip_reason"] += 1
         if angle_type:
             self._multifactor_presence["angle_type"] += 1
 
@@ -542,11 +551,4 @@ class HeadlineAnalyzer:
         text = str(value or "").strip()
         if not text:
             return ""
-        return text[:max(1, int(max_chars))]
-
-    @classmethod
-    def _nullable_short_text(cls, value: Any, *, max_chars: int) -> str | None:
-        if value is None:
-            return None
-        text = cls._short_text(value, max_chars=max_chars)
-        return text or None
+        return text[: max(1, int(max_chars))]

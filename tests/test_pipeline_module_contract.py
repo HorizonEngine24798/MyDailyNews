@@ -3,7 +3,14 @@ from __future__ import annotations
 from types import MethodType, SimpleNamespace
 import unittest
 
-from mydailynews.app.models import BriefOutput, EnrichmentOutput, NarrativeBriefOutput, PipelineResult, TTSOutput
+from mydailynews.app.models import (
+    BriefOutput,
+    EnrichmentOutput,
+    NarrativeBriefOutput,
+    PerspectivesReportOutput,
+    PipelineResult,
+    TTSOutput,
+)
 from mydailynews.pipeline.orchestrator import NewsOrchestrator
 from mydailynews.pipeline.stages import PipelineRunOptions
 
@@ -25,6 +32,7 @@ def _orchestrator(*, skip_modules: tuple[str, ...] = ()) -> NewsOrchestrator:
         pipeline=SimpleNamespace(default_series=["briefs", "enrichment", "narrative_brief"]),
         enrichment=SimpleNamespace(enabled=True, mode="story_llm"),
         narrative_briefing=SimpleNamespace(enabled=True),
+        perspectives_report=SimpleNamespace(enabled=False),
     )
     orchestrator.run_options = PipelineRunOptions(skip_modules=skip_modules)
     orchestrator.warnings = []
@@ -194,6 +202,85 @@ class PipelineModuleContractTests(unittest.TestCase):
         self.assertEqual(result.tts_outputs, [tts])
         self.assertEqual(calls["tts"]["markdown_path"], narrative.markdown_path)
         self.assertFalse(calls["tts"]["allow_disk_fallback"])
+
+    def test_series_tts_runs_after_all_selected_modules_and_speaks_each_markdown(self) -> None:
+        orchestrator = _orchestrator()
+        orchestrator.config.pipeline.default_series = [
+            "tts",
+            "briefs",
+            "enrichment",
+            "narrative_brief",
+            "perspectives_report",
+        ]
+        orchestrator.config.perspectives_report.enabled = True
+        orchestrator.config.tts = SimpleNamespace(
+            enabled=True,
+            backend="kokoro",
+            modules=["briefs", "enrichment", "narrative_brief", "perspectives_report"],
+        )
+        brief = _brief_output()
+        enrichment = EnrichmentOutput(
+            name="enrichment",
+            json_path="output/current_enrichment.json",
+            markdown_path="output/current_enrichment.md",
+        )
+        narrative = NarrativeBriefOutput(
+            name="narrative",
+            markdown_path="output/current_narrative.md",
+            json_path="output/current_narrative.json",
+        )
+        perspectives = PerspectivesReportOutput(
+            name="perspectives_report",
+            markdown_path="output/current_perspectives.md",
+            json_path="output/current_perspectives.json",
+        )
+        calls: list[str] = []
+
+        def run_briefs(self, *, date: str) -> PipelineResult:
+            return PipelineResult(outputs=[brief], warnings=self.warnings)
+
+        def run_enrichment(self, **kwargs) -> PipelineResult:
+            return PipelineResult(enrichment_outputs=[enrichment], warnings=self.warnings)
+
+        def run_narrative_brief(self, **kwargs) -> PipelineResult:
+            return PipelineResult(narrative_outputs=[narrative], warnings=self.warnings)
+
+        def run_perspectives_report(self, **kwargs) -> PipelineResult:
+            return PipelineResult(perspectives_report_outputs=[perspectives], warnings=self.warnings)
+
+        def run_tts(self, *, date: str, markdown_path: str = "", allow_disk_fallback: bool = True) -> PipelineResult:
+            calls.append(markdown_path)
+            return PipelineResult(
+                tts_outputs=[
+                    TTSOutput(
+                        name="tts",
+                        wav_path=f"{markdown_path}.wav",
+                        json_path=f"{markdown_path}.json",
+                        markdown_path=markdown_path,
+                        chunk_count=1,
+                    )
+                ],
+                warnings=self.warnings,
+            )
+
+        orchestrator.run_briefs = MethodType(run_briefs, orchestrator)
+        orchestrator.run_enrichment = MethodType(run_enrichment, orchestrator)
+        orchestrator.run_narrative_brief = MethodType(run_narrative_brief, orchestrator)
+        orchestrator.run_perspectives_report = MethodType(run_perspectives_report, orchestrator)
+        orchestrator.run_tts = MethodType(run_tts, orchestrator)
+
+        result = orchestrator.run_series(date="2026-06-14")
+
+        self.assertEqual(
+            calls,
+            [
+                brief.markdown_path,
+                enrichment.markdown_path,
+                narrative.markdown_path,
+                perspectives.markdown_path,
+            ],
+        )
+        self.assertEqual(len(result.tts_outputs), 4)
 
 
 if __name__ == "__main__":

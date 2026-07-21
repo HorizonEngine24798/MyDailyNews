@@ -97,6 +97,29 @@ class CoverageMemoryStore:
             latest_date=latest.isoformat() if latest else "",
         )
 
+    def recent_records(
+        self,
+        *,
+        story_key: str,
+        as_of_date: str,
+        window_days: int,
+        limit: int = 6,
+    ) -> List[CoverageRecord]:
+        key = str(story_key or "").strip()
+        as_of = _parse_date(as_of_date)
+        if not key or as_of is None:
+            return []
+        start = as_of - timedelta(days=max(0, int(window_days)))
+        records = [
+            record
+            for record in self.read_records()
+            if record.story_key == key
+            and (record_date := _parse_date(record.date)) is not None
+            and start <= record_date < as_of
+        ]
+        records.sort(key=lambda record: (record.date, record.brief_name), reverse=True)
+        return records[: max(0, int(limit))]
+
     def write_records(self, records: Iterable[CoverageRecord]) -> None:
         incoming = [record for record in records if record.story_key and record.date and record.brief_name]
         if not incoming:

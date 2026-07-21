@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from threading import Barrier, Lock
 import unittest
 
 from mydailynews.app.models import HeadlineDecision, NewsCandidate, SelectedArticle
+from mydailynews.enrichment.models import ResearchResult
 from mydailynews.enrichment.research import StoryResearchCollector
 from mydailynews.retrieval.ddg import DDGSearchResult, DuckDuckGoSearchRetriever
 
@@ -51,6 +53,54 @@ def _selected(candidate_id: str, title: str, *, url: str) -> SelectedArticle:
 
 
 class StoryEnrichmentResearchTests(unittest.TestCase):
+    def test_page_fetches_are_parallel_ordered_and_failure_isolated(self) -> None:
+        class CoordinatedRetriever:
+            def __init__(self) -> None:
+                self.barrier = Barrier(2)
+                self.lock = Lock()
+                self.active = 0
+                self.max_active = 0
+
+            def fetch_text_with_url(self, url: str) -> tuple[str, str, str]:
+                with self.lock:
+                    self.active += 1
+                    self.max_active = max(self.max_active, self.active)
+                try:
+                    if url.endswith("/bad"):
+                        raise RuntimeError("boom")
+                    self.barrier.wait(timeout=2)
+                    return f"Text for {url}", "ok", url
+                finally:
+                    with self.lock:
+                        self.active -= 1
+
+        fetcher = CoordinatedRetriever()
+        warnings: list[str] = []
+        collector = StoryResearchCollector(
+            FakeSearchRetriever({}),
+            fetcher,
+            warning_sink=warnings.append,
+            max_fetch_workers=2,
+        )
+        ranked = [
+            ResearchResult(f"r{index}", "query", f"Title {index}", url, "Snippet", "source")
+            for index, url in enumerate(
+                ["https://example.test/a", "https://example.test/b", "https://example.test/bad"],
+                1,
+            )
+        ]
+
+        results = collector._fetch_ranked_results(
+            ranked,
+            story_articles=[],
+            max_fetched_research_pages_per_story=3,
+        )
+
+        self.assertEqual(fetcher.max_active, 2)
+        self.assertEqual([result.url for result in results], [item.url for item in ranked])
+        self.assertEqual([result.status for result in results], ["ok", "ok", "fetch_exception_RuntimeError"])
+        self.assertEqual(len(warnings), 1)
+
     def test_collector_dedupes_ranks_fetches_and_skips_selected_article_urls(self) -> None:
         selected = _selected(
             "a",

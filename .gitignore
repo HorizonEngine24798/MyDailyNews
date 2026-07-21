@@ -1,15 +1,13 @@
 __pycache__/
 *.pyc
 *.pyc.*
-config.json
 config.local*.json
 !config.example.json
 output/
+output*/
 state/
 .venv/
 .env
 .cache
 .codex_tmp*
 .pytest_tmp/
-models/
-/tools/kokoro_openai_tts_server.py

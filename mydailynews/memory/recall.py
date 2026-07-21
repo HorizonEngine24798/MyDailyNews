@@ -25,6 +25,19 @@ def apply_delta_signals_to_selected(
     if not isinstance(delta_packet, dict) or not delta_packet:
         return
     by_article_id: Dict[str, tuple[str, float]] = {}
+    decision_by_article: Dict[str, Dict[str, Any]] = {}
+    story_decisions = delta_packet.get("story_decisions", [])
+    if isinstance(story_decisions, list):
+        for decision in story_decisions:
+            if not isinstance(decision, dict):
+                continue
+            article_ids = decision.get("article_ids", [])
+            if not isinstance(article_ids, list):
+                continue
+            for article_id in article_ids:
+                text_id = str(article_id or "").strip()
+                if text_id:
+                    decision_by_article[text_id] = decision
     for key, signal in DELTA_MATERIALITY_KEYS.items():
         change_type, materiality = signal
         for item in delta_packet.get(key, []):
@@ -37,9 +50,44 @@ def apply_delta_signals_to_selected(
                 text_id = str(article_id or "").strip()
                 if text_id and text_id not in by_article_id:
                     by_article_id[text_id] = (change_type, materiality)
-    if not by_article_id:
-        return
     for article in selected:
+        decision = decision_by_article.get(article.candidate.id)
+        if decision is not None:
+            annotation = candidate_memory_annotation(article.candidate)
+            if annotation is not None:
+                change_type = str(decision.get("change_type", "") or "").strip()
+                materiality = _bounded_float(decision.get("materiality"), annotation.materiality)
+                disposition = str(decision.get("disposition", "") or "").strip()
+                relationship = str(decision.get("relationship", "") or "").strip()
+                prior_story_key = str(decision.get("prior_story_key", "") or "").strip()
+                set_memory_annotation(
+                    article.candidate,
+                    MemoryAnnotation(
+                        story_key=(
+                            prior_story_key
+                            if relationship == "same_story" and prior_story_key
+                            else annotation.story_key
+                        ),
+                        story_family_key=annotation.story_family_key,
+                        story_title=annotation.story_title,
+                        match_confidence=annotation.match_confidence,
+                        recent_coverage_count=annotation.recent_coverage_count,
+                        recent_lead_count=annotation.recent_lead_count,
+                        covered_yesterday=annotation.covered_yesterday,
+                        change_type=change_type or annotation.change_type,
+                        materiality=max(float(annotation.materiality), materiality),
+                        score_adjustment=annotation.score_adjustment,
+                        today_policy=(
+                            "capsule_unless_material_update"
+                            if disposition == "continuing_bullet"
+                            else "omit"
+                            if disposition == "omit"
+                            else annotation.today_policy
+                        ),
+                        reason=str(decision.get("reason", "") or annotation.reason).strip(),
+                    ),
+                )
+            continue
         signal = by_article_id.get(article.candidate.id)
         if signal is None:
             continue
@@ -72,6 +120,13 @@ def apply_delta_signals_to_selected(
                 ),
             ),
         )
+
+
+def _bounded_float(value: Any, default: float) -> float:
+    try:
+        return max(0.0, min(1.0, float(value)))
+    except (TypeError, ValueError):
+        return default
 
 
 def build_recall_packet(
@@ -201,4 +256,3 @@ def _recent_coverage_text(annotation: MemoryAnnotation) -> str:
     if annotation.recent_coverage_count > 0:
         return f"Covered {annotation.recent_coverage_count} time(s) in the recent window."
     return "No recent coverage memory."
-

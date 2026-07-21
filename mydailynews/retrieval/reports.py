@@ -34,11 +34,20 @@ class PriorReportRetriever:
             return []
 
         since = today - timedelta(days=self.config.days)
-        reports: List[PriorReport] = []
-        for path in sorted(self.output_dir.glob("*_brief.json"), reverse=True):
+        paths_by_date: Dict[date, tuple[int, Path]] = {}
+        for path in self.output_dir.glob("*_brief.json"):
             report_date = self._date_from_path(path)
             if not report_date or report_date >= today or report_date < since:
                 continue
+            priority = self._brief_priority(path)
+            if priority < 0:
+                continue
+            current = paths_by_date.get(report_date)
+            if current is None or priority > current[0]:
+                paths_by_date[report_date] = (priority, path)
+
+        reports: List[PriorReport] = []
+        for report_date, (_priority, path) in sorted(paths_by_date.items(), reverse=True):
             try:
                 raw = json.loads(path.read_text(encoding="utf-8"))
             except Exception as exc:
@@ -52,6 +61,17 @@ class PriorReportRetriever:
         self.debug.log("prior_reports", "complete", reports=len(reports), output_dir=self.output_dir)
         return reports
 
+    @staticmethod
+    def _brief_priority(path: Path) -> int:
+        name = path.name.lower()
+        if name.endswith("_narrative_brief.json"):
+            return -1
+        if name.endswith("_detailed_brief.json"):
+            return 2
+        if name.endswith("_general_brief.json"):
+            return 1
+        return 0
+
     def _to_report(self, path: Path, report_date: date, raw: Dict[str, Any]) -> PriorReport:
         topics = self._extract_topics(raw)
         summary = self._summarize(raw)
@@ -63,6 +83,7 @@ class PriorReportRetriever:
             summary=summary[: self.config.max_chars_per_report],
             topics=topics,
             major_headlines=raw.get("major_headlines", []) if isinstance(raw.get("major_headlines"), list) else [],
+            story_baselines=self._extract_story_baselines(raw),
         )
 
     @staticmethod
@@ -125,3 +146,12 @@ class PriorReportRetriever:
             parts.append("Major headlines: " + "; ".join(headlines[:10]))
 
         return normalize_whitespace("\n".join(parts))
+
+    @staticmethod
+    def _extract_story_baselines(raw: Dict[str, Any]) -> List[Dict[str, Any]]:
+        analysis = raw.get("analysis", {})
+        delta = analysis.get("delta_packet", {}) if isinstance(analysis, dict) else {}
+        decisions = delta.get("story_decisions", []) if isinstance(delta, dict) else []
+        if not isinstance(decisions, list):
+            return []
+        return [dict(item) for item in decisions if isinstance(item, dict) and str(item.get("story_key", "") or "").strip()]

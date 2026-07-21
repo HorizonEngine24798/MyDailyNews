@@ -6,6 +6,7 @@ from typing import Any, Dict, List
 from mydailynews.ai.base import AIClient
 from mydailynews.ai.prompts import BRIEF_SYSTEM, BRIEF_USER
 from mydailynews.ai.schemas import FINAL_BRIEF_JSON_SCHEMA
+from mydailynews.ai.token_budget import TokenBudget, resolve_client_token_budget
 from mydailynews.analysis.shared import story_thread_payloads
 from mydailynews.diagnostics.debug import DebugLogger
 from mydailynews.app.models import PriorReport, SelectedArticle, TopicConfig, UserMemory
@@ -58,7 +59,15 @@ class BriefGenerator:
             delta_packet=delta_packet or {},
             recall_packet=recall_packet or {},
         )
-        self.debug.log("brief.ai", "synthesizing", articles=len(used_articles), prompt_chars=len(prompt))
+        budget = self._request_budget()
+        self.debug.log(
+            "brief.ai",
+            "synthesizing",
+            articles=len(used_articles),
+            prompt_chars=len(prompt),
+            max_input_tokens=budget.input_tokens,
+            max_new_tokens=budget.output_tokens,
+        )
         label = "final brief generation"
         if brief_name:
             label = f"{label} ({brief_name})"
@@ -66,8 +75,8 @@ class BriefGenerator:
             BRIEF_SYSTEM,
             prompt,
             label=label,
-            max_new_tokens=self.max_new_tokens,
-            input_token_limit=self.input_token_limit,
+            max_new_tokens=budget.output_tokens,
+            input_token_limit=budget.input_tokens,
             json_schema=FINAL_BRIEF_JSON_SCHEMA,
         )
         required = {"title", "lead", "topic_reports", "sections"}
@@ -102,8 +111,7 @@ class BriefGenerator:
         delta_packet: Dict[str, Any],
         recall_packet: Dict[str, Any] | None = None,
     ) -> tuple[str, List[SelectedArticle]]:
-        target_input_tokens = max(1024, int(self.input_token_limit or self.client.max_input_tokens))
-        prompt_budget_tokens = max(512, int(target_input_tokens * FINAL_PROMPT_BUDGET_SAFETY_RATIO))
+        prompt_budget_tokens = self._prompt_budget_tokens()
         ordered_articles = sorted(articles, key=lambda item: item.decision.score, reverse=True)
         active_reports = prior_reports[:3]
         analysis_options = self._analysis_payload_options(evidence_packet, delta_packet)
@@ -221,6 +229,16 @@ class BriefGenerator:
     def _estimate_final_input_tokens(self, prompt: str) -> int:
         return self.client.estimate_tokens(f"System:\n{BRIEF_SYSTEM}\n\nUser:\n{prompt}\n\nAssistant:\n")
 
+    def _request_budget(self) -> TokenBudget:
+        return resolve_client_token_budget(
+            self.client,
+            input_tokens=self.input_token_limit,
+            output_tokens=self.max_new_tokens,
+        )
+
+    def _prompt_budget_tokens(self) -> int:
+        return max(64, int(self._request_budget().input_tokens * FINAL_PROMPT_BUDGET_SAFETY_RATIO))
+
     def _append_article_drop_warning(
         self,
         dropped_article_ids: List[str],
@@ -305,6 +323,18 @@ class BriefGenerator:
                 "topics": report.topics[:4],
                 "summary": report.summary[:420],
                 "major_headlines": report.major_headlines[:5],
+                "story_baselines": [
+                    {
+                        "story_key": str(item.get("story_key", ""))[:100],
+                        "story_family_key": str(item.get("story_family_key", ""))[:100],
+                        "title": str(item.get("title", ""))[:140],
+                        "change_type": str(item.get("change_type", ""))[:40],
+                        "summary": str(item.get("summary", "") or item.get("bullet", ""))[:240],
+                        "disposition": str(item.get("disposition", ""))[:40],
+                    }
+                    for item in (report.story_baselines or [])[:4]
+                    if isinstance(item, dict)
+                ],
             }
             for report in prior_reports
         ]
@@ -321,7 +351,7 @@ class BriefGenerator:
                     "url": article.candidate.url,
                     "score": article.decision.score,
                     "topic": article.decision.topic or article.candidate.metadata.get("topic_name", ""),
-                    "story_threads": story_thread_payloads(article, max_items=2),
+                    "story_threads": story_thread_payloads(article, max_items=None, compact=False),
                     "story_key": memory_annotation.story_key if memory_annotation is not None else "",
                 }
             )
@@ -340,8 +370,8 @@ class BriefGenerator:
                     "url": article.candidate.url,
                     "score": article.decision.score,
                     "topic": article.decision.topic or article.candidate.metadata.get("topic_name", ""),
-                    "snippet": (article.candidate.snippet or "")[:180],
-                    "story_threads": story_thread_payloads(article, max_items=2),
+                    "snippet": article.candidate.snippet or "",
+                    "story_threads": story_thread_payloads(article, max_items=None, compact=False),
                     "story_key": memory_annotation.story_key if memory_annotation is not None else "",
                     "story_family_key": memory_annotation.story_family_key if memory_annotation is not None else "",
                 }
@@ -471,6 +501,25 @@ class BriefGenerator:
                 )
             return rows
 
+        def _story_decisions() -> List[Dict[str, Any]]:
+            rows: List[Dict[str, Any]] = []
+            for item in packet.get("story_decisions", [])[:item_limit]:
+                if not isinstance(item, dict):
+                    continue
+                rows.append(
+                    {
+                        "story_key": str(item.get("story_key", ""))[:100],
+                        "article_ids": [str(value)[:80] for value in item.get("article_ids", [])[:4]],
+                        "relationship": str(item.get("relationship", "uncertain"))[:30],
+                        "change_type": str(item.get("change_type", "uncertain"))[:30],
+                        "disposition": str(item.get("disposition", "uncertain"))[:30],
+                        "confidence": item.get("confidence", 0.0),
+                        "summary": str(item.get("summary", ""))[:summary_limit],
+                        "bullet": str(item.get("bullet", ""))[:summary_limit],
+                    }
+                )
+            return rows
+
         gaps = []
         for item in packet.get("evidence_gaps", [])[:item_limit]:
             if not isinstance(item, dict):
@@ -489,18 +538,16 @@ class BriefGenerator:
             "weakened": _entries("weakened"),
             "reframed": _entries("reframed"),
             "unchanged_but_important": _entries("unchanged_but_important"),
+            "story_decisions": _story_decisions(),
             "evidence_gaps": gaps,
         }
 
     @staticmethod
-    def _trim_text(value: Any, *, max_chars: int) -> str:
-        text = " ".join(str(value or "").split()).strip()
-        if not text:
-            return ""
-        return text[:max_chars]
+    def _normalize_text(value: Any) -> str:
+        return " ".join(str(value or "").split()).strip()
 
     @classmethod
-    def _to_string_list(cls, value: Any, *, max_items: int, max_chars: int) -> List[str]:
+    def _to_string_list(cls, value: Any) -> List[str]:
         if isinstance(value, list):
             raw_items = value
         elif isinstance(value, str):
@@ -509,22 +556,22 @@ class BriefGenerator:
             raw_items = []
         cleaned: List[str] = []
         for raw in raw_items:
-            text = cls._trim_text(raw, max_chars=max_chars)
+            text = cls._normalize_text(raw)
             if text:
                 cleaned.append(text)
-        return cls._normalized_string_list(cleaned, limit=max_items)
+        return cls._normalized_string_list(cleaned)
 
     @classmethod
     def _normalize_narrative_changes(cls, value: Any) -> List[Dict[str, str]]:
         if not isinstance(value, list):
             return []
         rows: List[Dict[str, str]] = []
-        for raw in value[:8]:
+        for raw in value:
             if not isinstance(raw, dict):
                 continue
-            narrative = cls._trim_text(raw.get("narrative", ""), max_chars=90)
-            status = cls._trim_text(raw.get("status", ""), max_chars=24)
-            summary = cls._trim_text(raw.get("summary", ""), max_chars=220)
+            narrative = cls._normalize_text(raw.get("narrative", ""))
+            status = cls._normalize_text(raw.get("status", ""))
+            summary = cls._normalize_text(raw.get("summary", ""))
             if not (narrative or summary):
                 continue
             rows.append(
@@ -541,34 +588,27 @@ class BriefGenerator:
         if not isinstance(value, list):
             return []
         reports: List[Dict[str, Any]] = []
-        for raw in value[:10]:
+        for raw in value:
             if not isinstance(raw, dict):
                 continue
-            topic = cls._trim_text(raw.get("topic", ""), max_chars=120) or "Topic"
-            why_it_matters = cls._trim_text(raw.get("why_it_matters", ""), max_chars=240)
-            what_changed = cls._trim_text(raw.get("what_changed", ""), max_chars=240)
-            narrative_summary = cls._trim_text(
-                raw.get("narrative_summary", "") or raw.get("summary", ""),
-                max_chars=280,
-            )
+            topic = cls._normalize_text(raw.get("topic", "")) or "Topic"
+            why_it_matters = cls._normalize_text(raw.get("why_it_matters", ""))
+            what_changed = cls._normalize_text(raw.get("what_changed", ""))
+            narrative_summary = cls._normalize_text(raw.get("narrative_summary", "") or raw.get("summary", ""))
             if not why_it_matters and narrative_summary:
                 why_it_matters = narrative_summary
 
             narrative_changes = cls._normalize_narrative_changes(raw.get("narrative_changes", []))
             if not what_changed and narrative_changes:
-                what_changed = cls._trim_text(narrative_changes[0].get("summary", ""), max_chars=240)
+                what_changed = cls._normalize_text(narrative_changes[0].get("summary", ""))
             if not what_changed and narrative_summary:
                 what_changed = narrative_summary
 
-            who_is_affected = cls._to_string_list(raw.get("who_is_affected", []), max_items=5, max_chars=120)
-            what_to_watch = cls._to_string_list(
-                raw.get("what_to_watch", raw.get("watch_signals", [])),
-                max_items=6,
-                max_chars=150,
-            )
+            who_is_affected = cls._to_string_list(raw.get("who_is_affected", []))
+            what_to_watch = cls._to_string_list(raw.get("what_to_watch", raw.get("watch_signals", [])))
             if not narrative_summary:
                 parts = [why_it_matters, what_changed]
-                narrative_summary = cls._trim_text(". ".join([part for part in parts if part]), max_chars=280)
+                narrative_summary = cls._normalize_text(". ".join([part for part in parts if part]))
 
             reports.append(
                 {
@@ -588,11 +628,11 @@ class BriefGenerator:
         if not isinstance(value, list):
             return []
         sections: List[Dict[str, str]] = []
-        for raw in value[:10]:
+        for raw in value:
             if not isinstance(raw, dict):
                 continue
-            heading = cls._trim_text(raw.get("heading", ""), max_chars=120)
-            summary = cls._trim_text(raw.get("summary", ""), max_chars=260)
+            heading = cls._normalize_text(raw.get("heading", ""))
+            summary = cls._normalize_text(raw.get("summary", ""))
             if not (heading or summary):
                 continue
             sections.append({"heading": heading or "Section", "summary": summary})
@@ -606,9 +646,9 @@ class BriefGenerator:
         evidence_packet: Dict[str, Any],
         delta_packet: Dict[str, Any],
     ) -> None:
-        knowns = self._normalized_string_list(result.get("knowns", []), limit=8)
-        unknowns = self._normalized_string_list(result.get("unknowns", []), limit=8)
-        watch_signals = self._normalized_string_list(result.get("watch_signals", []), limit=10)
+        knowns = self._normalized_string_list(result.get("knowns", []))
+        unknowns = self._normalized_string_list(result.get("unknowns", []))
+        watch_signals = self._normalized_string_list(result.get("watch_signals", []))
 
         if not knowns:
             knowns = self._fallback_knowns(result, articles, evidence_packet, delta_packet)
@@ -622,14 +662,14 @@ class BriefGenerator:
         result["watch_signals"] = watch_signals
 
     @staticmethod
-    def _normalized_string_list(value: Any, *, limit: int) -> List[str]:
+    def _normalized_string_list(value: Any, *, limit: int | None = None) -> List[str]:
         items: List[str] = []
         if isinstance(value, list):
             for raw in value:
-                text = str(raw).strip()
+                text = " ".join(str(raw or "").split()).strip()
                 if not text:
                     continue
-                items.append(text[:220])
+                items.append(text)
         seen: set[str] = set()
         deduped: List[str] = []
         for item in items:
@@ -638,7 +678,7 @@ class BriefGenerator:
                 continue
             seen.add(key)
             deduped.append(item)
-            if len(deduped) >= limit:
+            if limit is not None and len(deduped) >= limit:
                 break
         return deduped
 
@@ -653,11 +693,11 @@ class BriefGenerator:
         for cluster in evidence_packet.get("story_clusters", []):
             if not isinstance(cluster, dict):
                 continue
-            for point in cluster.get("consensus_points", [])[:2]:
+            for point in cluster.get("consensus_points", []):
                 text = str(point).strip()
                 if text:
                     candidates.append(text)
-        for item in delta_packet.get("unchanged_but_important", [])[:4]:
+        for item in delta_packet.get("unchanged_but_important", []):
             if not isinstance(item, dict):
                 continue
             summary = str(item.get("summary", "")).strip()
@@ -666,7 +706,7 @@ class BriefGenerator:
                 candidates.append(summary)
             elif label:
                 candidates.append(label)
-        for report in result.get("topic_reports", [])[:3]:
+        for report in result.get("topic_reports", []):
             if not isinstance(report, dict):
                 continue
             for key in ("why_it_matters", "what_changed", "narrative_summary"):
@@ -674,7 +714,7 @@ class BriefGenerator:
                 if text:
                     candidates.append(text)
         if not candidates:
-            for article in articles[:4]:
+            for article in articles:
                 headline = str(article.candidate.title).strip()
                 source = str(article.candidate.source).strip()
                 if headline:
@@ -682,7 +722,7 @@ class BriefGenerator:
                     if source:
                         label = f"{headline} ({source})"
                     candidates.append(label)
-        return self._normalized_string_list(candidates, limit=8)
+        return self._normalized_string_list(candidates)
 
     def _fallback_unknowns(
         self,
@@ -693,15 +733,15 @@ class BriefGenerator:
         for cluster in evidence_packet.get("story_clusters", []):
             if not isinstance(cluster, dict):
                 continue
-            for point in cluster.get("known_unknowns", [])[:2]:
+            for point in cluster.get("known_unknowns", []):
                 text = str(point).strip()
                 if text:
                     candidates.append(text)
-            for point in cluster.get("contested_points", [])[:1]:
+            for point in cluster.get("contested_points", []):
                 text = str(point).strip()
                 if text:
                     candidates.append(text)
-        for item in delta_packet.get("evidence_gaps", [])[:4]:
+        for item in delta_packet.get("evidence_gaps", []):
             if not isinstance(item, dict):
                 continue
             gap = str(item.get("gap", "")).strip()
@@ -710,7 +750,7 @@ class BriefGenerator:
                 candidates.append(f"{gap} ({why})")
             elif gap:
                 candidates.append(gap)
-        return self._normalized_string_list(candidates, limit=8)
+        return self._normalized_string_list(candidates)
 
     def _fallback_watch_signals(
         self,
@@ -719,32 +759,32 @@ class BriefGenerator:
         delta_packet: Dict[str, Any],
     ) -> List[str]:
         candidates: List[str] = []
-        for report in result.get("topic_reports", [])[:6]:
+        for report in result.get("topic_reports", []):
             if not isinstance(report, dict):
                 continue
-            for item in report.get("what_to_watch", [])[:2]:
+            for item in report.get("what_to_watch", []):
                 text = str(item).strip()
                 if text:
                     candidates.append(text)
-        for item in evidence_packet.get("global_watch_signals", [])[:6]:
+        for item in evidence_packet.get("global_watch_signals", []):
             text = str(item).strip()
             if text:
                 candidates.append(text)
-        for cluster in evidence_packet.get("story_clusters", [])[:4]:
+        for cluster in evidence_packet.get("story_clusters", []):
             if not isinstance(cluster, dict):
                 continue
-            for item in cluster.get("watch_signals", [])[:2]:
+            for item in cluster.get("watch_signals", []):
                 text = str(item).strip()
                 if text:
                     candidates.append(text)
         for key in ("new", "escalated"):
-            for item in delta_packet.get(key, [])[:3]:
+            for item in delta_packet.get(key, []):
                 if not isinstance(item, dict):
                     continue
                 label = str(item.get("item", "")).strip()
                 if label:
                     candidates.append(label)
-        return self._normalized_string_list(candidates, limit=10)
+        return self._normalized_string_list(candidates)
 
 
 def brief_metadata(

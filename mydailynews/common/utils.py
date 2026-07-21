@@ -6,7 +6,10 @@ import json
 import re
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+
+
+TRACKING_PARAMS = {"fbclid", "gclid", "igshid", "mc_cid", "mc_eid"}
 
 
 def utc_now() -> datetime:
@@ -30,6 +33,21 @@ def strip_html(text: str) -> str:
 def normalize_url(url: str) -> str:
     parsed = urlparse((url or "").strip())
     return urlunparse((parsed.scheme, parsed.netloc.lower(), parsed.path.rstrip("/"), "", parsed.query, ""))
+
+
+def canonical_article_url(url: str) -> str:
+    parsed = urlparse(str(url or "").strip())
+    if not parsed.scheme or not parsed.netloc:
+        return normalize_whitespace(str(url or ""))
+    query = urlencode(
+        [
+            (key, value)
+            for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+            if not key.lower().startswith("utm_") and key.lower() not in TRACKING_PARAMS
+        ],
+        doseq=True,
+    )
+    return urlunparse((parsed.scheme, parsed.netloc.lower(), parsed.path.rstrip("/") or parsed.path, "", query, ""))
 
 
 def datetime_to_iso(value: Optional[datetime]) -> Optional[str]:

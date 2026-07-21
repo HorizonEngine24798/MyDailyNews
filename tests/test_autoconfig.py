@@ -122,6 +122,9 @@ class AutoconfigTests(unittest.TestCase):
     def test_recommended_config_is_coupled_and_does_not_mutate_source(self) -> None:
         catalog = self._catalog()
         source = self._example_config()
+        source["perspectives_report"]["gnews_api_key"] = "old-key"
+        source["perspectives_report"]["coverage_languages"] = ["en"]
+        source["perspectives_report"]["minimum_languages"] = 2
         source_before = deepcopy(source)
         tier = next(item for item in catalog["tiers"] if item["id"] == "nvidia_8gb")
         model = autoconfig.model_for_tier(catalog, tier)
@@ -151,6 +154,17 @@ class AutoconfigTests(unittest.TestCase):
         self.assertEqual(recommended["narrative_briefing"]["target_words"], 1800)
         self.assertFalse(recommended["tts"]["enabled"])
         self.assertEqual(recommended["tts"]["backend"], "kokoro")
+        self.assertFalse(recommended["perspectives_report"]["enabled"])
+        self.assertEqual(recommended["perspectives_report"]["coverage_scope"], [])
+        self.assertEqual(recommended["perspectives_report"]["coverage_regions"], [])
+        self.assertEqual(recommended["perspectives_report"]["gnews_api_key"], "old-key")
+        self.assertTrue(recommended["perspectives_report"]["verification_enabled"])
+        self.assertEqual(recommended["perspectives_report"]["verification_claims_per_story"], 2)
+        self.assertEqual(recommended["perspectives_report"]["verification_claims_per_run"], 12)
+        self.assertEqual(recommended["perspectives_report"]["verification_queries_per_claim"], 2)
+        self.assertEqual(recommended["perspectives_report"]["verification_documents_per_claim"], 4)
+        self.assertNotIn("coverage_languages", recommended["perspectives_report"])
+        self.assertNotIn("minimum_languages", recommended["perspectives_report"])
         self.assertEqual(recommended["pipeline"]["default_series"], ["briefs", "enrichment", "narrative_brief"])
         self.assertEqual(recommended["analysis"]["evidence_distillation"]["max_input_tokens"], 5000)
         self.assertTrue(recommended["memory"]["enabled"])
@@ -290,12 +304,42 @@ class AutoconfigTests(unittest.TestCase):
         autoconfig.apply_pipeline_preferences(recommended, preferences)
 
         self.assertTrue(recommended["tts"]["enabled"])
-        self.assertTrue(recommended["narrative_briefing"]["enabled"])
-        self.assertEqual(recommended["pipeline"]["default_series"], ["briefs", "narrative_brief", "tts"])
+        self.assertFalse(recommended["narrative_briefing"]["enabled"])
+        self.assertEqual(recommended["pipeline"]["default_series"], ["briefs", "tts"])
+
+    def test_apply_pipeline_preferences_can_enable_perspectives_report(self) -> None:
+        catalog = self._catalog()
+        source = self._example_config()
+        tier = next(item for item in catalog["tiers"] if item["id"] == "nvidia_8gb")
+        model = autoconfig.model_for_tier(catalog, tier)
+        recommended = autoconfig.build_recommended_config(source, tier, model)
+        preferences = autoconfig.PipelinePreferences(workflow="structured", perspectives_report="yes")
+
+        autoconfig.apply_pipeline_preferences(recommended, preferences)
+
+        self.assertTrue(recommended["perspectives_report"]["enabled"])
+        self.assertEqual(recommended["pipeline"]["default_series"], ["briefs", "perspectives_report"])
+
+    def test_perspectives_runs_before_narrative_and_tts(self) -> None:
+        config = {
+            "pipeline": {"default_series": ["briefs", "enrichment", "narrative_brief", "tts"]},
+            "perspectives_report": {},
+            "tts": {},
+        }
+
+        autoconfig.apply_pipeline_preferences(
+            config,
+            autoconfig.PipelinePreferences(perspectives_report="yes", tts_audio="yes"),
+        )
+
+        self.assertEqual(
+            config["pipeline"]["default_series"],
+            ["briefs", "enrichment", "perspectives_report", "narrative_brief", "tts"],
+        )
 
     def test_prompt_pipeline_preferences_accepts_names_and_numbers(self) -> None:
         stdout = io.StringIO()
-        answers = ["research", "3", "deep", "long", "cache", "yes"]
+        answers = ["research", "3", "deep", "long", "cache", "yes", "yes"]
 
         with patch("tools.autoconfig.sys.stdin", FakeInteractiveStdin()), patch(
             "builtins.input",
@@ -313,6 +357,7 @@ class AutoconfigTests(unittest.TestCase):
                 server_mode="external",
                 cache_mode="cache",
                 tts_audio="yes",
+                perspectives_report="yes",
             ),
         )
 

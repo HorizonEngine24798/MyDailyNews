@@ -6,6 +6,7 @@ from typing import Any, Callable
 from mydailynews.ai.base import AIClient
 from mydailynews.ai.prompts import STORY_ENRICHMENT_SYSTEM, STORY_ENRICHMENT_USER
 from mydailynews.ai.schemas import STORY_ENRICHMENT_JSON_SCHEMA
+from mydailynews.ai.token_budget import TokenBudget, resolve_client_token_budget
 from mydailynews.app.models import AppConfig, SelectedArticle
 from mydailynews.common.cache import JSONCache
 from mydailynews.common.utils import compact_json
@@ -126,8 +127,9 @@ class StorySynthesizer:
         story_articles: list[SelectedArticle],
         research_results: list[ResearchResult],
     ) -> SynthesisPrompt | None:
-        budget_tokens = self._stage_input_budget()
-        max_new_tokens = self._stage_max_new_tokens()
+        budget = self._stage_token_budget()
+        budget_tokens = budget.input_tokens
+        max_new_tokens = budget.output_tokens
         fetched_results = [result for result in research_results if result.text]
         fetched_count = min(
             len(fetched_results),
@@ -226,9 +228,9 @@ class StorySynthesizer:
         for item in raw.get("internal_articles", []):
             if not isinstance(item, dict):
                 continue
-            title = clean_text(item.get("title"), 180)
-            summary = clean_text(item.get("summary"), 900)
-            what_it_adds = clean_text(item.get("what_it_adds"), 280)
+            title = clean_text(item.get("title"), None)
+            summary = clean_text(item.get("summary"), None)
+            what_it_adds = clean_text(item.get("what_it_adds"), None)
             if not title or not summary:
                 continue
             internal_articles.append(
@@ -236,15 +238,13 @@ class StorySynthesizer:
                     "title": title,
                     "summary": summary,
                     "what_it_adds": what_it_adds,
-                    "source_ids": string_list(item.get("source_ids", []), max_items=12, max_chars=120),
+                    "source_ids": string_list(item.get("source_ids", []), max_items=None, max_chars=None),
                     "confidence": confidence(item.get("confidence")),
                 }
             )
-            if len(internal_articles) >= 3:
-                break
         return StoryEnrichment(
             story_id=clean_text(raw.get("story_id"), 80) or story.story_id,
-            story_title=clean_text(raw.get("story_title"), 180) or story.story_title,
+            story_title=clean_text(raw.get("story_title"), None) or story.story_title,
             internal_articles=internal_articles,
             confirmed_facts=fact_list(raw.get("confirmed_facts", []), text_key="fact"),
             conflicting_claims=fact_list(raw.get("conflicting_claims", []), text_key="claim"),
@@ -279,17 +279,12 @@ class StorySynthesizer:
     def _estimate_chat_tokens(self, system: str, user: str) -> int:
         return self.ai_client.estimate_tokens(f"System:\n{system}\n\nUser:\n{user}\n\nAssistant:\n")
 
-    def _stage_input_budget(self) -> int:
-        requested = getattr(self.config.enrichment, "synthesis_max_input_tokens", None)
-        if requested is not None:
-            return max(0, int(requested))
-        return max(0, int(getattr(self.ai_client, "max_input_tokens", 0) or 0))
-
-    def _stage_max_new_tokens(self) -> int:
-        requested = getattr(self.config.enrichment, "synthesis_max_new_tokens", None)
-        if requested is not None:
-            return max(64, int(requested))
-        return max(64, int(getattr(self.ai_client, "max_new_tokens", 0) or 0))
+    def _stage_token_budget(self) -> TokenBudget:
+        return resolve_client_token_budget(
+            self.ai_client,
+            input_tokens=self.config.enrichment.synthesis_max_input_tokens,
+            output_tokens=self.config.enrichment.synthesis_max_new_tokens,
+        )
 
 
 def _story_terms(story: StoryGroup, story_articles: list[SelectedArticle]) -> str:

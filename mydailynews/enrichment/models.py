@@ -9,7 +9,7 @@ from mydailynews.story_grouping.models import (
     StoryGroup,
 )
 
-STORY_ENRICHMENT_CACHE_VERSION = 1
+STORY_ENRICHMENT_CACHE_VERSION = 2
 
 
 @dataclass

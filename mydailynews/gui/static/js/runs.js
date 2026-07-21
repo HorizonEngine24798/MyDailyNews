@@ -5,8 +5,10 @@ import { state } from "./state.js";
 
 const refreshedRunIds = new Set();
 const RUN_POLL_INTERVAL_MS = 2000;
+const REPORT_REFRESH_INTERVAL_MS = 10000;
 const RUNNING_STATUSES = new Set(["running", "canceling"]);
 let pollTimer = null;
+let lastReportRefreshAt = 0;
 let refreshReports = async () => {};
 let refreshMemory = async () => {};
 
@@ -183,6 +185,13 @@ function scheduleRunPoll() {
 async function pollRuns() {
   try {
     await loadRuns();
+    const shouldRefreshReports =
+      (state.runs || []).some((run) => RUNNING_STATUSES.has(run.status)) &&
+      Date.now() - lastReportRefreshAt >= REPORT_REFRESH_INTERVAL_MS;
+    if (shouldRefreshReports) {
+      lastReportRefreshAt = Date.now();
+      await refreshReports();
+    }
     await refreshAfterCompletedRuns();
   } catch (error) {
     setStatus(error.message, true);

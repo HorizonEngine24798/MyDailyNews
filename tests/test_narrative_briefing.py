@@ -6,10 +6,12 @@ import unittest
 import uuid
 
 from mydailynews.ai.base import AIJsonError, JSONSchemaSpec
+from mydailynews.ai.prompts import BRIEF_USER
 from mydailynews.app.models import AppConfig, BriefOutput, UserMemory
 from mydailynews.briefing.narrative import (
     NarrativeBriefGenerator,
     NarrativeSourceBrief,
+    normalize_narrative_claim_markers,
     render_narrative_markdown,
     strip_source_links,
     write_narrative_outputs,
@@ -129,6 +131,35 @@ class FakeOrchestrator:
 
 
 class NarrativeBriefingTests(unittest.TestCase):
+    def test_structured_brief_prompt_has_no_narrative_only_placeholder(self) -> None:
+        rendered = BRIEF_USER.format(
+            memory="",
+            brief_goal="general",
+            date="2026-07-18",
+            topics="[]",
+            prior_reports="[]",
+            recall_packet="{}",
+            evidence_packet="{}",
+            delta_packet="{}",
+            articles="[]",
+        )
+
+        self.assertNotIn("claim-context markers", rendered)
+
+    def test_claim_markers_are_validated_renumbered_and_cards_filtered(self) -> None:
+        narrative = {
+            "lede": "Second claim first. <<2>> Unknown disappears. <<99>>",
+            "segments": [{"heading": "Update", "body": "First claim later. <<1>> Reuse. <<2>>", "key_points": [], "what_to_watch": []}],
+            "closing": "",
+        }
+        cards = [{"claim_id": "one", "claim": "One"}, {"claim_id": "two", "claim": "Two"}, {"claim_id": "unused", "claim": "Unused"}]
+
+        result = normalize_narrative_claim_markers(narrative, cards)
+
+        self.assertEqual(result["lede"], "Second claim first. <<1>> Unknown disappears.")
+        self.assertEqual(result["segments"][0]["body"], "First claim later. <<2>> Reuse. <<1>>")
+        self.assertEqual([(card["ref"], card["claim_id"]) for card in result["claim_context_cards"]], [(1, "two"), (2, "one")])
+
     def test_strip_source_links_removes_recursive_url_fields_and_url_text(self) -> None:
         payload = {
             "title": "Daily Brief",
@@ -196,6 +227,7 @@ class NarrativeBriefingTests(unittest.TestCase):
         self.assertNotIn("SSML", result["lede"])
         self.assertIn('"name":"general"', client.user)
         self.assertIn('"name":"detailed"', client.user)
+        self.assertIn("Permitted claim-context markers", client.user)
         self.assertEqual(result["metadata"]["source_briefs"], ["general", "detailed"])
         self.assertIn("readable narrative", result["segments"][0]["body"])
         self.assertFalse(result["metadata"]["enrichment_used"])
@@ -234,6 +266,9 @@ class NarrativeBriefingTests(unittest.TestCase):
                             "confidence": "medium",
                         }
                     ],
+                    "confirmed_facts": [{"fact": "The regulator published the rule.", "source_ids": ["selected-a"]}],
+                    "conflicting_claims": [{"claim": "The effective date remains disputed.", "source_ids": ["selected-a"]}],
+                    "open_questions": [{"question": "Will implementation slip?", "source_ids": ["selected-a"]}],
                 }
             ],
         }
@@ -247,10 +282,104 @@ class NarrativeBriefingTests(unittest.TestCase):
         )
 
         self.assertIn("Internal context", client.user)
+        self.assertIn("The regulator published the rule.", client.user)
+        self.assertIn("The effective date remains disputed.", client.user)
+        self.assertIn("Will implementation slip?", client.user)
+        self.assertNotIn("selected-a", client.user)
         self.assertNotIn("https://", client.user)
         self.assertNotIn("full article body", client.user)
         self.assertTrue(result["metadata"]["enrichment_used"])
         self.assertEqual(result["metadata"]["enrichment_json_path"], "output/2026-06-14_enrichment.json")
+
+    def test_generator_passes_compact_perspectives_and_qualified_claim_cards(self) -> None:
+        client = FakeAIClient()
+        generator = NarrativeBriefGenerator(client)
+        source_briefs = [NarrativeSourceBrief("general", "general.json", {"title": "Daily Brief", "lead": "A rule changed."})]
+        perspectives = {
+            "stories": [
+                {
+                    "story_title": "Policy context",
+                    "framing_report": {
+                        "synthesis": "Outlets agree on the rule but emphasize different implementation risks.",
+                        "shared_facts": [{"text": "The rule was published.", "article_ids": ["coverage-a"]}],
+                        "country_source_comparison": [{"text": "European coverage emphasizes compliance costs.", "article_ids": ["coverage-a"]}],
+                        "coverage_limitations": ["Coverage is thin outside Europe."],
+                    },
+                    "coverage_articles": [{"context_text": "Raw coverage text must not reach Narrative."}],
+                }
+            ]
+        }
+        cards = [
+            {
+                "claim_id": "claim-1",
+                "claim": "Implementation begins in September.",
+                "who_says": "The regulator",
+                "reporting_summary": "Two reports cite the published schedule.",
+                "evidence_check": "The official notice gives a September date.",
+                "verification_verdict": "supported",
+                "verdict_scope": "published_schedule",
+                "qualification": "Court action could still delay implementation.",
+                "limitations": "No court timetable is available.",
+                "sources": [{"outlet": "Example News", "headline": "Regulator sets schedule", "url": "https://example.test/a"}],
+            }
+        ]
+
+        result = generator.generate(
+            source_briefs,
+            UserMemory(),
+            date="2026-06-14",
+            perspectives_payload=perspectives,
+            perspectives_json_path="output/perspectives.json",
+            claim_cards=cards,
+        )
+
+        self.assertIn("Outlets agree on the rule", client.user)
+        self.assertIn("European coverage emphasizes compliance costs", client.user)
+        self.assertIn("Court action could still delay implementation", client.user)
+        self.assertIn("The official notice gives a September date", client.user)
+        self.assertIn("Regulator sets schedule", client.user)
+        self.assertNotIn("coverage-a", client.user)
+        self.assertNotIn("Raw coverage text", client.user)
+        self.assertNotIn("https://", client.user)
+        self.assertTrue(result["metadata"]["perspectives_used"])
+        self.assertEqual(result["metadata"]["perspectives_json_path"], "output/perspectives.json")
+        self.assertTrue(any("no permitted markers" in warning for warning in generator.warnings))
+
+    def test_pipeline_narrative_uses_perspectives_framing_without_claim_cards(self) -> None:
+        output_dir = TEMP_ROOT / uuid.uuid4().hex
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "2026-06-14_general_brief.json").write_text(
+            '{"title":"Daily Brief","lead":"A policy story matters."}', encoding="utf-8"
+        )
+        perspectives_path = output_dir / "2026-06-14_perspectives_report.json"
+        perspectives_path.write_text(
+            json.dumps(
+                {
+                    "stories": [
+                        {
+                            "story_title": "Policy context",
+                            "claim_context_cards": [],
+                            "framing_report": {
+                                "synthesis": "Sources agree on the decision but differ on who bears the cost.",
+                                "shared_facts": [{"text": "The decision takes effect this year."}],
+                                "coverage_limitations": ["Only two countries had usable reporting."],
+                            },
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        client = FakeAIClient()
+        orchestrator = FakeOrchestrator(output_dir, client)
+
+        result = run_narrative_brief(orchestrator, outputs=[], date="2026-06-14")
+
+        self.assertIsNotNone(result)
+        self.assertIn("differ on who bears the cost", client.user)
+        written = json.loads((output_dir / "2026-06-14_narrative_brief.json").read_text(encoding="utf-8"))
+        self.assertTrue(written["metadata"]["perspectives_used"])
+        self.assertEqual(written["metadata"]["perspectives_json_path"], str(perspectives_path))
 
     def test_generator_accepts_raw_markdown_for_final_narrative(self) -> None:
         client = FakeMarkdownAIClient()

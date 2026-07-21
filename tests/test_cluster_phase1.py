@@ -93,6 +93,39 @@ class StoryThreadArtifactTests(unittest.TestCase):
         self.assertEqual(metrics["brief.general.enrichment.story_threads_enriched"], 1)
         self.assertEqual(metrics["brief.general.enrichment.story_threads_skipped"], 0)
 
+    def test_final_brief_normalization_preserves_all_model_output(self) -> None:
+        long_text = "Long model output " + ("x" * 700)
+        reports = [
+            {
+                "topic": f"Topic {index}",
+                "why_it_matters": long_text,
+                "what_changed": long_text,
+                "who_is_affected": [f"Audience {item} {long_text}" for item in range(7)],
+                "narrative_summary": long_text,
+                "narrative_changes": [
+                    {"narrative": f"Narrative {item}", "status": "changed", "summary": long_text}
+                    for item in range(9)
+                ],
+                "what_to_watch": [f"Watch {item} {long_text}" for item in range(8)],
+            }
+            for index in range(12)
+        ]
+        sections = [{"heading": f"Section {index}", "summary": long_text} for index in range(12)]
+        signals = [f"Signal {index} {long_text}" for index in range(12)]
+
+        normalized_reports = BriefGenerator._normalize_topic_reports(reports)
+        normalized_sections = BriefGenerator._normalize_sections(sections)
+        normalized_signals = BriefGenerator._normalized_string_list(signals)
+
+        self.assertEqual(len(normalized_reports), 12)
+        self.assertEqual(normalized_reports[-1]["why_it_matters"], long_text)
+        self.assertEqual(len(normalized_reports[0]["who_is_affected"]), 7)
+        self.assertEqual(len(normalized_reports[0]["narrative_changes"]), 9)
+        self.assertEqual(len(normalized_reports[0]["what_to_watch"]), 8)
+        self.assertEqual(len(normalized_sections), 12)
+        self.assertEqual(normalized_sections[-1]["summary"], long_text)
+        self.assertEqual(normalized_signals, signals)
+
 
 if __name__ == "__main__":
     unittest.main()

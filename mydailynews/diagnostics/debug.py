@@ -17,7 +17,7 @@ class DebugAnalytics:
         self.durations: dict[str, float] = {}
         self.counts: dict[str, int] = {}
         self.metrics: dict[str, Any] = {}
-        self.ai_totals: dict[str, int] = {
+        self.ai_totals: dict[str, Any] = {
             "requests": 0,
             "ok": 0,
             "invalid_json": 0,
@@ -26,8 +26,13 @@ class DebugAnalytics:
             "output_tokens": 0,
             "response_chars": 0,
             "estimated_requests": 0,
+            "retries": 0,
+            "duration_ms": 0,
+            "input_budget_tokens": 0,
+            "output_budget_tokens": 0,
+            "finish_reasons": {},
         }
-        self.ai_buckets: dict[str, dict[str, int]] = {}
+        self.ai_buckets: dict[str, dict[str, Any]] = {}
 
     @contextmanager
     def span(self, name: str):
@@ -59,6 +64,11 @@ class DebugAnalytics:
         output_tokens: int | None = None,
         response_chars: int | None = None,
         estimated: bool = False,
+        retry: bool = False,
+        finish_reason: str = "",
+        duration_ms: float | None = None,
+        input_budget_tokens: int | None = None,
+        output_budget_tokens: int | None = None,
     ) -> None:
         if not self.enabled:
             return
@@ -75,6 +85,11 @@ class DebugAnalytics:
                 "output_tokens": 0,
                 "response_chars": 0,
                 "estimated_requests": 0,
+                "retries": 0,
+                "duration_ms": 0,
+                "input_budget_tokens": 0,
+                "output_budget_tokens": 0,
+                "finish_reasons": {},
             },
         )
         totals["requests"] += 1
@@ -82,6 +97,21 @@ class DebugAnalytics:
         if estimated:
             totals["estimated_requests"] += 1
             stats["estimated_requests"] += 1
+        if retry:
+            totals["retries"] += 1
+            stats["retries"] += 1
+        normalized_finish = str(finish_reason or "unknown").strip().lower()
+        totals["finish_reasons"][normalized_finish] = totals["finish_reasons"].get(normalized_finish, 0) + 1
+        stats["finish_reasons"][normalized_finish] = stats["finish_reasons"].get(normalized_finish, 0) + 1
+        if duration_ms is not None:
+            totals["duration_ms"] += max(0, round(float(duration_ms)))
+            stats["duration_ms"] += max(0, round(float(duration_ms)))
+        if input_budget_tokens is not None:
+            totals["input_budget_tokens"] += int(input_budget_tokens)
+            stats["input_budget_tokens"] += int(input_budget_tokens)
+        if output_budget_tokens is not None:
+            totals["output_budget_tokens"] += int(output_budget_tokens)
+            stats["output_budget_tokens"] += int(output_budget_tokens)
         if status in {"ok", "invalid_json", "transport_error"}:
             totals[status] += 1
             stats[status] += 1
@@ -215,7 +245,8 @@ class DebugAnalytics:
             lines.append(
                 f"ai requests={ai_totals['requests']} ok={ai_totals['ok']} invalid_json={ai_totals['invalid_json']} "
                 f"transport_error={ai_totals['transport_error']} input_tokens={ai_totals['input_tokens']} "
-                f"output_tokens={ai_totals['output_tokens']} estimated_requests={ai_totals['estimated_requests']}"
+                f"output_tokens={ai_totals['output_tokens']} estimated_requests={ai_totals['estimated_requests']} "
+                f"retries={ai_totals['retries']} duration={ai_totals['duration_ms'] / 1000:.2f}s"
             )
             for bucket, stats in sorted(self.ai_buckets.items()):
                 lines.append(
@@ -528,7 +559,7 @@ class DebugEventEmitter:
 class DebugLogger:
     def __init__(self, enabled: bool = False, *, stream: TextIO | None = None, emit_detail: bool = False) -> None:
         self._enabled = bool(enabled)
-        self.analytics = DebugAnalytics(self._enabled)
+        self.analytics = DebugAnalytics(True)
         self.events = DebugEventEmitter(self._enabled, stream=stream, emit_detail=emit_detail)
 
     @property
@@ -538,8 +569,6 @@ class DebugLogger:
     @enabled.setter
     def enabled(self, value: bool) -> None:
         self._enabled = bool(value)
-        if "analytics" in self.__dict__:
-            self.analytics.enabled = self._enabled
         if "events" in self.__dict__:
             self.events.enabled = self._enabled
 
@@ -561,6 +590,11 @@ class DebugLogger:
         output_tokens: int | None = None,
         response_chars: int | None = None,
         estimated: bool = False,
+        retry: bool = False,
+        finish_reason: str = "",
+        duration_ms: float | None = None,
+        input_budget_tokens: int | None = None,
+        output_budget_tokens: int | None = None,
     ) -> None:
         self.analytics.record_ai(
             label=label,
@@ -569,6 +603,11 @@ class DebugLogger:
             output_tokens=output_tokens,
             response_chars=response_chars,
             estimated=estimated,
+            retry=retry,
+            finish_reason=finish_reason,
+            duration_ms=duration_ms,
+            input_budget_tokens=input_budget_tokens,
+            output_budget_tokens=output_budget_tokens,
         )
 
     @contextmanager

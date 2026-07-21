@@ -55,6 +55,7 @@ EDITABLE_CONFIG_SECTIONS = {
     "runtime",
     "narrative_briefing",
     "tts",
+    "perspectives_report",
     "pipeline",
     "analysis",
     "cache",

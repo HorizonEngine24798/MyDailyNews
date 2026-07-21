@@ -17,7 +17,7 @@ class AIConfig:
     json_retries: int = 1
     temperature: float = 0.2
     top_p: float = 0.9
-    response_format: str = "json_object"
+    response_format: str = "auto"
     request_timeout_seconds: int = 300
     token_estimation_chars_per_token: float = 4.0
     enable_thinking: bool = False
@@ -129,8 +129,8 @@ class CacheConfig:
 
 @dataclass
 class RuntimeConfig:
-    max_http_workers: int = 1
-    max_article_workers: int = 1
+    max_http_workers: int = 4
+    max_article_workers: int = 4
     use_shared_snapshot: bool = True
 
 
@@ -151,12 +151,29 @@ class NarrativeBriefingConfig:
 @dataclass
 class TTSConfig:
     enabled: bool = False
+    modules: List[str] = field(default_factory=lambda: ["narrative_brief"])
     backend: str = "kokoro"
     model_id: str = "hexgrad/Kokoro-82M"
     voice: str = "af_heart"
     lang_code: str = "a"
     speed: float = 1.0
     max_chunk_chars: int = 1200
+
+
+@dataclass
+class PerspectivesReportConfig:
+    enabled: bool = False
+    gnews_api_key: str = ""
+    coverage_scope: List[str] = field(default_factory=list)
+    coverage_regions: List[str] = field(default_factory=list)
+    coverage_timespan_days: int = 7
+    coverage_max_records_per_story: int = 75
+    minimum_source_countries: int = 4
+    verification_enabled: bool = True
+    verification_claims_per_story: int = 2
+    verification_claims_per_run: int = 12
+    verification_queries_per_claim: int = 2
+    verification_documents_per_claim: int = 4
 
 
 @dataclass
@@ -176,9 +193,6 @@ class EvidenceDistillationConfig:
     max_articles_dropped_to_avoid_split: int = 2
     max_article_chars: int = 1400
     max_context_sources_per_article: int = 3
-    max_story_clusters: int = 10
-    max_claims_per_cluster: int = 6
-    max_questions: int = 10
     cache_ttl_seconds: int = 604800
 
 
@@ -358,6 +372,7 @@ class PriorReportsSourceConfig:
 class RSSSourceConfig:
     name: str
     url: str
+    source_id: str = ""
     category: str = "general"
     tags: List[str] = field(default_factory=list)
     enabled: bool = True
@@ -384,6 +399,7 @@ class AppConfig:
     analysis: AnalysisConfig = field(default_factory=AnalysisConfig)
     narrative_briefing: NarrativeBriefingConfig = field(default_factory=NarrativeBriefingConfig)
     tts: TTSConfig = field(default_factory=TTSConfig)
+    perspectives_report: PerspectivesReportConfig = field(default_factory=PerspectivesReportConfig)
     pipeline: PipelineConfig = field(default_factory=PipelineConfig)
 
 
@@ -495,6 +511,7 @@ class PriorReport:
     summary: str
     topics: List[str] = field(default_factory=list)
     major_headlines: List[Dict[str, Any]] = field(default_factory=list)
+    story_baselines: List[Dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -555,9 +572,21 @@ class TTSOutput:
 
 
 @dataclass
+class PerspectivesReportOutput:
+    name: str
+    markdown_path: str
+    json_path: str
+    story_count: int = 0
+    coverage_article_count: int = 0
+    country_count: int = 0
+    warnings: List[str] = field(default_factory=list)
+
+
+@dataclass
 class PipelineResult:
     outputs: List[BriefOutput] = field(default_factory=list)
     enrichment_outputs: List[EnrichmentOutput] = field(default_factory=list)
     narrative_outputs: List[NarrativeBriefOutput] = field(default_factory=list)
     tts_outputs: List[TTSOutput] = field(default_factory=list)
+    perspectives_report_outputs: List[PerspectivesReportOutput] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)

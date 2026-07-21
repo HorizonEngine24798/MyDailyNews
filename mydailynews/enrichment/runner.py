@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
 from typing import Any, Callable
 
@@ -70,6 +71,7 @@ class StoryThreadEnricher:
             self.search_retriever,
             self.research_article_retriever,
             warning_sink=self._push_warning,
+            max_fetch_workers=config.runtime.max_article_workers,
         )
         self.planner = (
             StoryGroupingPlanner(
@@ -218,28 +220,69 @@ class StoryThreadEnricher:
                 "Skipped story-thread enrichment: thread cap.",
             )
 
-        for index, story in enumerate(threads_to_enrich, start=1):
-            label = f"Story {index}/{len(threads_to_enrich)}"
-            title = clean_text(story.story_title, 90) or story.story_id
-            queries = self._queries_for_story(story)
-            self._progress(
-                f"{label}: enriching {title} "
-                f"(articles={len(story.article_ids)}, queries={len(queries)})"
-            )
-            enrichment, entry = self._enrich_story(story, article_by_id, queries=queries, progress_label=label)
-            self.artifact["story_threads"].append(entry)
-            self._progress(self._story_complete_message(label, entry))
-            if enrichment and enrichment.internal_articles:
-                self._attach_story_context(story, enrichment, article_by_id, entry.get("fetched_urls", []))
-                self.story_threads_enriched += 1
-                continue
-            self.story_threads_skipped += 1
-            self._mark_story_articles(
-                story,
-                article_by_id,
-                _skip_reason_for_story_status(str(entry.get("status", ""))),
-            )
+        work = [(story, self._queries_for_story(story)) for story in threads_to_enrich]
+        if work:
+            with ThreadPoolExecutor(max_workers=1, thread_name_prefix="story-research") as executor:
+                def submit_research(item: tuple[StoryGroup, list[str]]):
+                    story, queries = item
+                    story_articles = [
+                        article_by_id[article_id]
+                        for article_id in story.article_ids
+                        if article_id in article_by_id
+                    ]
+                    warnings: list[str] = []
+                    future = executor.submit(
+                        self._retrieve_research_results,
+                        story,
+                        story_articles,
+                        queries,
+                        warning_sink=warnings.append,
+                    )
+                    return future, warnings
 
+                pending = submit_research(work[0])
+                for offset, (story, queries) in enumerate(work):
+                    index = offset + 1
+                    label = f"Story {index}/{len(work)}"
+                    title = clean_text(story.story_title, 90) or story.story_id
+                    self._progress(
+                        f"{label}: enriching {title} "
+                        f"(articles={len(story.article_ids)}, queries={len(queries)})"
+                    )
+                    future, retrieval_warnings = pending
+                    retrieval_error: Exception | None = None
+                    try:
+                        research_results = future.result()
+                    except Exception as exc:
+                        research_results = []
+                        retrieval_error = exc
+                    if index < len(work):
+                        pending = submit_research(work[index])
+                    for warning in retrieval_warnings:
+                        self._push_warning(warning)
+
+                    enrichment, entry = self._enrich_story(
+                        story,
+                        article_by_id,
+                        queries=queries,
+                        progress_label=label,
+                        research_results=research_results,
+                        retrieval_error=retrieval_error,
+                    )
+                    self.artifact["story_threads"].append(entry)
+                    self._progress(self._story_complete_message(label, entry))
+                    if enrichment and enrichment.internal_articles:
+                        self._attach_story_context(story, enrichment, article_by_id, entry.get("fetched_urls", []))
+                        self.story_threads_enriched += 1
+                        continue
+                    self.story_threads_skipped += 1
+                    self._mark_story_articles(
+                        story,
+                        article_by_id,
+                        _skip_reason_for_story_status(str(entry.get("status", ""))),
+                    )
+
+        self.artifact["story_threads"].sort(key=lambda entry: entry.get("status") != "enriched")
         self.debug.log(
             "enrichment",
             "complete",
@@ -293,6 +336,8 @@ class StoryThreadEnricher:
         *,
         queries: list[str],
         progress_label: str = "",
+        research_results: list[ResearchResult] | None = None,
+        retrieval_error: Exception | None = None,
     ) -> tuple[StoryEnrichment | None, dict[str, Any]]:
         story_articles = [article_by_id[article_id] for article_id in story.article_ids if article_id in article_by_id]
         uncapped_queries = queries_for_story(story)
@@ -315,11 +360,18 @@ class StoryThreadEnricher:
             "fetched_status_counts": {},
             "synthesis": {},
             "internal_articles": [],
+            "confirmed_facts": [],
+            "conflicting_claims": [],
+            "open_questions": [],
             "warnings": [],
             "status": "pending",
         }
         try:
-            results = self._retrieve_research_results(story, story_articles, queries)
+            if retrieval_error is not None:
+                raise retrieval_error
+            results = research_results
+            if results is None:
+                results = self._retrieve_research_results(story, story_articles, queries)
             entry["fetched_status_counts"] = dict(Counter(result.status for result in results))
             entry["retrieved_urls"] = [
                 {
@@ -354,6 +406,9 @@ class StoryThreadEnricher:
                 entry["status"] = "skipped_synthesis"
                 return None, entry
             entry["internal_articles"] = enrichment.internal_articles
+            entry["confirmed_facts"] = enrichment.confirmed_facts
+            entry["conflicting_claims"] = enrichment.conflicting_claims
+            entry["open_questions"] = enrichment.open_questions
             entry["status"] = "enriched" if enrichment.internal_articles else "no_internal_articles"
             return enrichment, entry
         except Exception as exc:
@@ -369,6 +424,8 @@ class StoryThreadEnricher:
         story: StoryGroup,
         story_articles: list[SelectedArticle],
         queries: list[str],
+        *,
+        warning_sink: Callable[[str], None] | None = None,
     ) -> list[ResearchResult]:
         return self.research_collector.collect(
             queries=queries,
@@ -376,6 +433,7 @@ class StoryThreadEnricher:
             story_articles=story_articles,
             search_results_per_query=self.config.enrichment.search_results_per_query,
             max_fetched_research_pages_per_story=self.config.enrichment.max_fetched_research_pages_per_story,
+            warning_sink=warning_sink,
         )
 
     def _queries_for_story(self, story: StoryGroup) -> list[str]:
@@ -420,10 +478,10 @@ class StoryThreadEnricher:
                     "source_ids": internal.get("source_ids", []),
                     "confidence": internal.get("confidence", "medium"),
                     "research_questions": [question.question for question in story.research_questions],
-                    "retrieved_urls": fetched_urls[:8],
-                    "confirmed_facts": enrichment.confirmed_facts[:8],
-                    "conflicting_claims": enrichment.conflicting_claims[:5],
-                    "open_questions": enrichment.open_questions[:5],
+                    "retrieved_urls": fetched_urls,
+                    "confirmed_facts": enrichment.confirmed_facts,
+                    "conflicting_claims": enrichment.conflicting_claims,
+                    "open_questions": enrichment.open_questions,
                 }
                 summary = internal["summary"]
                 if internal.get("what_it_adds"):
@@ -436,7 +494,7 @@ class StoryThreadEnricher:
                         title=internal["title"],
                         source="LLM story research",
                         url="",
-                        summary=summary[:1200],
+                        summary=summary,
                         items=[item_payload],
                     )
                 )

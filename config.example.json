@@ -241,8 +241,8 @@
     ]
   },
   "runtime": {
-    "max_http_workers": 1,
-    "max_article_workers": 1,
+    "max_http_workers": 4,
+    "max_article_workers": 4,
     "use_shared_snapshot": true
   },
   "narrative_briefing": {
@@ -254,12 +254,29 @@
   },
   "tts": {
     "enabled": false,
+    "modules": [
+      "narrative_brief"
+    ],
     "backend": "kokoro",
     "model_id": "hexgrad/Kokoro-82M",
     "voice": "af_heart",
     "lang_code": "a",
     "speed": 1.0,
     "max_chunk_chars": 1200
+  },
+  "perspectives_report": {
+    "enabled": false,
+    "gnews_api_key": "",
+    "coverage_scope": [],
+    "coverage_regions": [],
+    "coverage_timespan_days": 7,
+    "coverage_max_records_per_story": 75,
+    "minimum_source_countries": 4,
+    "verification_enabled": true,
+    "verification_claims_per_story": 2,
+    "verification_claims_per_run": 12,
+    "verification_queries_per_claim": 2,
+    "verification_documents_per_claim": 4
   },
   "analysis": {
     "rollout": {
@@ -303,9 +320,6 @@
       "max_articles_dropped_to_avoid_split": 2,
       "max_article_chars": 1400,
       "max_context_sources_per_article": 3,
-      "max_story_clusters": 8,
-      "max_claims_per_cluster": 5,
-      "max_questions": 8,
       "cache_ttl_seconds": 604800
     },
     "delta_extraction": {
@@ -350,70 +364,22 @@
       "output_dir": "output"
     },
     "rss": [
-      {
-        "name": "BBC World",
-        "url": "https://feeds.bbci.co.uk/news/world/rss.xml",
-        "category": "world",
-        "tags": [
-          "world"
-        ],
-        "enabled": true
-      },
-      {
-        "name": "BBC Technology",
-        "url": "https://feeds.bbci.co.uk/news/technology/rss.xml",
-        "category": "technology",
-        "tags": [
-          "technology"
-        ],
-        "enabled": true
-      },
-      {
-        "name": "NPR",
-        "url": "https://feeds.npr.org/1001/rss.xml",
-        "category": "general",
-        "tags": [
-          "general",
-          "us"
-        ],
-        "enabled": true
-      },
-      {
-        "name": "NYTimes World",
-        "url": "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
-        "category": "world",
-        "tags": [
-          "world"
-        ],
-        "enabled": true
-      },
-      {
-        "name": "NYTimes Technology",
-        "url": "https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml",
-        "category": "technology",
-        "tags": [
-          "technology"
-        ],
-        "enabled": true
-      },
-      {
-        "name": "The Guardian World",
-        "url": "https://www.theguardian.com/world/rss",
-        "category": "world",
-        "tags": [
-          "world"
-        ],
-        "enabled": true
-      },
-      {
-        "name": "Ars Technica",
-        "url": "https://feeds.arstechnica.com/arstechnica/index",
-        "category": "technology",
-        "tags": [
-          "technology"
-        ],
-        "enabled": true
-      }
+      "gb_bbc_world",
+      "gb_bbc_technology",
+      "us_npr",
+      "us_nyt_world",
+      "us_nyt_technology",
+      "gb_guardian_world",
+      "us_ars_technica",
+      "gb_sky_news",
+      "in_times_of_india",
+      "in_hindustan_times",
+      "in_india_today",
+      "us_pbs_newshour",
+      "us_voa_en",
+      "ru_tass_en",
+      "cn_china_daily_en",
+      "pl_notes_from_poland"
     ]
   }
 }

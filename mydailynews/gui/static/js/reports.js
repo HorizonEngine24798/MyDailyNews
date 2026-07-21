@@ -1,12 +1,11 @@
 import { api } from "./api.js";
+import { audioButtonLabel, toggleAudio } from "./audio.js";
 import { byId, escapeAttr, escapeHtml, ordinal, renderMarkdown, reportDisplayTitle, reportListTitle, setStatus } from "./dom.js";
 import { feedbackLabels, monthNames, state } from "./state.js";
 
 let reloadMemory = async () => {};
 const MISSING_DATE_SORT_KEY = "9999-99-99";
 const UNDATED_GROUP_DATE = "undated-00-00";
-const FEEDBACK_ITEM_LIMIT = 30;
-let reportAudio = null;
 
 export function setReportMemoryReload(callback) {
   reloadMemory = typeof callback === "function" ? callback : async () => {};
@@ -106,26 +105,88 @@ export function renderReportDetail() {
     </div>
     ${
       report.audio_url
-        ? `<button id="playReportAudio" class="command audio-button" type="button" data-audio-url="${escapeAttr(report.audio_url)}">Play</button>`
+        ? `<button id="playReportAudio" class="command audio-button" type="button" data-audio-url="${escapeAttr(
+            report.audio_url
+          )}">${escapeHtml(audioButtonLabel(report.audio_url))}</button>`
         : ""
     }
   `;
   const playButton = byId("playReportAudio");
   if (playButton) {
-    playButton.addEventListener("click", () => playReportAudio(playButton.dataset.audioUrl));
+    playButton.addEventListener("click", () => toggleAudio(playButton.dataset.audioUrl, reportDisplayTitle(report)));
   }
   renderFeedback(report.feedback_items || []);
-  byId("markdownView").innerHTML = renderMarkdown(report.markdown || "");
+  const cards = Array.isArray(report.json && report.json.claim_context_cards) ? report.json.claim_context_cards : [];
+  const markdownView = byId("markdownView");
+  markdownView.innerHTML = renderMarkdown(report.markdown || "", cards);
+  markdownView.querySelectorAll("[data-claim-ref]").forEach((button) => {
+    button.addEventListener("click", () => showClaimContext(cards.find((card) => Number(card.ref) === Number(button.dataset.claimRef))));
+  });
 }
 
-function playReportAudio(url) {
-  if (!url) {
+function showClaimContext(card) {
+  if (!card) {
     return;
   }
-  if (!reportAudio || reportAudio.src !== new URL(url, window.location.href).href) {
-    reportAudio = new Audio(url);
+  let dialog = byId("claimContextDialog");
+  if (!dialog) {
+    dialog = document.createElement("dialog");
+    dialog.id = "claimContextDialog";
+    dialog.className = "claim-context-dialog";
+    document.body.appendChild(dialog);
   }
-  reportAudio.play().catch((error) => setStatus(error.message, true));
+  dialog.replaceChildren();
+  const title = document.createElement("h2");
+  title.textContent = card.title || card.claim || "Claim context";
+  dialog.appendChild(title);
+  [
+    ["Who says it", card.who_says],
+    ["What reporting adds", card.reporting_summary],
+    ["Evidence check", card.evidence_check],
+    ["Verification scope", [card.verification_verdict, card.verdict_scope].filter(Boolean).join(" / ")],
+    ["Qualification", card.qualification],
+    ["What remains uncertain", card.limitations],
+  ].forEach(([label, value]) => {
+    if (!value) return;
+    const paragraph = document.createElement("p");
+    const strong = document.createElement("strong");
+    strong.textContent = `${label}: `;
+    paragraph.append(strong, document.createTextNode(String(value)));
+    dialog.appendChild(paragraph);
+  });
+  const validSources = (Array.isArray(card.sources) ? card.sources : []).filter((source) => safeHttpUrl(source.url));
+  if (validSources.length) {
+    const heading = document.createElement("h3");
+    heading.textContent = "Sources";
+    const list = document.createElement("ul");
+    validSources.forEach((source) => {
+      const item = document.createElement("li");
+      const link = document.createElement("a");
+      link.href = safeHttpUrl(source.url);
+      link.target = "_blank";
+      link.rel = "noreferrer";
+      link.textContent = [source.outlet, source.headline].filter(Boolean).join(" — ") || "Source";
+      item.appendChild(link);
+      list.appendChild(item);
+    });
+    dialog.append(heading, list);
+  }
+  const close = document.createElement("button");
+  close.type = "button";
+  close.className = "command";
+  close.textContent = "Close";
+  close.addEventListener("click", () => dialog.close());
+  dialog.appendChild(close);
+  dialog.showModal();
+}
+
+function safeHttpUrl(value) {
+  try {
+    const url = new URL(String(value || ""));
+    return ["http:", "https:"].includes(url.protocol) ? url.href : "";
+  } catch (_error) {
+    return "";
+  }
 }
 
 function filteredReports() {
@@ -211,7 +272,7 @@ function renderFeedback(items) {
 
   const actions = (state.app && state.app.feedback_actions) || Object.keys(feedbackLabels);
   panel.innerHTML = "";
-  items.slice(0, FEEDBACK_ITEM_LIMIT).forEach((item) => {
+  items.forEach((item) => {
     const row = document.createElement("div");
     row.className = "feedback-row";
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from typing import Any, Dict, Optional, Tuple
 
 import requests
@@ -10,6 +11,8 @@ from mydailynews.app.models import AIConfig
 from mydailynews.common.utils import safe_json_load
 from .base import AIClient, AIJsonError, AITransportError, JSONSchemaSpec, write_ai_json_artifact, write_ai_text_artifact
 from .managed_llama_server import ManagedLlamaServerLease
+from .prompts import GENERIC_JSON_RETRY_USER
+from .token_budget import resolve_token_budget
 
 
 class LlamaCppServerClient(AIClient):
@@ -74,24 +77,54 @@ class LlamaCppServerClient(AIClient):
         json_schema: Optional[JSONSchemaSpec] = None,
     ) -> Dict[str, Any]:
         self.server_lease.ensure_running()
-        attempts = max(1, self.config.json_retries + 1)
-        target_max_new = max(64, int(max_new_tokens or self.max_new_tokens))
-        target_input_limit = max(64, int(input_token_limit or self.max_input_tokens))
+        json_attempts = max(1, self.config.json_retries + 1)
+        attempts = json_attempts + 1  # One extra attempt is reserved for parseable length-truncated JSON.
+        budget_args = {
+            "context_tokens": int(self.config.context_window_tokens),
+            "max_input_tokens": int(self.config.max_input_tokens),
+            "max_output_tokens": int(self.config.max_new_tokens),
+        }
+        initial_budget = resolve_token_budget(
+            **budget_args,
+            input_tokens=input_token_limit,
+            output_tokens=max_new_tokens,
+        )
+        target_input_limit = initial_budget.input_tokens
         last_response_chars = 0
         last_error = ""
         last_response_text = ""
         last_failure: Dict[str, Any] = {}
+        last_finish_reason = ""
+        attempt_output_preference = initial_budget.output_tokens
+        parsed_length_fallback: Dict[str, Any] | None = None
+        length_retry_used = False
 
         for attempt in range(1, attempts + 1):
-            attempt_user_raw = self._retry_user_prompt(user) if attempt > 1 else user
+            attempt_user_raw = (
+                self._retry_user_prompt(user, output_was_truncated=last_finish_reason == "length")
+                if attempt > 1
+                else user
+            )
+            attempt_budget = resolve_token_budget(
+                **budget_args,
+                input_tokens=target_input_limit,
+                output_tokens=attempt_output_preference,
+            )
+            attempt_input_limit = attempt_budget.input_tokens
             (
                 attempt_system,
                 attempt_user,
                 input_tokens,
                 system_was_truncated,
                 user_was_truncated,
-            ) = self._fit_chat_to_input_limit(system, attempt_user_raw, target_input_limit)
-            payload = self._build_payload(attempt_system, attempt_user, target_max_new, json_schema=json_schema)
+            ) = self._fit_chat_to_input_limit(system, attempt_user_raw, attempt_input_limit)
+            attempt_budget = resolve_token_budget(
+                **budget_args,
+                input_tokens=input_tokens,
+                output_tokens=attempt_output_preference,
+            )
+            attempt_max_new = attempt_budget.output_tokens
+            payload = self._build_payload(attempt_system, attempt_user, attempt_max_new, json_schema=json_schema)
             self.debug.log(
                 "ai.request",
                 label,
@@ -106,14 +139,18 @@ class LlamaCppServerClient(AIClient):
                 system_truncated=system_was_truncated,
                 user_truncated=user_was_truncated,
                 input_tokens=input_tokens,
-                max_input_tokens=target_input_limit,
-                max_new_tokens=target_max_new,
+                max_input_tokens=attempt_input_limit,
+                max_new_tokens=attempt_max_new,
+                context_tokens=attempt_budget.context_tokens,
+                reserve_tokens=attempt_budget.reserve_tokens,
                 schema=bool(json_schema),
             )
 
+            request_started = time.perf_counter()
             try:
-                text = self._post_chat_completion(payload)
+                text, finish_reason, usage, timings = self._post_chat_completion(payload)
             except AITransportError as exc:
+                request_duration_ms = (time.perf_counter() - request_started) * 1000
                 last_error = str(exc)
                 self.debug.log(
                     "ai.response",
@@ -122,29 +159,81 @@ class LlamaCppServerClient(AIClient):
                     attempt=f"{attempt}/{attempts}",
                     error=last_error,
                 )
-                self.debug.record_ai(label=label, status="transport_error", input_tokens=input_tokens, estimated=True)
+                self.debug.record_ai(
+                    label=label,
+                    status="transport_error",
+                    input_tokens=input_tokens,
+                    estimated=True,
+                    retry=attempt > 1,
+                    duration_ms=request_duration_ms,
+                    input_budget_tokens=attempt_input_limit,
+                    output_budget_tokens=attempt_max_new,
+                )
+                if parsed_length_fallback is not None:
+                    return parsed_length_fallback
+                if attempt >= json_attempts:
+                    break
                 continue
 
+            request_duration_ms = (time.perf_counter() - request_started) * 1000
             last_response_chars = len(text)
             last_response_text = text
-            output_tokens = self.estimate_tokens(text)
+            last_finish_reason = finish_reason
+            actual_input_tokens = self._token_count(usage.get("prompt_tokens"))
+            actual_output_tokens = self._token_count(usage.get("completion_tokens"))
+            recorded_input_tokens = actual_input_tokens if actual_input_tokens is not None else input_tokens
+            output_tokens = (
+                actual_output_tokens if actual_output_tokens is not None else self.estimate_tokens(text)
+            )
+            tokens_estimated = actual_input_tokens is None or actual_output_tokens is None
             parsed = safe_json_load(text)
             if parsed is not None:
+                retry_output = attempt_max_new
+                if finish_reason == "length" and not length_retry_used:
+                    retry_budget = resolve_token_budget(
+                        **budget_args,
+                        input_tokens=recorded_input_tokens,
+                        output_tokens=attempt_max_new * 2,
+                    )
+                    retry_output = retry_budget.output_tokens
+                will_retry_length = (
+                    finish_reason == "length"
+                    and not length_retry_used
+                    and retry_output > attempt_max_new
+                    and attempt < attempts
+                )
                 self.debug.log(
                     "ai.response",
                     label,
-                    status="ok",
+                    status="length_retry" if will_retry_length else "ok",
                     attempt=f"{attempt}/{attempts}",
                     response_chars=len(text),
+                    finish_reason=finish_reason,
+                    input_tokens=recorded_input_tokens,
+                    output_tokens=output_tokens,
+                    total_tokens=self._token_count(usage.get("total_tokens")),
+                    timings=timings,
                 )
                 self.debug.record_ai(
                     label=label,
                     status="ok",
-                    input_tokens=input_tokens,
+                    input_tokens=recorded_input_tokens,
                     output_tokens=output_tokens,
                     response_chars=len(text),
-                    estimated=True,
+                    estimated=tokens_estimated,
+                    retry=attempt > 1,
+                    finish_reason=finish_reason,
+                    duration_ms=request_duration_ms,
+                    input_budget_tokens=attempt_input_limit,
+                    output_budget_tokens=attempt_max_new,
                 )
+                if will_retry_length:
+                    parsed_length_fallback = parsed
+                    length_retry_used = True
+                    attempt_output_preference = retry_output
+                    continue
+                if finish_reason == "length" and parsed_length_fallback is not None:
+                    return parsed_length_fallback
                 return parsed
 
             last_failure = {
@@ -160,10 +249,13 @@ class LlamaCppServerClient(AIClient):
                 "system_prompt_truncated": system_was_truncated,
                 "user_prompt_truncated": user_was_truncated,
                 "input_tokens_estimated": input_tokens,
-                "max_new_tokens_requested": target_max_new,
+                "max_new_tokens_requested": attempt_max_new,
                 "input_token_limit_requested": target_input_limit,
-                "input_token_limit_used": target_input_limit,
+                "input_token_limit_used": attempt_input_limit,
                 "response_chars": len(text),
+                "finish_reason": finish_reason,
+                "usage": usage,
+                "timings": timings,
                 "raw_response": text,
             }
             self.debug.log(
@@ -172,16 +264,39 @@ class LlamaCppServerClient(AIClient):
                 status="invalid_json",
                 attempt=f"{attempt}/{attempts}",
                 response_chars=len(text),
+                finish_reason=finish_reason,
+                input_tokens=recorded_input_tokens,
+                output_tokens=output_tokens,
+                total_tokens=self._token_count(usage.get("total_tokens")),
+                timings=timings,
             )
             self.debug.record_ai(
                 label=label,
                 status="invalid_json",
-                input_tokens=input_tokens,
+                input_tokens=recorded_input_tokens,
                 output_tokens=output_tokens,
                 response_chars=len(text),
-                estimated=True,
+                estimated=tokens_estimated,
+                retry=attempt > 1,
+                finish_reason=finish_reason,
+                duration_ms=request_duration_ms,
+                input_budget_tokens=attempt_input_limit,
+                output_budget_tokens=attempt_max_new,
             )
+            if parsed_length_fallback is not None:
+                return parsed_length_fallback
+            if attempt >= json_attempts:
+                break
+            if finish_reason == "length":
+                retry_budget = resolve_token_budget(
+                    **budget_args,
+                    input_tokens=recorded_input_tokens,
+                    output_tokens=attempt_max_new * 2,
+                )
+                attempt_output_preference = retry_budget.output_tokens
 
+        if parsed_length_fallback is not None:
+            return parsed_length_fallback
         if last_error:
             raise AITransportError(f"{label}: request failed after {attempts} attempt(s): {last_error}")
         artifact_path = ""
@@ -232,7 +347,10 @@ class LlamaCppServerClient(AIClient):
 
         return payload
 
-    def _post_chat_completion(self, payload: Dict[str, Any]) -> str:
+    def _post_chat_completion(
+        self,
+        payload: Dict[str, Any],
+    ) -> tuple[str, str, Dict[str, Any], Dict[str, Any]]:
         url = f"{self.base_url}/chat/completions"
         try:
             response = requests.post(url, json=payload, timeout=self.timeout_seconds)
@@ -250,7 +368,19 @@ class LlamaCppServerClient(AIClient):
         except ValueError as exc:
             raise AITransportError(f"POST {url}: invalid JSON response body") from exc
         content = self._extract_content(raw)
-        return content.strip()
+        choices = raw.get("choices")
+        finish_reason = str(choices[0].get("finish_reason") or "") if isinstance(choices, list) and choices else ""
+        usage = raw.get("usage") if isinstance(raw.get("usage"), dict) else {}
+        timings = raw.get("timings") if isinstance(raw.get("timings"), dict) else {}
+        return content.strip(), finish_reason, dict(usage), dict(timings)
+
+    @staticmethod
+    def _token_count(value: Any) -> int | None:
+        try:
+            count = int(value)
+        except (TypeError, ValueError):
+            return None
+        return count if count >= 0 else None
 
     @staticmethod
     def _extract_content(raw: Dict[str, Any]) -> str:
@@ -291,12 +421,15 @@ class LlamaCppServerClient(AIClient):
         return str(content)
 
     @staticmethod
-    def _retry_user_prompt(user: str) -> str:
-        return (
-            f"{user}\n\n"
-            "Retry instruction: your previous answer could not be parsed as one valid JSON object. "
-            "Return exactly one JSON object only. Do not include markdown fences, explanations, or trailing text."
-        )
+    def _retry_user_prompt(user: str, *, output_was_truncated: bool = False) -> str:
+        prompt = GENERIC_JSON_RETRY_USER.format(user=user)
+        if output_was_truncated:
+            prompt = (
+                "The previous response hit the output token limit. Preserve every required field and item, "
+                "but keep text values concise enough to finish.\n"
+                f"{prompt}"
+            )
+        return prompt
 
     @staticmethod
     def _normalize_base_url(value: str) -> str:

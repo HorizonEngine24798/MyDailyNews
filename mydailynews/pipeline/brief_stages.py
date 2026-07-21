@@ -6,10 +6,7 @@ from mydailynews.ai.headline_analyzer import HeadlineAnalyzer
 from mydailynews.pipeline.article_pipeline import (
     populate_article_texts,
     record_article_fetch_metrics,
-    record_enrichment_metrics,
-    story_thread_enrichment_counts,
 )
-from mydailynews.enrichment.runner import StoryThreadEnricher
 from mydailynews.briefing.final_budget import prune_selected_for_final_token_budget
 from mydailynews.domain.headline_selection import (
     decisions_for_brief,
@@ -23,7 +20,6 @@ from mydailynews.retrieval.article import ArticleRetriever
 from mydailynews.pipeline.stage_results import (
     ArticleFetchResult,
     CandidatePreparationResult,
-    EnrichmentStageResult,
     HeadlineLimitResult,
     HeadlineScoringResult,
     SelectionResult,
@@ -508,58 +504,4 @@ def _record_story_grouping_metrics(
     orchestrator.debug.set_metric(
         f"brief.{brief_name}.story_grouping.split_requests",
         bool(artifact.get("split_requests", False)),
-    )
-
-
-def _enrich_articles_stage(
-    orchestrator,
-    *,
-    brief_name: str,
-    selected: List[SelectedArticle],
-    include_enrichment_context: bool,
-    date: str = "",
-    story_groups=None,
-) -> EnrichmentStageResult:
-    enricher = StoryThreadEnricher(
-        orchestrator.config,
-        http_cache=getattr(orchestrator, "enrichment_cache", None),
-        debug=orchestrator.debug,
-        ai_client=getattr(orchestrator, "summary_ai_client", None),
-        cache=getattr(orchestrator, "synth_cache", None),
-        brief_name=brief_name,
-        date=date,
-    )
-    if include_enrichment_context:
-        _report_phase(orchestrator, f"Enriching {brief_name} articles...")
-    with orchestrator.debug.span(f"brief.{brief_name}.enrichment"):
-        enricher.enrich_many(
-            selected,
-            story_groups=story_groups,
-        )
-    record_enrichment_metrics(
-        brief_name=brief_name,
-        selected=selected,
-        debug=orchestrator.debug,
-        story_thread_counts=(
-            int(getattr(enricher, "story_threads_created", 0)),
-            int(getattr(enricher, "story_threads_enriched", 0)),
-            int(getattr(enricher, "story_threads_skipped", 0)),
-        ),
-    )
-    story_threads_created, story_threads_enriched, story_threads_skipped = (
-        int(getattr(enricher, "story_threads_created", 0)),
-        int(getattr(enricher, "story_threads_enriched", 0)),
-        int(getattr(enricher, "story_threads_skipped", 0)),
-    )
-    if not any((story_threads_created, story_threads_enriched, story_threads_skipped)):
-        story_threads_created, story_threads_enriched, story_threads_skipped = story_thread_enrichment_counts(selected)
-    return EnrichmentStageResult(
-        selected=selected,
-        enrichment_needed=sum(1 for article in selected if article.enrichment_needed),
-        context_sources=sum(len(article.context_sources) for article in selected),
-        story_threads_created=story_threads_created,
-        story_threads_enriched=story_threads_enriched,
-        story_threads_skipped=story_threads_skipped,
-        artifact=dict(getattr(enricher, "artifact", {}) or {}),
-        warnings=list(enricher.warnings),
     )

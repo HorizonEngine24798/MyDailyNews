@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import date as date_type
 
 PIPELINE_BRIEFS = ("general", "detailed")
-PIPELINE_MODULES = ("briefs", "enrichment", "narrative_brief", "tts")
+PIPELINE_MODULES = ("briefs", "enrichment", "narrative_brief", "perspectives_report", "tts")
 PIPELINE_MODULE_CHOICES = PIPELINE_MODULES + ("series",)
 
 PIPELINE_STAGE_ORDER = (
@@ -30,6 +30,7 @@ BRIEF_STAGE_ORDER = (
 MODULE_STAGE_ORDER = (
     "enrichment",
     "narrative_brief",
+    "perspectives_report",
     "tts",
 )
 
@@ -87,7 +88,7 @@ def validate_run_date_usage(module: str, date: str) -> None:
     normalized_module = normalize_module_name(module)
     normalized_date = normalize_run_date(date)
     if normalized_date and normalized_module in {"series", "briefs"}:
-        raise ValueError("--date can only be used with standalone modules: enrichment, narrative_brief, tts")
+        raise ValueError("--date can only be used with standalone modules: enrichment, narrative_brief, tts, perspectives_report")
 
 
 def validate_markdown_path_usage(module: str, markdown_path: str) -> None:

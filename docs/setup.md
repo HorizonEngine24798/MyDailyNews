@@ -91,7 +91,7 @@ Compose sets `MYDAILYNEWS_AI_BASE_URL=http://host.docker.internal:1234/v1` insid
 
 ## TTS
 
-TTS is disabled by default. To include audio in normal runs, set `tts.enabled=true` and add `tts` after `narrative_brief` in `pipeline.default_series`.
+TTS is disabled by default. To include audio in normal runs, set `tts.enabled=true` and add `tts` at the end of `pipeline.default_series`.
 
 Standalone TTS:
 

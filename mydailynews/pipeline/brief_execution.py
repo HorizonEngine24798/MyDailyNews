@@ -372,6 +372,10 @@ def run_brief(
                 evidence_config=evidence_config,
                 delta_config=delta_config,
                 analysis_rollout_meta=analysis_rollout_meta,
+                story_groups=story_groups,
+                story_index_store=story_index_store,
+                coverage_store=coverage_store,
+                coverage_window_days=int(getattr(memory_config, "coverage_window_days", 10)),
             )
             extend_warnings(run_warnings, delta_result.warnings)
             delta_packet = delta_result.delta_packet
@@ -547,6 +551,7 @@ def run_brief(
                         selected=selected,
                         date=date,
                         story_groups=story_groups,
+                        delta_packet=delta_packet,
                         stale_after_days=int(getattr(memory_config, "story_stale_after_days", 7)),
                         retention_days=int(getattr(memory_config, "story_retention_days", 30)),
                     )
@@ -615,6 +620,7 @@ def run_brief(
                 brief_goal=brief_goal,
                 filtering=filtering,
                 selected_articles=selected,
+                story_groups=story_groups,
             )
             _checkpoint_stage(
                 orchestrator,

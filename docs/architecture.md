@@ -25,7 +25,7 @@ flowchart LR
     MEMORY["state/memory<br/>coverage + preferences"] --> BRIEFS
     BRIEFS --> BRIEF_CALLS["LLM calls:<br/>score, group, evidence,<br/>delta, final brief"]
     BRIEF_CALLS --> STRUCTURED["structured briefs<br/>Markdown + JSON"]
-    BRIEF_CALLS --> HANDOFF["handoff<br/>selected articles"]
+    BRIEF_CALLS --> HANDOFF["handoff<br/>selected articles + story boundaries"]
     HANDOFF --> ENRICH["enrichment module"]
     ENRICH --> ENRICH_CALLS["LLM calls:<br/>plan threads + synthesize<br/>per enriched story"]
     ENRICH_CALLS --> ENRICHED["enrichment context<br/>Markdown + JSON"]
@@ -84,7 +84,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    HANDOFF["brief handoff<br/>or same-day brief JSON"] --> INPUTS["selected articles"]
+    HANDOFF["brief handoff<br/>or same-day brief JSON"] --> INPUTS["selected articles<br/>+ reusable story boundaries"]
     INPUTS --> TEXT["ensure article text"]
     TEXT --> PLAN["story-thread planning"]
     SUMMARY["summary_ai_client"] --> PLAN_CALL["LLM: plan story threads<br/>0..N planner calls<br/>skipped if shared grouping exists"]
@@ -118,14 +118,15 @@ The default module series is:
 briefs -> enrichment -> narrative_brief
 ```
 
-`tts` is available but disabled by default. Add it after `narrative_brief` when audio should be part of normal runs.
+`tts` and `perspectives_report` are available but disabled by default. When perspectives is enabled, it runs before `narrative_brief` so validated claim cards are available to the narrative; TTS remains last.
 
 Modules:
 
 - `briefs`: fetches candidates, scores headlines, selects articles, fetches article text, runs analysis, writes general and detailed briefs.
 - `enrichment`: groups selected articles into story threads, retrieves related context, and writes enrichment artifacts.
 - `narrative_brief`: turns structured brief and enrichment JSON into a narrative Markdown brief.
-- `tts`: turns a saved Markdown brief into WAV audio and audio metadata.
+- `tts`: turns each configured module target's Markdown artifact into WAV audio and audio metadata.
+- `perspectives_report`: performs shared broad retrieval, bounded claim verification, and one claim-led framing synthesis per eligible story, then writes combined JSON and reader-facing Markdown.
 
 ## State Boundaries
 

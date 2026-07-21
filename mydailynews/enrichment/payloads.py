@@ -162,17 +162,15 @@ def fact_list(value: Any, *, text_key: str) -> list[dict[str, Any]]:
     for raw in value:
         if not isinstance(raw, dict):
             continue
-        text = clean_text(raw.get(text_key), 260)
+        text = clean_text(raw.get(text_key), None)
         if not text:
             continue
         output.append(
             {
                 text_key: text,
-                "source_ids": string_list(raw.get("source_ids", []), max_items=12, max_chars=120),
+                "source_ids": string_list(raw.get("source_ids", []), max_items=None, max_chars=None),
             }
         )
-        if len(output) >= 12:
-            break
     return output
 
 

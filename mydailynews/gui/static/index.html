@@ -120,6 +120,13 @@
               </div>
               <div id="settingsPipelineForm" class="form-shell compact"></div>
             </div>
+            <div class="editor-pane">
+              <div class="pane-header">
+                <h3>TTS Audio</h3>
+                <button id="saveSettingsTtsButton" class="command primary" type="button">Save</button>
+              </div>
+              <div id="settingsTtsForm" class="form-shell compact"></div>
+            </div>
           </div>
           <pre id="autoconfigOutput" class="console-output"></pre>
         </section>
@@ -383,6 +390,24 @@
         </section>
       </main>
     </div>
+
+    <section id="audioPlayer" class="audio-player collapsed" aria-label="Audio player" hidden>
+      <button id="toggleAudioPlayer" class="audio-player-tab" type="button" aria-expanded="false">Audio</button>
+      <div class="audio-player-body">
+        <div id="audioTitle" class="audio-title">Audio</div>
+        <button id="audioStopButton" class="audio-control" type="button">Stop</button>
+        <button id="audioRewindButton" class="audio-control" type="button">-10s</button>
+        <button id="audioPlayPauseButton" class="audio-control primary" type="button">Play</button>
+        <button id="audioForwardButton" class="audio-control" type="button">+10s</button>
+        <div class="audio-progress">
+          <input id="audioSeek" class="audio-seek" type="range" min="0" max="0" step="0.1" value="0" aria-label="Audio position">
+          <span id="audioTime" class="audio-time">0:00 / --:--</span>
+        </div>
+        <button id="audioSlowButton" class="audio-control" type="button">- Speed</button>
+        <span id="audioSpeedLabel" class="audio-speed">1x</span>
+        <button id="audioFastButton" class="audio-control" type="button">+ Speed</button>
+      </div>
+    </section>
 
     <script type="module" src="/static/js/main.js"></script>
   </body>

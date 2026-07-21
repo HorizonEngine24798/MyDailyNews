@@ -141,7 +141,7 @@ def main() -> int:
         print(f"Invalid run option: {exc}")
         return 1
 
-    if run_options.module != "tts":
+    if run_options.module not in {"tts", "perspectives_report"}:
         runtime_issues = find_runtime_config_issues(config)
         if runtime_issues:
             print(f"Config is not ready to run: {config_path}")
@@ -163,6 +163,9 @@ def main() -> int:
         run_error = exc
     finally:
         orchestrator.close()
+
+    if not args.debug:
+        orchestrator.debug.write_analytics_artifact(config.output_dir)
 
     if run_error is not None:
         reporter.warnings(orchestrator.warnings)

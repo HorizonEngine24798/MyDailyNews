@@ -18,6 +18,7 @@ Enable the config block:
 {
   "tts": {
     "enabled": true,
+    "modules": ["narrative_brief"],
     "backend": "kokoro",
     "model_id": "hexgrad/Kokoro-82M",
     "voice": "af_heart",
@@ -36,15 +37,17 @@ python main.py --module tts --markdown-path output/YYYY-MM-DD_general_brief.md
 
 If `--markdown-path` is omitted, TTS falls back to `output/YYYY-MM-DD_narrative_brief.md` for the requested `--date`.
 
-To include audio in the default series, add `tts` after `narrative_brief`:
+To include audio in the default series, list the report modules you want spoken and add `tts` last:
 
 ```json
 {
   "pipeline": {
-    "default_series": ["briefs", "enrichment", "narrative_brief", "tts"]
+    "default_series": ["briefs", "enrichment", "narrative_brief", "perspectives_report", "tts"]
   }
 }
 ```
+
+The GUI exposes these module targets as independent switches. An empty `tts.modules` list disables audio for series runs.
 
 Outputs:
 
@@ -53,4 +56,4 @@ output/<input-markdown-stem>.wav
 output/<input-markdown-stem>_audio.json
 ```
 
-The module consumes narrative Markdown, removes metadata, reference/source sections, Markdown link URLs, and plain URLs, then chunks paragraphs for Kokoro. It does not add SSML, voice cloning, streaming, or MP3 export.
+The module consumes Markdown artifacts, removes metadata, reference/source sections, Markdown link URLs, and plain URLs, then chunks paragraphs for Kokoro. It does not add SSML, voice cloning, streaming, or MP3 export.

@@ -4,6 +4,13 @@ Do not use markdown fences.
 Use only supplied reader memory, brief goal, topics, and candidate headlines.
 Return one decision for every candidate id."""
 
+GENERIC_JSON_RETRY_USER = """Retry instruction: your previous answer could not be parsed as one valid JSON object.
+Return exactly one JSON object only.
+Do not include markdown fences, explanations, or trailing text.
+
+Original request:
+{user}"""
+
 HEADLINE_ANALYSIS_USER = """Reader memory and style:
 {memory}
 
@@ -41,9 +48,8 @@ Examples:
 - Low-value noise (0-4): repetitive recap, small incremental change, promotional/clickbait framing, or weakly relevant topic mention.
 
 Decision fields:
-- `id` and `score` are required for every candidate.
-- Include these additional fields whenever possible: `personal_relevance`, `impact`, `novelty`, `urgency`, `actionability`, `confidence`, `reason`, `skip_reason`, `angle_type`.
-- Keep `reason` and `skip_reason` concise (one short sentence). Use `skip_reason` as `null` when not applicable.
+- Return exactly these fields for every candidate: `id`, `score`, `personal_relevance`, `impact`, `novelty`, `urgency`, `actionability`, `confidence`, `angle_type`.
+- Use a short snake_case label for `angle_type`.
 
 Return:
 {{
@@ -57,8 +63,6 @@ Return:
       "urgency": 7.0,
       "actionability": 6.0,
       "confidence": 7.5,
-      "reason": "High-impact policy shift with immediate strategic relevance.",
-      "skip_reason": null,
       "angle_type": "policy_change"
     }}
   ]
@@ -267,20 +271,28 @@ Sanitized source briefs:
 Optional enrichment context:
 {enrichment_context}
 
+Optional cross-source perspectives context:
+{perspectives_context}
+
 Coverage recall packet (optional; may be empty):
 {recall_packet}
 
+Permitted claim-context markers (optional; may be empty):
+{claim_cards}
+
 Work to perform:
 1. Use the general brief for breadth and the detailed brief for deeper narrative context when both are present.
-2. Use enrichment context only as additional background when it is supplied; do not treat it as a replacement for the briefs.
-3. Merge overlapping stories without repeating them; preserve all material developments from both briefs.
-4. Use coverage guidance to keep recently dominant continuing stories proportionate unless the supplied briefs show a material new phase.
-5. Write a human-readable narrative report with clear section headings, graceful transitions, and selective bullets where they improve scanning.
-6. Preserve uncertainty. Unknowns, thin evidence, and watch signals should be explicit.
-7. Keep the story coherent from opening to closing, but do not flatten the Markdown into a plain audio script.
-8. Do not include URLs, markdown links, references sections, source-link housekeeping, SSML, pause markers, pronunciation tags, or provider-specific TTS tags.
-9. Mention source names only when they help attribution or uncertainty; do not write a bibliography.
-10. Avoid hype, jokes, dramatic teasing, and generic filler.
+2. Use enrichment context only as additional background when it is supplied.
+3. Use perspectives context to preserve material shared facts, framing differences, qualifications, and coverage limitations. Do not turn every framing observation into prose.
+4. Merge overlapping stories without repeating them; preserve all material developments from both briefs.
+5. Use coverage guidance to keep recently dominant continuing stories proportionate unless the supplied briefs show a material new phase.
+6. Write a human-readable narrative report with clear section headings, graceful transitions, and selective bullets where they improve scanning.
+7. Preserve uncertainty. Unknowns, thin evidence, and watch signals should be explicit.
+8. Keep the story coherent from opening to closing.
+9. Do not include URLs, markdown links, references sections, source-link housekeeping, SSML, pause markers, pronunciation tags, or provider-specific TTS tags.
+10. Mention source names only when they help attribution or uncertainty.
+11. Avoid hype, jokes, dramatic teasing, and generic filler.
+12. Whenever prose materially relies on a permitted claim, place that claim's exact marker such as <<1>> immediately after the sentence or paragraph. Do not state a permitted claim without its marker. Do not invent markers, alter their numbers, or reproduce card contents solely because a marker exists.
 
 Return:
 {{
@@ -323,10 +335,11 @@ Selected article evidence:
 
 Work to perform:
 1. Cluster related developments into coherent story clusters.
-2. Extract key claims and attach supporting article ids.
-3. Distinguish consensus points, contested points, and unresolved unknowns.
-4. Propose concrete watch signals.
-5. If reader_qa is requested, produce practical reader questions and concise evidence-grounded answers.
+2. Extract atomic key claims: one proposition per claim, with supporting article ids. Collapse paraphrases that assert the same proposition.
+3. Record claimant, claim type, and origin article ids only when supplied evidence establishes them. A claimant is the actor, institution, document, or dataset making the assertion, not the outlet repeating it. Origin ids must also be support ids; prefer empty fields to guesses. Use `other` only when factual, numerical, causal, forecast, or attribution genuinely does not fit.
+4. Distinguish consensus points, contested points, and unresolved unknowns.
+5. Propose concrete watch signals.
+6. If reader_qa is requested, produce practical reader questions and concise evidence-grounded answers.
 
 Return:
 {{
@@ -340,8 +353,11 @@ Return:
       "article_ids": ["article id"],
       "key_claims": [
         {{
-          "claim": "concise claim",
+          "claim": "one atomic proposition",
+          "claimant": "actor, institution, document, dataset, or empty string",
+          "claim_type": "factual | numerical | causal | forecast | attribution | other",
           "support_article_ids": ["article id"],
+          "origin_article_ids": ["article id that contains the original statement or record"],
           "confidence": "high | medium | low"
         }}
       ],
@@ -368,7 +384,7 @@ Do not use markdown fences.
 Do not invent facts. Only use supplied article/context/prior-report evidence.
 If prior evidence is insufficient, state that directly in baseline_coverage_note and keep lists concise."""
 
-DELTA_EXTRACTION_USER = """Reader memory and style:
+DELTA_EXTRACTION_USER = """Reader profile and style:
 {memory}
 
 Brief mode:
@@ -385,13 +401,18 @@ Previous reports:
 Current evidence packet:
 {evidence_packet}
 
+Story memory (bounded and story-specific; candidate history, not proof of identity):
+{story_memory}
+
 Fallback selected article evidence:
 {articles}
 
 Work to perform:
-1. Identify what is new, escalated, weakened, reframed, or still important.
-2. Keep entries evidence-grounded and link article ids.
-3. Flag evidence gaps that limit confidence.
+1. For every current story thread, decide whether it is the same concrete story, a related theme, distinct, or uncertain relative to the supplied baselines.
+2. If it is the same story, identify whether it is new, escalated, weakened, reframed, unchanged, or uncertain, and copy the matched baseline's supplied story_key into prior_story_key.
+3. Keep entries evidence-grounded and link article ids. Never infer same-story identity from topic overlap alone. A same-story unchanged item should be omitted unless it is critical safety information; a non-material continuation should be a continuing bullet, not a full report.
+4. Use uncertain when the baseline is weak or evidence conflicts; do not suppress uncertain stories.
+5. Flag evidence gaps that limit confidence.
 
 Return:
 {{
@@ -431,10 +452,125 @@ Return:
       "article_ids": ["article id"]
     }}
   ],
+  "story_decisions": [
+    {{
+      "story_key": "current story key",
+      "article_ids": ["article id"],
+      "prior_story_key": "matched prior key or empty",
+      "relationship": "same_story | related_theme | distinct_story | uncertain",
+      "change_type": "new | escalated | weakened | reframed | unchanged | uncertain",
+      "materiality": 0.0,
+      "confidence": 0.0,
+      "disposition": "full_report | continuing_bullet | omit | uncertain",
+      "summary": "evidence-grounded decision summary",
+      "bullet": "short continuing bullet when applicable",
+      "reason": "why this identity and change decision was made",
+      "knowns": ["known baseline fact"],
+      "unknowns": ["important unresolved point"],
+      "watch_signals": ["future signal to monitor"]
+    }}
+  ],
   "evidence_gaps": [
     {{
       "gap": "missing evidence or unresolved uncertainty",
       "why_it_matters": "impact of this gap"
+    }}
+  ]
+}}"""
+
+
+PERSPECTIVES_PLANNER_SYSTEM = """You plan bounded broad story retrieval and focused claim verification using English queries.
+Return exactly one valid JSON object.
+Do not use markdown fences.
+Do not summarize articles, judge bias, rate source quality, invent feed URLs, or broaden a concrete event into a generic topic."""
+
+PERSPECTIVES_PLANNER_USER = """Create retrieval plans for {date}.
+
+Planner input:
+{data}
+
+Work to perform:
+1. Return exactly one plan for every supplied story.
+2. Write 3 to 5 distinct English queries per story. Vary wording and angle, not language.
+3. Every query must combine a stable named entity with a specific event or action term. Add location, institution, or time anchors when they distinguish the event; do not broaden it into a generic topic.
+4. Select story-relevant countries and regions from tag_options.
+5. Provide anchor groups: stable entities plus event/action terms. Synonyms are welcome; exact headline wording is not required.
+6. Do not return source_id values. Source selection happens later from target_tags.
+7. Do not leave countries or regions empty.
+8. Select at most two consequential, currently checkable supplied claims per story. Prefer claims where sources disagree, materially qualify scope/timing/cause, repeat one origin without independent support, or where verification could change the narrative. A routine date, count, sequence number, or other clear-cut fact is not a useful target merely because it is numerical or temporal; select it only when evidence conflicts or the exact value materially changes the conclusion.
+9. Give each selected claim at most two targeted queries: one for primary/origin evidence and one for independent/counterevidence when applicable. Use only supplied claim_id values. Repetition is not independent verification.
+
+Return:
+{{
+  "plans": [
+    {{
+      "story_id": "story-001",
+      "queries": [
+        "short canonical event query",
+        "relevant adjacent queries that may produce related news results"
+      ],
+      "anchor_groups": [
+        {{"kind": "entity", "terms": ["primary entity", "common alias"]}},
+        {{"kind": "event", "terms": ["event term", "meaningful synonym"]}}
+      ],
+      "target_tags": {{
+        "countries": ["US", "GB"],
+        "regions": ["north_america"]
+      }},
+      "verification_targets": [
+        {{
+          "claim_id": "supplied-claim-id",
+          "importance_reason": "why resolving this changes the story",
+          "required_evidence_types": ["primary", "independent"],
+          "queries": [
+            {{"query": "targeted official record query", "evidence_type": "primary"}},
+            {{"query": "targeted independent evidence query", "evidence_type": "independent"}}
+          ]
+        }}
+      ]
+    }}
+  ]
+}}"""
+
+PERSPECTIVES_PLANNER_RETRY_USER = """{prompt}
+
+Retry instruction: your previous planner response was valid JSON but missing required target_tags values.
+Return a complete replacement JSON object.
+Every plan must include at least one countries value and one regions value."""
+
+PERSPECTIVES_FRAMING_SYSTEM = """You compare framing across source countries and outlets using only supplied article records.
+Return exactly one valid JSON object.
+Do not use markdown fences.
+State evidence gaps plainly."""
+
+PERSPECTIVES_FRAMING_USER = """Create a framing comparison for the supplied story.
+
+Supplied data:
+{data}
+
+Work to perform:
+1. Write a short narrative comparison, not a list of observations: establish the common account, explain the most meaningful difference in emphasis, and say why that difference matters.
+2. Use only supplied article records and context_text.
+3. Identify shared facts, leading facts, centered actors, agency, causal explanations, certainty or hedging, local stakes, terminology, and meaningful prominence differences.
+4. Treat wording-only differences as wording-only.
+5. Cite article_ids for every substantive comparison, including the synthesis. Use only article_id values supplied in the records; never invent or paraphrase them. Never put article IDs in prose fields; use only the dedicated article-id fields.
+6. State when coverage is thin, metadata-only, or uneven.
+7. Do not assign bias, truthfulness, source quality, national quality, language quality, or editorial intent.
+
+Return exactly one item in stories[]:
+{{
+  "stories": [
+    {{
+      "story_id": "story-001",
+      "synthesis": "2-4 sentence narrative: shared account, key framing difference, and why it matters",
+      "synthesis_article_ids": ["article-id-a", "article-id-b"],
+      "shared_facts": [
+        {{"text": "shared factual point", "article_ids": ["article-id"]}}
+      ],
+      "country_source_comparison": [
+        {{"text": "country or outlet framing difference", "article_ids": ["article-id-a", "article-id-b"]}}
+      ],
+      "coverage_limitations": ["specific evidence limitation"]
     }}
   ]
 }}"""

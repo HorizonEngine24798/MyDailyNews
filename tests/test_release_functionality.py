@@ -10,6 +10,8 @@ import unittest
 from unittest.mock import patch
 
 from mydailynews.ai import create_ai_client
+from mydailynews.ai.base import JSONSchemaSpec
+from mydailynews.ai.llama_cpp_server_client import LlamaCppServerClient
 from mydailynews.app.config import load_config
 from mydailynews.app.models import AIConfig
 from mydailynews.app.runtime_config import find_runtime_config_issues
@@ -46,6 +48,7 @@ class ReleaseSmokeTests(unittest.TestCase):
         self.assertEqual(config.ai_summary.server_model_path, "")
         self.assertEqual(config.ai_summary.effective_model_label, "Qwen3-8B-Q4_K_M")
         self.assertEqual(config.ai_final.effective_model_label, "Qwen3-8B-Q4_K_M")
+        self.assertEqual(config.ai_summary.response_format, "auto")
         self.assertEqual(config.ai_summary.context_window_tokens, 16384)
         self.assertLessEqual(config.ai_summary.max_input_tokens + config.ai_summary.max_new_tokens, 16384)
         self.assertFalse(hasattr(config.ai_summary, "preset"))
@@ -89,12 +92,109 @@ class ReleaseSmokeTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Unsupported ai backend: auto"):
                 create_ai_client(AIConfig(backend="auto"))
 
+    def test_default_ai_format_enforces_supplied_json_schema(self) -> None:
+        config = load_config(REPO_ROOT / "config.example.json").ai_summary
+        schema = JSONSchemaSpec(name="bounded", schema={"type": "object", "maxProperties": 1})
+
+        payload = LlamaCppServerClient(config)._build_payload("system", "user", 100, json_schema=schema)
+
+        self.assertEqual(payload["response_format"]["type"], "json_schema")
+        self.assertIs(payload["json_schema"], schema.schema)
+
+    def test_length_retry_raises_budget_and_requests_concise_output(self) -> None:
+        config = load_config(REPO_ROOT / "config.example.json").ai_summary
+        config.json_retries = 1
+        config.max_new_tokens = 4000
+        client = LlamaCppServerClient(config)
+        first = unittest.mock.Mock(status_code=200, text="")
+        first.json.return_value = {
+            "choices": [{"finish_reason": "length", "message": {"content": '{"items": ['}}]
+        }
+        second = unittest.mock.Mock(status_code=200, text="")
+        second.json.return_value = {
+            "choices": [{"finish_reason": "stop", "message": {"content": '{"items": []}'}}]
+        }
+
+        with patch.object(client.server_lease, "ensure_running"), patch(
+            "mydailynews.ai.llama_cpp_server_client.requests.post",
+            side_effect=[first, second],
+        ) as post:
+            result = client.complete_json("system", "user", max_new_tokens=1000)
+
+        self.assertEqual(result, {"items": []})
+        payloads = [call.kwargs["json"] for call in post.call_args_list]
+        self.assertEqual([payload["max_tokens"] for payload in payloads], [1000, 2000])
+        self.assertIn("hit the output token limit", payloads[1]["messages"][1]["content"])
+
+    def test_rss_settings_select_catalog_source_ids(self) -> None:
+        config = load_config(REPO_ROOT / "config.example.json")
+        self.assertEqual(
+            [source.source_id for source in config.rss_sources],
+            [
+                "gb_bbc_world",
+                "gb_bbc_technology",
+                "us_npr",
+                "us_nyt_world",
+                "us_nyt_technology",
+                "gb_guardian_world",
+                "us_ars_technica",
+                "gb_sky_news",
+                "gb_sky_news",
+                "gb_sky_news",
+                "in_times_of_india",
+                "in_hindustan_times",
+                "in_india_today",
+                "us_pbs_newshour",
+                "us_pbs_newshour",
+                "us_voa_en",
+                "us_voa_en",
+                "us_voa_en",
+                "us_voa_en",
+                "ru_tass_en",
+                "cn_china_daily_en",
+                "cn_china_daily_en",
+                "pl_notes_from_poland",
+            ],
+        )
+
+        payload = self._config_payload()
+        payload["sources"]["rss"] = [{"name": "BBC World", "url": "https://example.test/feed"}]
+        path = self._write_config_payload(TEMP_ROOT, payload, "inline_rss_source")
+        with self.assertRaisesRegex(ValueError, "sources.rss must be a list of source IDs"):
+            load_config(path)
+
+        payload = self._config_payload()
+        payload["sources"]["rss"] = ["missing_source"]
+        path = self._write_config_payload(TEMP_ROOT, payload, "unknown_rss_source")
+        with self.assertRaisesRegex(ValueError, "unknown source_id"):
+            load_config(path)
+
     def test_config_env_can_override_ai_base_url(self) -> None:
         with patch.dict("os.environ", {"MYDAILYNEWS_AI_BASE_URL": "http://host.docker.internal:1234/v1"}):
             config = load_config(REPO_ROOT / "config.example.json")
 
         self.assertEqual(config.ai_summary.base_url, "http://host.docker.internal:1234/v1")
         self.assertEqual(config.ai_final.base_url, "http://host.docker.internal:1234/v1")
+
+    def test_config_env_can_supply_gnews_backup_key(self) -> None:
+        with patch.dict("os.environ", {"GNEWS_API_KEY": "env-gnews-key"}):
+            config = load_config(REPO_ROOT / "config.example.json")
+
+        self.assertEqual(config.perspectives_report.gnews_api_key, "env-gnews-key")
+
+    def test_config_rejects_removed_perspectives_provider_keys(self) -> None:
+        payload = self._config_payload()
+        payload["perspectives_report"]["coverage_provider"] = "gdelt_doc"
+        path = self._write_config_payload(TEMP_ROOT, payload, "removed_perspectives_provider")
+
+        with self.assertRaisesRegex(ValueError, "perspectives_report.*coverage_provider"):
+            load_config(path)
+
+        payload = self._config_payload()
+        payload["tts"]["modules"] = ["not_a_module"]
+        path = self._write_config_payload(TEMP_ROOT, payload, "invalid_tts_module")
+        with self.assertRaisesRegex(ValueError, "Unsupported tts.modules entry"):
+            load_config(path)
 
     def test_tts_backend_is_runtime_gated_not_parse_gated(self) -> None:
         payload = self._config_payload()

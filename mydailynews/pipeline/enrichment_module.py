@@ -20,6 +20,8 @@ from mydailynews.pipeline.handoff import (
 )
 from mydailynews.pipeline.stage_artifacts import to_jsonable
 from mydailynews.retrieval.article import ArticleRetriever
+from mydailynews.story_grouping.models import StoryGroup
+from mydailynews.story_grouping.normalization import normalize_story_groups
 
 
 ENRICHMENT_OUTPUT_SCHEMA_VERSION = "enrichment_output.v1"
@@ -31,6 +33,7 @@ class EnrichmentInputSet:
     source_briefs: List[str]
     input_mode: Dict[str, str]
     warnings: List[str]
+    story_groups: List[StoryGroup] | None = None
 
 
 def run_enrichment(
@@ -92,7 +95,7 @@ def run_enrichment(
         progress_sink=orchestrator.reporter.phase,
     )
     with orchestrator.debug.span("module.enrichment"):
-        enricher.enrich_many(inputs.selected_articles)
+        enricher.enrich_many(inputs.selected_articles, story_groups=inputs.story_groups)
     extend_warnings(run_warnings, enricher.warnings)
     record_enrichment_metrics(
         brief_name="module",
@@ -154,6 +157,8 @@ def collect_enrichment_inputs(
     warnings: List[str] = []
     input_mode: Dict[str, str] = {}
     collected: List[SelectedArticle] = []
+    collected_story_groups: List[Dict[str, Any]] = []
+    story_groups_reusable = True
     outputs_by_name: Dict[str, BriefOutput] = {}
     for output in source_outputs or []:
         name = str(output.name or "").strip().lower()
@@ -162,17 +167,18 @@ def collect_enrichment_inputs(
 
     for brief_name in STRUCTURED_BRIEF_NAMES:
         selected: List[SelectedArticle] = []
+        source_story_groups: List[Dict[str, Any]] | None = None
         mode = "missing"
         source_output = outputs_by_name.get(brief_name)
         if source_output is not None:
-            selected, mode = _selected_from_brief_output(
+            selected, mode, source_story_groups = _selected_from_brief_output(
                 source_output,
                 brief_name=brief_name,
                 article_text_cache=article_text_cache,
                 warnings=warnings,
             )
         elif allow_disk_fallback:
-            selected, mode = _selected_from_disk(
+            selected, mode, source_story_groups = _selected_from_disk(
                 output_dir=output_dir,
                 date=date,
                 brief_name=brief_name,
@@ -183,8 +189,24 @@ def collect_enrichment_inputs(
             _record_article_source(article, brief_name, mode)
         input_mode[brief_name] = mode
         collected.extend(selected)
+        if selected:
+            if source_story_groups:
+                collected_story_groups.extend(source_story_groups)
+            else:
+                story_groups_reusable = False
 
     deduped = _dedupe_articles(collected)
+    story_groups = None
+    if story_groups_reusable and collected_story_groups:
+        normalization = normalize_story_groups(
+            selected=deduped,
+            raw_groups=collected_story_groups,
+            caller="enrichment handoff story grouping",
+            allow_singleton_fallback=False,
+            fallback_when_empty_input=False,
+        )
+        extend_warnings(warnings, normalization.warnings)
+        story_groups = normalization.groups or None
     source_briefs = []
     for name in STRUCTURED_BRIEF_NAMES:
         if any(name in _article_source_briefs(article) for article in deduped):
@@ -194,6 +216,7 @@ def collect_enrichment_inputs(
         source_briefs=source_briefs,
         input_mode=input_mode,
         warnings=warnings,
+        story_groups=story_groups,
     )
 
 
@@ -203,7 +226,7 @@ def _selected_from_brief_output(
     brief_name: str,
     article_text_cache: Any | None,
     warnings: List[str],
-) -> tuple[List[SelectedArticle], str]:
+) -> tuple[List[SelectedArticle], str, List[Dict[str, Any]] | None]:
     mode = "missing"
     handoff = Path(str(output.handoff_path or "").strip()) if str(output.handoff_path or "").strip() else None
     if handoff is not None and handoff.exists():
@@ -212,20 +235,22 @@ def _selected_from_brief_output(
             extend_warnings(warnings, result.warnings)
             mode = "handoff"
             if result.selected_articles:
-                return result.selected_articles, mode
+                story_groups = result.story_groups if "story_groups" in result.payload else None
+                return result.selected_articles, mode, story_groups
         except Exception as exc:
             warnings.append(f"enrichment: failed to load current-run {brief_name} handoff ({type(exc).__name__}: {exc}).")
 
     json_path = Path(str(output.json_path or "").strip()) if str(output.json_path or "").strip() else None
     if json_path is not None and json_path.exists():
-        return _selected_from_brief_json(
+        selected, mode = _selected_from_brief_json(
             json_path,
             brief_name=brief_name,
             article_text_cache=article_text_cache,
             warnings=warnings,
             current_run=True,
         )
-    return [], mode
+        return selected, mode, None
+    return [], mode, None
 
 
 def _selected_from_disk(
@@ -235,7 +260,7 @@ def _selected_from_disk(
     brief_name: str,
     article_text_cache: Any | None,
     warnings: List[str],
-) -> tuple[List[SelectedArticle], str]:
+) -> tuple[List[SelectedArticle], str, List[Dict[str, Any]] | None]:
     mode = "missing"
     handoff = handoff_path(output_dir, date, brief_name)
     if handoff.exists():
@@ -244,20 +269,22 @@ def _selected_from_disk(
             extend_warnings(warnings, result.warnings)
             mode = "handoff"
             if result.selected_articles:
-                return result.selected_articles, mode
+                story_groups = result.story_groups if "story_groups" in result.payload else None
+                return result.selected_articles, mode, story_groups
         except Exception as exc:
             warnings.append(f"enrichment: failed to load {brief_name} handoff ({type(exc).__name__}: {exc}).")
 
     brief_json = output_dir / f"{date}_{brief_name}_brief.json"
     if brief_json.exists():
-        return _selected_from_brief_json(
+        selected, mode = _selected_from_brief_json(
             brief_json,
             brief_name=brief_name,
             article_text_cache=article_text_cache,
             warnings=warnings,
             current_run=False,
         )
-    return [], mode
+        return selected, mode, None
+    return [], mode, None
 
 
 def _selected_from_brief_json(
@@ -314,7 +341,7 @@ def build_enrichment_payload(
         "metadata": {
             "selected_count": len(selected_articles),
             "context_source_count": sum(len(article.context_sources) for article in selected_articles),
-            "story_threads_created": int(enricher_artifact.get("story_threads_created", 0) or 0),
+            "story_threads_created": len(story_threads),
             "enricher": enricher_artifact,
         },
     }

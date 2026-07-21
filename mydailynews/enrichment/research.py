@@ -5,6 +5,7 @@ from typing import Callable
 from urllib.parse import urlparse
 
 from mydailynews.app.models import SelectedArticle
+from mydailynews.common.parallel import ordered_parallel_map
 from mydailynews.common.utils import normalize_url
 from mydailynews.diagnostics.debug import safe_url
 from mydailynews.enrichment.models import ResearchResult
@@ -21,10 +22,12 @@ class StoryResearchCollector:
         article_retriever: ArticleRetriever,
         *,
         warning_sink: Callable[[str], None] | None = None,
+        max_fetch_workers: int = 1,
     ) -> None:
         self.search_retriever = search_retriever
         self.article_retriever = article_retriever
         self.warning_sink = warning_sink or (lambda warning: None)
+        self.max_fetch_workers = max(1, int(max_fetch_workers))
 
     def collect(
         self,
@@ -34,22 +37,33 @@ class StoryResearchCollector:
         story_articles: list[SelectedArticle],
         search_results_per_query: int,
         max_fetched_research_pages_per_story: int,
+        warning_sink: Callable[[str], None] | None = None,
     ) -> list[ResearchResult]:
         if not queries:
             return []
 
+        sink = warning_sink or self.warning_sink
         metadata_results = self._search_metadata(
             queries,
             per_query_limit=max(0, int(search_results_per_query)),
+            warning_sink=sink,
         )
         ranked = self.rank(metadata_results, story_title=story_title, story_articles=story_articles)
         return self._fetch_ranked_results(
             ranked,
             story_articles=story_articles,
             max_fetched_research_pages_per_story=max_fetched_research_pages_per_story,
+            warning_sink=sink,
         )
 
-    def _search_metadata(self, queries: list[str], *, per_query_limit: int) -> list[ResearchResult]:
+    def _search_metadata(
+        self,
+        queries: list[str],
+        *,
+        per_query_limit: int,
+        warning_sink: Callable[[str], None] | None = None,
+    ) -> list[ResearchResult]:
+        sink = warning_sink or self.warning_sink
         metadata_results: list[ResearchResult] = []
         seen_urls: set[str] = set()
         for query in queries:
@@ -59,7 +73,7 @@ class StoryResearchCollector:
             prior_errors = len(self.search_retriever.errors)
             search_results = self.search_retriever.search(query_text, per_query_limit)
             for warning in self.search_retriever.errors[prior_errors:]:
-                self.warning_sink(warning)
+                sink(warning)
             for search_result in search_results:
                 key = normalize_url(search_result.url)
                 if not key or key in seen_urls:
@@ -113,31 +127,34 @@ class StoryResearchCollector:
         *,
         story_articles: list[SelectedArticle],
         max_fetched_research_pages_per_story: int,
+        warning_sink: Callable[[str], None] | None = None,
     ) -> list[ResearchResult]:
+        sink = warning_sink or self.warning_sink
         selected_urls = {normalize_url(article.candidate.url) for article in story_articles}
         fetch_limit = max(0, int(max_fetched_research_pages_per_story))
-        output: list[ResearchResult] = []
-        fetched_count = 0
+        to_fetch: list[ResearchResult] = []
         for result in ranked:
             if normalize_url(result.url) in selected_urls:
                 result.status = "selected_article_duplicate"
-                output.append(result)
                 continue
-            if fetched_count >= fetch_limit:
-                output.append(result)
-                continue
+            if len(to_fetch) < fetch_limit:
+                to_fetch.append(result)
+
+        def fetch(result: ResearchResult) -> tuple[str, str, str, str]:
             try:
                 text, status, effective_url = self.article_retriever.fetch_text_with_url(result.url)
-                result.status = status
-                result.text = text or ""
-                result.effective_url = effective_url or result.url
-                fetched_count += 1
-                output.append(result)
+                return text or "", status, effective_url or result.url, ""
             except Exception as exc:
-                result.status = f"fetch_exception_{type(exc).__name__}"
-                output.append(result)
-                self.warning_sink(f"research fetch {safe_url(result.url)}: {type(exc).__name__}: {exc}")
-        return output
+                return "", f"fetch_exception_{type(exc).__name__}", result.url, f"{type(exc).__name__}: {exc}"
+
+        for result, fetched in zip(
+            to_fetch,
+            ordered_parallel_map(to_fetch, self.max_fetch_workers, fetch),
+        ):
+            result.text, result.status, result.effective_url, error = fetched
+            if error:
+                sink(f"research fetch {safe_url(result.url)}: {error}")
+        return ranked
 
 
 def _source_from_url(url: str) -> str:

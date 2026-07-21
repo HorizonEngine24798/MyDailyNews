@@ -21,6 +21,8 @@ from mydailynews.app.models import (
 )
 from mydailynews.domain.article_identity import article_aliases_for_candidate
 from mydailynews.pipeline.stage_artifacts import to_jsonable
+from mydailynews.story_grouping.models import StoryGroup
+from mydailynews.story_grouping.payloads import story_group_artifact
 
 
 BRIEF_HANDOFF_SCHEMA_VERSION = "brief_handoff.v1"
@@ -32,6 +34,7 @@ class HandoffLoadResult:
     path: str
     payload: Dict[str, Any]
     selected_articles: List[SelectedArticle]
+    story_groups: List[Dict[str, Any]]
     warnings: List[str]
 
 
@@ -51,6 +54,7 @@ def write_brief_handoff(
     brief_goal: str,
     filtering: FilteringConfig,
     selected_articles: List[SelectedArticle],
+    story_groups: List[StoryGroup] | None = None,
 ) -> Path:
     path = handoff_path(output_dir, date, brief_name)
     payload = {
@@ -74,6 +78,7 @@ def write_brief_handoff(
             )
             for article in selected_articles
         ],
+        "story_groups": [story_group_artifact(group) for group in (story_groups or [])],
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(to_jsonable(payload), ensure_ascii=False, indent=2), encoding="utf-8")
@@ -101,10 +106,18 @@ def load_brief_handoff(path: Path | str) -> HandoffLoadResult:
             selected.append(selected_article_from_payload(raw))
         except Exception as exc:
             warnings.append(f"{path_obj}: selected_articles[{index}] failed to load ({type(exc).__name__}: {exc}).")
+    story_groups = payload.get("story_groups", [])
+    if not isinstance(story_groups, list):
+        warnings.append(f"{path_obj}: story_groups is not a list; ignored.")
+        story_groups = []
+    valid_story_groups = [group for group in story_groups if isinstance(group, dict)]
+    if len(valid_story_groups) != len(story_groups):
+        warnings.append(f"{path_obj}: non-object story_groups entries were ignored.")
     return HandoffLoadResult(
         path=str(path_obj),
         payload=payload,
         selected_articles=selected,
+        story_groups=valid_story_groups,
         warnings=warnings,
     )
 

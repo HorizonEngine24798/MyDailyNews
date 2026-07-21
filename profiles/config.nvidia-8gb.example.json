@@ -59,7 +59,8 @@
   "filtering": {"time_window_hours": 36, "headline_score_cutoff": 7.0, "max_headlines_per_source": 12, "max_candidates_for_ai": 36, "max_headlines_per_ai_batch": 6, "headline_max_input_tokens": 5200, "headline_max_new_tokens": 768, "headline_single_replay_max_new_tokens": 384, "max_selected_articles": 5, "fill_selected_articles": false, "article_text_max_chars": 3500},
   "enrichment": {"enabled": true, "mode": "story_llm", "max_story_threads": 8, "planner_max_questions_per_story": 3, "planner_require_article_disposition": true, "planner_allow_misc_group": true, "planner_misc_story_id": "misc", "enrich_misc_story": false, "omitted_article_policy": "skip", "max_queries_per_story": null, "excerpt_strategy": "relevant_windows", "selected_excerpt_lead_chars": 900, "selected_excerpt_window_chars": 900, "selected_excerpt_max_windows": 3, "research_excerpt_lead_chars": 500, "research_excerpt_window_chars": 700, "research_excerpt_max_windows": 2, "planner_max_input_tokens": 6000, "planner_max_new_tokens": 1024, "search_results_per_query": 12, "max_fetched_research_pages_per_story": 4, "max_selected_article_excerpt_chars": 2800, "max_research_excerpt_chars": 2000, "synthesis_max_input_tokens": 6000, "synthesis_max_new_tokens": 1024, "cache_ttl_seconds": 604800, "max_context_chars_per_article": 2400},
   "pipeline": {"default_series": ["briefs", "enrichment", "narrative_brief"]},
-  "runtime": {"max_http_workers": 1, "max_article_workers": 1, "use_shared_snapshot": true},
+  "perspectives_report": {"enabled": false, "gnews_api_key": "", "coverage_scope": [], "coverage_regions": [], "coverage_timespan_days": 7, "coverage_max_records_per_story": 75, "minimum_source_countries": 4, "verification_enabled": true, "verification_claims_per_story": 2, "verification_claims_per_run": 12, "verification_queries_per_claim": 2, "verification_documents_per_claim": 4},
+  "runtime": {"max_http_workers": 4, "max_article_workers": 4, "use_shared_snapshot": true},
   "analysis": {
     "rollout": {
       "enabled": true,
@@ -74,10 +75,6 @@
   "sources": {
     "google_news": {"enabled": true, "days": 7, "max_results_per_topic": 10, "language": "en-US", "region": "US", "ceid": "US:en"},
     "prior_reports": {"enabled": true, "days": 7, "max_reports": 4, "max_chars_per_report": 1400, "output_dir": "output"},
-    "rss": [
-      {"name": "BBC World", "url": "https://feeds.bbci.co.uk/news/world/rss.xml", "category": "world", "tags": ["world"], "enabled": true},
-      {"name": "NPR", "url": "https://feeds.npr.org/1001/rss.xml", "category": "general", "tags": ["general", "us"], "enabled": true},
-      {"name": "Ars Technica", "url": "https://feeds.arstechnica.com/arstechnica/index", "category": "technology", "tags": ["technology"], "enabled": true}
-    ]
+    "rss": ["gb_bbc_world", "us_npr", "us_ars_technica"]
   }
 }

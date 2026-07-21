@@ -14,6 +14,7 @@ from mydailynews.app.models import (
     MemoryAnnotation,
     MemoryConfig,
     NewsCandidate,
+    PriorReportsSourceConfig,
     SelectedArticle,
     TopicConfig,
     UserMemory,
@@ -37,6 +38,7 @@ from mydailynews.memory.repair import (
 from mydailynews.memory.story_index import StoryIndexStore
 from mydailynews.memory.story_keys import story_identity_for_candidate
 from mydailynews.pipeline.handoff import load_brief_handoff, write_brief_handoff
+from mydailynews.retrieval.reports import PriorReportRetriever
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -210,6 +212,92 @@ class MemoryModuleTests(unittest.TestCase):
         self.assertIsNotNone(annotation)
         self.assertGreater(annotation.score_adjustment, 0)
         self.assertEqual(selected[0].selection_reason_code, "selected_material_update_override")
+
+    def test_non_material_recent_story_is_ineligible_even_when_capacity_remains(self) -> None:
+        temp_dir = self._temp_dir()
+        repeated = _candidate("repeat", "Iran Israel ceasefire")
+        fresh = _candidate("fresh", "Central bank cuts interest rates", source="Finance Wire")
+        story_key = story_identity_for_candidate(repeated).story_key
+        store = CoverageMemoryStore.from_state_dir(temp_dir)
+        store.write_records(
+            [
+                CoverageRecord(
+                    schema_version=1,
+                    date="2026-06-26",
+                    brief_name="general",
+                    story_key=story_key,
+                    story_family_key="iran-israel",
+                    title="Iran Israel ceasefire",
+                    prominence="body",
+                    article_ids=["old"],
+                )
+            ]
+        )
+        decisions = {
+            "repeat": HeadlineDecision("repeat", score=9.0, novelty=3.0, impact=5.0, urgency=3.0),
+            "fresh": HeadlineDecision("fresh", score=8.0, novelty=8.0, impact=8.0),
+        }
+
+        selected = select_articles(
+            [repeated, fresh],
+            decisions,
+            [TopicConfig(name="Major world events")],
+            FilteringConfig(headline_score_cutoff=0.0, max_selected_articles=2, max_selected_per_source=0),
+            user_memory=UserMemory(),
+            memory_config=_memory_config(max_selected_per_story=0),
+            coverage_store=store,
+            date="2026-06-27",
+        )
+
+        self.assertEqual([article.candidate.id for article in selected], ["fresh"])
+        self.assertEqual(decisions["repeat"].selection_reason_code, "skipped_recent_coverage")
+
+    def test_story_index_matches_same_event_with_changed_sequence_words(self) -> None:
+        temp_dir = self._temp_dir()
+        store = StoryIndexStore.from_state_dir(temp_dir)
+        store.path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 2,
+                    "stories": [
+                        {
+                            "story_key": "strikes-hit-iran-seventh-consecutive",
+                            "story_family_key": "iran-conflict",
+                            "title": "US-Iran conflict",
+                            "topic": "World",
+                            "tokens": ["strikes", "hit", "iran", "seventh", "consecutive"],
+                            "first_seen": "2026-06-20",
+                            "last_seen": "2026-06-26",
+                            "status": "active",
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        identity = store.match_candidate(_candidate("next", "US launches Iran strikes for ninth night"))
+
+        self.assertEqual(identity.story_key, "strikes-hit-iran-seventh-consecutive")
+        self.assertGreaterEqual(identity.match_confidence, 0.58)
+
+    def test_prior_reports_use_one_structured_brief_per_date(self) -> None:
+        temp_dir = self._temp_dir()
+        for name, title in (
+            ("2026-06-26_narrative_brief.json", "Narrative"),
+            ("2026-06-26_general_brief.json", "General"),
+            ("2026-06-26_detailed_brief.json", "Detailed"),
+            ("2026-06-25_general_brief.json", "Older general"),
+        ):
+            (temp_dir / name).write_text(json.dumps({"title": title, "lead": title}), encoding="utf-8")
+        retriever = PriorReportRetriever(
+            PriorReportsSourceConfig(enabled=True, days=7, max_reports=5, output_dir=str(temp_dir)),
+            str(temp_dir),
+        )
+
+        reports = retriever.fetch(datetime(2026, 6, 28, tzinfo=timezone.utc).date())
+
+        self.assertEqual([report.title for report in reports], ["Detailed", "Older general"])
 
     def test_story_caps_are_disabled_when_memory_is_disabled(self) -> None:
         first = _candidate("a", "Iran Israel ceasefire", source="Source A")

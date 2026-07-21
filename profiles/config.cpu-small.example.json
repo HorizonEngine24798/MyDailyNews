@@ -149,9 +149,23 @@
       "narrative_brief"
     ]
   },
+  "perspectives_report": {
+    "enabled": false,
+    "gnews_api_key": "",
+    "coverage_scope": [],
+    "coverage_regions": [],
+    "coverage_timespan_days": 7,
+    "coverage_max_records_per_story": 75,
+    "minimum_source_countries": 4,
+    "verification_enabled": true,
+    "verification_claims_per_story": 2,
+    "verification_claims_per_run": 12,
+    "verification_queries_per_claim": 2,
+    "verification_documents_per_claim": 4
+  },
   "runtime": {
-    "max_http_workers": 1,
-    "max_article_workers": 1,
+    "max_http_workers": 4,
+    "max_article_workers": 4,
     "use_shared_snapshot": true
   },
   "analysis": {
@@ -212,9 +226,6 @@
   "sources": {
     "google_news": {"enabled": true, "days": 7, "max_results_per_topic": 8, "language": "en-US", "region": "US", "ceid": "US:en"},
     "prior_reports": {"enabled": true, "days": 7, "max_reports": 3, "max_chars_per_report": 1200, "output_dir": "output"},
-    "rss": [
-      {"name": "BBC World", "url": "https://feeds.bbci.co.uk/news/world/rss.xml", "category": "world", "tags": ["world"], "enabled": true},
-      {"name": "NPR", "url": "https://feeds.npr.org/1001/rss.xml", "category": "general", "tags": ["general", "us"], "enabled": true}
-    ]
+    "rss": ["gb_bbc_world", "us_npr"]
   }
 }

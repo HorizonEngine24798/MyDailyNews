@@ -241,8 +241,8 @@
     ]
   },
   "runtime": {
-    "max_http_workers": 1,
-    "max_article_workers": 1,
+    "max_http_workers": 4,
+    "max_article_workers": 4,
     "use_shared_snapshot": true
   },
   "narrative_briefing": {
@@ -250,7 +250,7 @@
     "max_input_tokens": null,
     "max_new_tokens": null,
     "target_words": 1800,
-    "editorial_style": "Write like a sharp human news editor, not a consultant memo. Use clear narrative paragraphs, concrete verbs, and varied sentence rhythm. Avoid repeated Status/Impact/Operational Implication labels. Do not address the reader as an operator. Use bullets sparingly, only for genuinely scannable watch items. Prefer 'what changed, why it matters, what remains uncertain' woven into prose."
+    "editorial_style": "Write like a sharp human news editor, not a consultant memo. Use clear narrative paragraphs, concrete verbs, and varied sentence rhythm. Avoid repeated Status/Impact/Operational Implication labels. Use bullets sparingly, only for genuinely scannable watch items. Prefer 'what changed, why it matters, what remains uncertain' woven into prose."
   },
   "tts": {
     "enabled": false,
@@ -260,6 +260,20 @@
     "lang_code": "a",
     "speed": 1.0,
     "max_chunk_chars": 1200
+  },
+  "perspectives_report": {
+    "enabled": false,
+    "gnews_api_key": "",
+    "coverage_scope": [],
+    "coverage_regions": [],
+    "coverage_timespan_days": 7,
+    "coverage_max_records_per_story": 75,
+    "minimum_source_countries": 4,
+    "verification_enabled": true,
+    "verification_claims_per_story": 2,
+    "verification_claims_per_run": 12,
+    "verification_queries_per_claim": 2,
+    "verification_documents_per_claim": 4
   },
   "analysis": {
     "rollout": {

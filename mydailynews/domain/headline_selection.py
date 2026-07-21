@@ -844,6 +844,13 @@ def select_articles(
         memory_annotation = candidate_memory_annotation(candidate) if memory_enabled else None
         story_key = str(getattr(memory_annotation, "story_key", "") or "")
         story_family_key = str(getattr(memory_annotation, "story_family_key", "") or "")
+        if (
+            memory_annotation is not None
+            and memory_annotation.recent_coverage_count > 0
+            and memory_annotation.today_policy != "material_update_ok"
+        ):
+            mark_skip(candidate, decision, "skipped_recent_coverage")
+            return False
         if story_cap > 0 and story_key and story_counts.get(story_key, 0) >= story_cap:
             mark_skip(candidate, decision, "skipped_story_cap")
             return False

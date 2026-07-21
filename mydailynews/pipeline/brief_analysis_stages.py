@@ -6,6 +6,9 @@ from mydailynews.analysis.delta import DeltaExtractor
 from mydailynews.analysis.evidence import EvidenceDistiller
 from mydailynews.pipeline.brief_stages import _report_phase
 from mydailynews.analysis.deterministic_delta import build_deterministic_delta_scaffold
+from mydailynews.memory.context import build_story_memory_context
+from mydailynews.memory.coverage import CoverageMemoryStore
+from mydailynews.memory.story_index import StoryIndexStore
 from mydailynews.app.models import DeltaExtractionConfig, EvidenceDistillationConfig, PriorReport, SelectedArticle, TopicConfig
 from mydailynews.pipeline.stage_results import DeltaStageResult, EvidenceStageResult
 from mydailynews.story_grouping.models import StoryGroup
@@ -133,9 +136,26 @@ def _run_delta_stage(
     evidence_config: EvidenceDistillationConfig,
     delta_config: DeltaExtractionConfig,
     analysis_rollout_meta: Dict[str, Any],
+    story_groups: List[StoryGroup] | None = None,
+    story_index_store: StoryIndexStore | None = None,
+    coverage_store: CoverageMemoryStore | None = None,
+    coverage_window_days: int = 10,
 ) -> DeltaStageResult:
     warnings: List[str] = []
     delta_packet: Dict[str, Any] = {}
+    story_memory = build_story_memory_context(
+        selected=selected,
+        story_groups=story_groups,
+        story_index_store=story_index_store,
+        coverage_store=coverage_store,
+        prior_reports=prior_reports,
+        date=date,
+        coverage_window_days=coverage_window_days,
+    )
+    orchestrator.debug.set_metric(
+        f"brief.{brief_name}.analysis.delta.story_memory_stories",
+        len(story_memory.get("stories", [])),
+    )
     orchestrator.debug.set_metric(
         f"brief.{brief_name}.analysis.delta.enabled_requested",
         bool(analysis_rollout_meta.get("delta_requested_enabled", False)),
@@ -176,6 +196,7 @@ def _run_delta_stage(
                     brief_goal,
                     date,
                     evidence_packet=evidence_packet,
+                    story_memory=story_memory,
                     brief_name=brief_name,
                 )
             except Exception as exc:

@@ -47,7 +47,11 @@ class CliReporter:
 
     def outputs(self, result: PipelineResult) -> None:
         if not self.enabled or not (
-            result.outputs or result.enrichment_outputs or result.narrative_outputs or result.tts_outputs
+            result.outputs
+            or result.enrichment_outputs
+            or result.narrative_outputs
+            or result.tts_outputs
+            or result.perspectives_report_outputs
         ):
             return
         self._print("")
@@ -81,6 +85,14 @@ class CliReporter:
             self._print(f"{label} WAV:            {output.wav_path}")
             self._print(f"{label} JSON:           {output.json_path}")
             self._print(f"{label} source markdown: {output.markdown_path}")
+        for output in result.perspectives_report_outputs:
+            label = "Perspectives Report" if output.name == "perspectives_report" else output.name.replace("_", " ").title()
+            self._print(f"{label} markdown:   {output.markdown_path}")
+            self._print(f"{label} JSON:       {output.json_path}")
+            self._print(
+                f"{label} stories:    {output.story_count}; "
+                f"coverage articles: {output.coverage_article_count}; countries: {output.country_count}"
+            )
 
     def stopped(self, stage: str, artifact_paths: Iterable[str] | None = None) -> None:
         if not self.enabled:

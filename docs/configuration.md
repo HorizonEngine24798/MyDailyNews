@@ -22,12 +22,12 @@ Important fields:
 - `backend`: must be `llama_cpp_server`.
 - `base_url`: OpenAI-compatible endpoint, usually `http://127.0.0.1:1234/v1`.
 - `server_model`: model label sent to the endpoint.
-- `context_window_tokens`: app-side record of the effective context window.
-- `max_input_tokens` and `max_new_tokens`: prompt and output budgets.
+- `context_window_tokens`: app-side record of the server's effective per-slot context window.
+- `max_input_tokens` and `max_new_tokens`: model-role ceilings. One shared resolver reserves context overhead and clamps every request so input plus output cannot exceed the context window.
 - `manage_server`: keep `false` for LM Studio or Docker.
 - `server_executable`, `server_model_path`, and `server_arguments`: only used when `manage_server=true`.
 
-Keep `max_input_tokens + max_new_tokens` lower than the context window configured in the model server.
+Stage token fields are optional preferences. Leave them `null` to inherit the model-role ceilings; use positive values only when a stage has a measured reason to be smaller. Disabling work uses the stage's `enabled` flag, not a zero token budget.
 
 ## Coupled Limits
 
@@ -53,9 +53,9 @@ Autoconfig writes these as a coupled profile. Changing one knob by hand can make
 }
 ```
 
-Allowed modules are `briefs`, `enrichment`, `narrative_brief`, and `tts`. Unknown or duplicate module names fail config parsing. Disabled optional modules listed in the series are skipped with a warning.
+Allowed modules are `briefs`, `enrichment`, `narrative_brief`, `tts`, and `perspectives_report`. Unknown or duplicate module names fail config parsing. Disabled optional modules listed in the series are skipped with a warning.
 
-Standalone module runs can reuse artifacts from disk. `--date` is accepted only for standalone `enrichment`, `narrative_brief`, and `tts` runs. `--markdown-path` is accepted only for standalone `tts` runs.
+Standalone module runs can reuse artifacts from disk. `--date` is accepted only for standalone `enrichment`, `narrative_brief`, `tts`, and `perspectives_report` runs. `--markdown-path` is accepted only for standalone `tts` runs.
 
 ## Narrative Briefing
 
@@ -64,7 +64,7 @@ Standalone module runs can reuse artifacts from disk. `--date` is accepted only 
 Important fields:
 
 - `enabled`: allow the narrative module to run.
-- `max_input_tokens` and `max_new_tokens`: optional overrides; leave `null` to reuse `ai_final` limits.
+- `max_input_tokens` and `max_new_tokens`: optional preferences; leave `null` to use the shared resolver and `ai_final` ceilings.
 - `target_words`: soft length target.
 - `editorial_style`: natural-language guidance for the narrative pass.
 
@@ -72,16 +72,56 @@ Inside the default series, narrative briefing consumes artifacts produced earlie
 
 ## TTS Audio
 
-`tts` controls the optional Kokoro audio module. It is disabled by default and consumes narrative Markdown or the path passed with `--markdown-path`.
+`tts` controls the optional Kokoro audio module. It is disabled by default. In a series, it speaks only the Markdown artifacts for modules listed in `tts.modules`.
 
 Important fields:
 
 - `enabled`: allow TTS in the default series.
+- `modules`: report modules to speak: `briefs`, `enrichment`, `narrative_brief`, and/or `perspectives_report`.
 - `backend`: currently `kokoro`.
 - `model_id`, `voice`, `lang_code`, and `speed`: Kokoro voice settings.
 - `max_chunk_chars`: paragraph chunking limit for synthesis.
 
-Add `tts` after `narrative_brief` in `pipeline.default_series` only when audio should be part of normal runs. See [TTS audio](tts.md).
+Add `tts` at the end of `pipeline.default_series` when audio should be part of normal runs; the GUI keeps this in sync with the selected `tts.modules`. See [TTS audio](tts.md).
+
+## RSS Sources
+
+`mydailynews/data/sources.rss.json` is the single source catalog. It owns feed URLs, source metadata, categories, and required tags. Settings only select the catalog entries used by normal RSS runs:
+
+```json
+{
+  "sources": {
+    "rss": ["gb_bbc_world", "us_npr", "us_ars_technica"]
+  }
+}
+```
+
+The perspectives report reads the same catalog and selects active sources from its planner tags. Do not put feed URLs or source metadata in a config file.
+
+## Perspectives Report
+
+`perspectives_report` writes one claim-led source-country coverage and framing report from same-day enrichment and brief evidence artifacts. One planner call creates broad story queries and selects a bounded verification set. Broad coverage is retrieved once; targeted primary/independent evidence is then retrieved only for selected claims, followed by one verifier call per claim with usable evidence and one claim-led synthesis call per eligible story.
+
+Important fields:
+
+- `enabled`: allow the module to run.
+- `gnews_api_key`: optional GNews API key. Leave empty to skip the GNews provider. You can also set `MYDAILYNEWS_GNEWS_API_KEY` or `GNEWS_API_KEY`.
+- `coverage_scope`: optional source countries to include. Leave empty for global/unfiltered discovery.
+- `coverage_regions`: optional source-registry regions to target, such as `middle_east`, `europe`, or `asia_pacific`.
+- `coverage_timespan_days`: coverage search lookback window.
+- `coverage_max_records_per_story`: maximum coverage rows to keep per story.
+- `minimum_source_countries`: evidence-quality threshold used to mark thin coverage.
+- `verification_enabled`: enable bounded targeted retrieval and focused verifier calls.
+- `verification_claims_per_story`: selected verification claims per story, capped at `2`.
+- `verification_claims_per_run`: selected verification claims per run, capped at `12`.
+- `verification_queries_per_claim`: targeted queries per selected claim, capped at `2`.
+- `verification_documents_per_claim`: retained evidence documents per selected claim, capped at `4`.
+
+Coverage retrieval is not filtered by language. The report still records each article's detected or registry language so language diversity remains visible in diagnostics.
+
+Report generation does not cache final coverage sets. It rebuilds accepted rows per run from live provider responses, while still using the normal HTTP/article/AI caches.
+
+Run it standalone with `python main.py --module perspectives_report --date YYYY-MM-DD`, or use `briefs -> enrichment -> perspectives_report -> narrative_brief -> tts` in `pipeline.default_series` so narrative markers can reference validated claim cards.
 
 ## Memory
 
@@ -116,7 +156,7 @@ Main knobs:
 - thread planning: `max_story_threads`, `planner_max_questions_per_story`
 - retrieval: `search_results_per_query`, `max_queries_per_story`, `max_fetched_research_pages_per_story`
 - excerpting: `excerpt_strategy`, selected/research excerpt limits
-- LLM budgets: `planner_max_input_tokens`, `planner_max_new_tokens`, `synthesis_max_input_tokens`, `synthesis_max_new_tokens`
+- optional LLM preferences: `planner_max_input_tokens`, `planner_max_new_tokens`, `synthesis_max_input_tokens`, `synthesis_max_new_tokens`; `null` inherits the model-role limits
 - caching: `cache_ttl_seconds`
 
 Autoconfig rewrites the enrichment block from `profiles/model_catalog.json` while preserving explicit local opt-outs such as `enabled=false` or `mode="disabled"`.
@@ -126,7 +166,7 @@ Autoconfig rewrites the enrichment block from `profiles/model_catalog.json` whil
 `runtime` controls pipeline-level concurrency and snapshot reuse:
 
 - `max_http_workers`: headline/source fetch concurrency.
-- `max_article_workers`: selected-article text fetch concurrency.
+- `max_article_workers`: selected-article and enrichment research-page fetch concurrency.
 - `use_shared_snapshot`: fetch candidate sources once and reuse them across enabled brief modes.
 
 Story enrichment is deterministic and sequential.

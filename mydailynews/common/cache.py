@@ -4,6 +4,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from threading import RLock, get_ident
 from typing import Any, Dict
@@ -20,6 +21,23 @@ def _utc_now() -> datetime:
 
 def _parse_iso(value: str) -> datetime:
     return datetime.fromisoformat(value)
+
+
+def retry_after_seconds(headers: Dict[str, Any] | None, default: float, maximum: float = 60.0) -> float:
+    value = next((raw for key, raw in (headers or {}).items() if str(key).lower() == "retry-after"), "")
+    if not str(value).strip():
+        return float(default)
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError):
+        try:
+            retry_at = parsedate_to_datetime(str(value))
+            if retry_at.tzinfo is None:
+                retry_at = retry_at.replace(tzinfo=timezone.utc)
+            seconds = (retry_at - _utc_now()).total_seconds()
+        except (TypeError, ValueError, OverflowError):
+            return float(default)
+    return max(0.0, min(float(maximum), seconds))
 
 
 @dataclass
@@ -261,6 +279,7 @@ class CachedHttpClient:
         timeout: int = 20,
         allow_redirects: bool = True,
         params: Dict[str, Any] | None = None,
+        headers: Dict[str, str] | None = None,
         cache_mode: str | None = None,
     ) -> HTTPFetchResult:
         mode = self._normalize_cache_mode(cache_mode or self.cache_mode)
@@ -276,13 +295,14 @@ class CachedHttpClient:
                 cache_state="fresh_cache",
             )
 
-        headers = {"User-Agent": self.user_agent}
+        request_headers = {"User-Agent": self.user_agent}
+        request_headers.update(headers or {})
 
         try:
             response = requests.get(
                 url,
                 params=params,
-                headers=headers,
+                headers=request_headers,
                 timeout=timeout,
                 allow_redirects=allow_redirects,
             )
@@ -302,7 +322,7 @@ class CachedHttpClient:
             return HTTPFetchResult(
                 ok=False,
                 status_code=response.status_code,
-                text="",
+                text=response.text,
                 headers=dict(response.headers),
                 cache_state="network",
             )

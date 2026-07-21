@@ -3,11 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from threading import Event, Lock
 import unittest
 import uuid
 
 from mydailynews.app.models import AppConfig, EnrichmentConfig, HeadlineDecision, NewsCandidate, SelectedArticle
 from mydailynews.common.cache import HTTPFetchResult, JSONCache
+from mydailynews.enrichment.models import StoryEnrichment
 from mydailynews.enrichment.runner import StoryThreadEnricher
 from mydailynews.story_grouping.models import ResearchQuestion, StoryGroup
 from mydailynews.retrieval.ddg import DuckDuckGoSearchRetriever
@@ -103,7 +105,7 @@ def _synthesis_response(story_id: str = "story-001") -> dict:
             }
         ],
         "confirmed_facts": [{"fact": "Scrutiny increased.", "source_ids": ["selected-a"]}],
-        "conflicting_claims": [],
+        "conflicting_claims": [{"claim": "The licensing timeline remains disputed.", "source_ids": ["selected-a"]}],
         "open_questions": [{"question": "How quickly licensing changes bite.", "source_ids": ["selected-a"]}],
     }
 
@@ -140,6 +142,10 @@ class StoryThreadEnrichmentTests(unittest.TestCase):
 
         self.assertEqual(enricher.story_threads_created, 1)
         self.assertEqual(enricher.story_threads_enriched, 1)
+        thread = enricher.artifact["story_threads"][0]
+        self.assertEqual(thread["confirmed_facts"][0]["fact"], "Scrutiny increased.")
+        self.assertEqual(thread["conflicting_claims"][0]["claim"], "The licensing timeline remains disputed.")
+        self.assertEqual(thread["open_questions"][0]["question"], "How quickly licensing changes bite.")
         self.assertEqual([len(article.context_sources) for article in articles], [1, 1])
         for article in articles:
             source = article.context_sources[0]
@@ -341,6 +347,84 @@ class StoryThreadEnrichmentTests(unittest.TestCase):
         self.assertFalse(articles[1].enrichment_needed)
         self.assertIn("thread cap", articles[1].enrichment_reason)
         self.assertEqual(enricher.story_threads_skipped, 1)
+        self.assertEqual(
+            [entry["status"] for entry in enricher.artifact["story_threads"]],
+            ["enriched", "skipped_thread_cap"],
+        )
+
+    def test_retrieval_runs_one_story_ahead_and_keeps_failure_order(self) -> None:
+        articles = [_selected(str(index), f"Story {index}") for index in range(1, 4)]
+        groups = [StoryGroup(f"story-{index}", f"Story {index}", [str(index)], []) for index in range(1, 4)]
+        enricher = StoryThreadEnricher(_config(max_story_threads=3), ai_client=FakeAIClient([]))
+        second_retrieval_started = Event()
+        activity_lock = Lock()
+        events: list[str] = []
+        active_retrievals = 0
+        max_active_retrievals = 0
+
+        def retrieve(story, story_articles, queries, *, warning_sink=None):
+            nonlocal active_retrievals, max_active_retrievals
+            with activity_lock:
+                active_retrievals += 1
+                max_active_retrievals = max(max_active_retrievals, active_retrievals)
+                events.append(f"retrieve:{story.story_id}")
+            try:
+                if story.story_id == "story-2":
+                    if warning_sink:
+                        warning_sink("research warning story-2")
+                    second_retrieval_started.set()
+                    raise RuntimeError("research boom")
+                return []
+            finally:
+                with activity_lock:
+                    active_retrievals -= 1
+
+        def synthesize(story, story_articles, research_results):
+            events.append(f"synthesize:{story.story_id}:start")
+            if story.story_id == "story-1":
+                self.assertTrue(second_retrieval_started.wait(timeout=2))
+                enricher._push_warning("synthesis warning story-1")
+            events.append(f"synthesize:{story.story_id}:end")
+            return (
+                StoryEnrichment(
+                    story_id=story.story_id,
+                    story_title=story.story_title,
+                    internal_articles=[
+                        {
+                            "title": story.story_title,
+                            "summary": "Summary",
+                            "source_ids": list(story.article_ids),
+                        }
+                    ],
+                    confirmed_facts=[],
+                    conflicting_claims=[],
+                    open_questions=[],
+                ),
+                {"status": "ok"},
+            )
+
+        enricher._retrieve_research_results = retrieve
+        enricher._synthesize_story = synthesize
+
+        enricher.enrich_many(articles, story_groups=groups)
+
+        self.assertLess(events.index("retrieve:story-2"), events.index("synthesize:story-1:end"))
+        self.assertEqual(max_active_retrievals, 1)
+        self.assertEqual(active_retrievals, 0)
+        self.assertNotIn("synthesize:story-2:start", events)
+        self.assertIn("synthesize:story-3:end", events)
+        self.assertEqual(
+            [(entry["story_id"], entry["status"]) for entry in enricher.artifact["story_threads"]],
+            [("story-1", "enriched"), ("story-3", "enriched"), ("story-2", "failed")],
+        )
+        self.assertEqual(
+            enricher.warnings,
+            [
+                "synthesis warning story-1",
+                "research warning story-2",
+                "story enrichment story-2: RuntimeError: research boom",
+            ],
+        )
 
     def test_failed_synthesis_marks_articles_as_not_enriched(self) -> None:
         article = _selected("a", "Chip export scrutiny expands")
@@ -376,6 +460,40 @@ class StoryThreadEnrichmentTests(unittest.TestCase):
         self.assertFalse(article.enrichment_needed)
         self.assertIn("no internal articles", article.enrichment_reason)
         self.assertEqual(enricher.artifact["story_threads"][0]["status"], "no_internal_articles")
+
+    def test_synthesis_preserves_full_model_text_and_lists(self) -> None:
+        article = _selected("a", "Chip export scrutiny expands")
+        long_summary = "Full enrichment summary " + ("x" * 1200)
+        facts = [{"fact": f"Fact {index} " + ("y" * 350), "source_ids": ["selected-a"]} for index in range(13)]
+        response = {
+            "story_id": "story-001",
+            "story_title": "Full chip supply-chain story " + ("t" * 250),
+            "internal_articles": [
+                {
+                    "title": f"Internal article {index}",
+                    "summary": long_summary,
+                    "what_it_adds": "Additional context " + ("z" * 400),
+                    "source_ids": ["selected-a"],
+                    "confidence": "high",
+                }
+                for index in range(4)
+            ],
+            "confirmed_facts": facts,
+            "conflicting_claims": [],
+            "open_questions": [],
+        }
+        ai = FakeAIClient([response])
+        shared_groups = [StoryGroup("story-001", "Chip supply-chain scrutiny", ["a"], [])]
+        enricher = StoryThreadEnricher(_config(), ai_client=ai)
+
+        enricher.enrich_many([article], story_groups=shared_groups)
+
+        entry = enricher.artifact["story_threads"][0]
+        self.assertEqual(len(entry["internal_articles"]), 4)
+        self.assertEqual(entry["internal_articles"][-1]["summary"], long_summary)
+        self.assertEqual(len(article.context_sources), 4)
+        self.assertEqual(len(article.context_sources[0].items[0]["confirmed_facts"]), 13)
+        self.assertEqual(article.context_sources[0].items[0]["confirmed_facts"][-1]["fact"], facts[-1]["fact"])
 
     def test_planner_budget_skips_when_configured_excerpt_does_not_fit(self) -> None:
         article = _selected("a", "Very long story", text="Long context. " * 2000)

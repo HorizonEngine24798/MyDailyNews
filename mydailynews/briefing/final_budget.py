@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import List
 
-from mydailynews.briefing.generator import FINAL_PROMPT_BUDGET_SAFETY_RATIO, BriefGenerator
+from mydailynews.briefing.generator import BriefGenerator
 from mydailynews.domain.candidate_annotations import set_selection_skip_annotation
 from mydailynews.app.models import PriorReport, SelectedArticle, TopicConfig
 
@@ -24,8 +24,6 @@ def prune_selected_for_final_token_budget(
     if len(selected) <= 1:
         return selected
 
-    final_input_limit = max(512, int(getattr(orchestrator.config.ai_final, "max_input_tokens", 0) or 0))
-    prompt_budget_tokens = max(512, int(final_input_limit * FINAL_PROMPT_BUDGET_SAFETY_RATIO))
     base_context_chars = max(1, int(getattr(orchestrator.config.enrichment, "max_context_chars_per_article", 1600)))
     article_fetch_chars = max(1, int(getattr(filtering, "article_text_max_chars", base_context_chars)))
     context_chars = min(base_context_chars, article_fetch_chars)
@@ -50,10 +48,11 @@ def prune_selected_for_final_token_budget(
     estimator = BriefGenerator(
         orchestrator.final_ai_client,
         context_chars,
-        input_token_limit=final_input_limit,
+        input_token_limit=orchestrator.config.ai_final.max_input_tokens,
         max_new_tokens=orchestrator.config.ai_final.max_new_tokens,
         include_enrichment_context=include_enrichment_context,
     )
+    prompt_budget_tokens = estimator._prompt_budget_tokens()
     estimated_tokens = 0
     dropped_ids: List[str] = []
     active_reports = prior_reports[:3]
