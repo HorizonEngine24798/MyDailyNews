@@ -165,6 +165,9 @@ class PipelineModuleContractTests(unittest.TestCase):
         )
         calls: dict[str, dict] = {}
 
+        def close(self) -> None:
+            calls["closed_before_tts"] = {"tts_called": "tts" in calls}
+
         def run_briefs(self, *, date: str) -> PipelineResult:
             return PipelineResult(outputs=[brief], warnings=self.warnings)
 
@@ -196,10 +199,12 @@ class PipelineModuleContractTests(unittest.TestCase):
         orchestrator.run_briefs = MethodType(run_briefs, orchestrator)
         orchestrator.run_narrative_brief = MethodType(run_narrative_brief, orchestrator)
         orchestrator.run_tts = MethodType(run_tts, orchestrator)
+        orchestrator.close = MethodType(close, orchestrator)
 
         result = orchestrator.run_series(date="2026-06-14")
 
         self.assertEqual(result.tts_outputs, [tts])
+        self.assertEqual(calls["closed_before_tts"], {"tts_called": False})
         self.assertEqual(calls["tts"]["markdown_path"], narrative.markdown_path)
         self.assertFalse(calls["tts"]["allow_disk_fallback"])
 
@@ -236,6 +241,9 @@ class PipelineModuleContractTests(unittest.TestCase):
         )
         calls: list[str] = []
 
+        def close(self) -> None:
+            calls.append("closed")
+
         def run_briefs(self, *, date: str) -> PipelineResult:
             return PipelineResult(outputs=[brief], warnings=self.warnings)
 
@@ -268,12 +276,14 @@ class PipelineModuleContractTests(unittest.TestCase):
         orchestrator.run_narrative_brief = MethodType(run_narrative_brief, orchestrator)
         orchestrator.run_perspectives_report = MethodType(run_perspectives_report, orchestrator)
         orchestrator.run_tts = MethodType(run_tts, orchestrator)
+        orchestrator.close = MethodType(close, orchestrator)
 
         result = orchestrator.run_series(date="2026-06-14")
 
         self.assertEqual(
             calls,
             [
+                "closed",
                 brief.markdown_path,
                 enrichment.markdown_path,
                 narrative.markdown_path,

@@ -444,6 +444,11 @@ def _load_ai(ai_raw: Dict[str, Any], section_name: str = "ai") -> AIConfig:
         server_startup_timeout_seconds=max(10, int(ai_raw.get("server_startup_timeout_seconds", 180))),
         server_shutdown_timeout_seconds=max(1, int(ai_raw.get("server_shutdown_timeout_seconds", 15))),
         server_auto_stop=parse_bool(ai_raw.get("server_auto_stop", False), default=False, field_name=f"{section_name}.server_auto_stop"),
+        server_spec_default=parse_bool(
+            ai_raw.get("server_spec_default", True),
+            default=True,
+            field_name=f"{section_name}.server_spec_default",
+        ),
     )
     _validate_ai_runtime(config, section_name)
     return config

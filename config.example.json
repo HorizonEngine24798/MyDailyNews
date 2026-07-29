@@ -18,7 +18,8 @@
     "server_log_dir": "output/diagnostics/llama_server",
     "server_startup_timeout_seconds": 180,
     "server_shutdown_timeout_seconds": 15,
-    "server_auto_stop": false
+    "server_auto_stop": false,
+    "server_spec_default": true
   },
   "ai_final": {
     "backend": "llama_cpp_server",
@@ -37,7 +38,8 @@
     "server_log_dir": "output/diagnostics/llama_server",
     "server_startup_timeout_seconds": 180,
     "server_shutdown_timeout_seconds": 15,
-    "server_auto_stop": false
+    "server_auto_stop": false,
+    "server_spec_default": true
   },
   "general_topics": [
     {

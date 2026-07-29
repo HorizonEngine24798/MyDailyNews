@@ -2,12 +2,11 @@ from __future__ import annotations
 
 from datetime import datetime
 import json
-import math
 from pathlib import Path
 import re
-import struct
 from typing import Any, Iterable, List
-import wave
+
+import soundfile as sf
 
 from mydailynews.app.models import TTSConfig, TTSOutput
 
@@ -29,10 +28,10 @@ def synthesize_narrative_markdown(markdown_path: Path, output_path: Path, config
     if not chunks:
         raise ValueError(f"TTS input has no speakable text: {markdown_path}")
 
-    sample_rate, audio_chunks = _synthesize_audio_chunks(chunks, config)
-    if not audio_chunks:
+    sample_rate = KOKORO_SAMPLE_RATE
+    audio_chunk_count = _write_wav(output_path, sample_rate, _iter_audio_chunks(chunks, config))
+    if not audio_chunk_count:
         raise RuntimeError("Kokoro returned no audio chunks.")
-    _write_wav(output_path, sample_rate, audio_chunks)
 
     json_path = output_path.with_name(f"{output_path.stem}_audio.json")
     payload = {
@@ -113,6 +112,10 @@ def split_text_chunks(text: str, max_chars: int) -> List[str]:
 
 
 def _synthesize_audio_chunks(chunks: List[str], config: TTSConfig) -> tuple[int, List[Any]]:
+    return KOKORO_SAMPLE_RATE, list(_iter_audio_chunks(chunks, config))
+
+
+def _iter_audio_chunks(chunks: List[str], config: TTSConfig) -> Iterable[Any]:
     try:
         from kokoro import KPipeline
     except ImportError as exc:
@@ -122,7 +125,6 @@ def _synthesize_audio_chunks(chunks: List[str], config: TTSConfig) -> tuple[int,
 
     try:
         pipeline = KPipeline(lang_code=config.lang_code, repo_id=config.model_id)
-        audio_chunks: List[Any] = []
         for chunk in chunks:
             for _graphemes, _phonemes, audio in pipeline(
                 chunk,
@@ -130,31 +132,40 @@ def _synthesize_audio_chunks(chunks: List[str], config: TTSConfig) -> tuple[int,
                 speed=float(config.speed),
                 split_pattern=None,
             ):
-                audio_chunks.append(audio)
+                yield audio
     except FileNotFoundError as exc:
         missing = f" ({exc.filename})" if exc.filename else ""
         raise RuntimeError(
             f"Kokoro TTS could not find a required runtime file{missing}. "
             "Use Python 3.10-3.12, install requirements.txt, and ensure espeak-ng is installed and on PATH."
         ) from exc
-    return KOKORO_SAMPLE_RATE, audio_chunks
 
 
-def _write_wav(path: Path, sample_rate: int, audio_chunks: Iterable[Any]) -> None:
+def _write_wav(path: Path, sample_rate: int, audio_chunks: Iterable[Any]) -> int:
+    iterator = iter(audio_chunks)
+    try:
+        first = next(iterator)
+    except StopIteration:
+        return 0
+
     path.parent.mkdir(parents=True, exist_ok=True)
-    with wave.open(str(path), "wb") as handle:
-        handle.setnchannels(1)
-        handle.setsampwidth(2)
-        handle.setframerate(int(sample_rate))
-        batch: List[int] = []
-        for audio in audio_chunks:
-            for sample in _flatten_samples(audio):
-                batch.append(_pcm16(sample))
-                if len(batch) >= 8192:
-                    handle.writeframes(struct.pack(f"<{len(batch)}h", *batch))
-                    batch.clear()
-        if batch:
-            handle.writeframes(struct.pack(f"<{len(batch)}h", *batch))
+    with sf.SoundFile(str(path), mode="w", samplerate=int(sample_rate), channels=1, subtype="PCM_16") as handle:
+        handle.write(_audio_array(first))
+        count = 1
+        for audio in iterator:
+            handle.write(_audio_array(audio))
+            count += 1
+    return count
+
+
+def _audio_array(audio: Any) -> Any:
+    if hasattr(audio, "detach"):
+        audio = audio.detach()
+    if hasattr(audio, "cpu"):
+        audio = audio.cpu()
+    if hasattr(audio, "numpy"):
+        audio = audio.numpy()
+    return audio
 
 
 def _paragraph_units(paragraph: str, max_chars: int) -> List[str]:
@@ -231,25 +242,3 @@ def _metadata_line(line: str) -> bool:
 def _reference_heading_name(text: str) -> bool:
     normalized = " ".join(re.sub(r"[^a-z0-9]+", " ", text.lower()).split())
     return normalized in _REFERENCE_HEADING_NAMES
-
-
-def _flatten_samples(value: Any):
-    if hasattr(value, "tolist"):
-        value = value.tolist()
-    if isinstance(value, (list, tuple)):
-        for item in value:
-            yield from _flatten_samples(item)
-        return
-    yield value
-
-
-def _pcm16(value: Any) -> int:
-    try:
-        sample = float(value)
-    except (TypeError, ValueError):
-        return 0
-    if math.isnan(sample) or math.isinf(sample):
-        return 0
-    if -1.0 <= sample <= 1.0:
-        sample *= 32767.0
-    return max(-32768, min(32767, int(round(sample))))

@@ -495,10 +495,11 @@ Work to perform:
 3. Every query must combine a stable named entity with a specific event or action term. Add location, institution, or time anchors when they distinguish the event; do not broaden it into a generic topic.
 4. Select story-relevant countries and regions from tag_options.
 5. Provide anchor groups: stable entities plus event/action terms. Synonyms are welcome; exact headline wording is not required.
-6. Do not return source_id values. Source selection happens later from target_tags.
-7. Do not leave countries or regions empty.
-8. Select at most two consequential, currently checkable supplied claims per story. Prefer claims where sources disagree, materially qualify scope/timing/cause, repeat one origin without independent support, or where verification could change the narrative. A routine date, count, sequence number, or other clear-cut fact is not a useful target merely because it is numerical or temporal; select it only when evidence conflicts or the exact value materially changes the conclusion.
-9. Give each selected claim at most two targeted queries: one for primary/origin evidence and one for independent/counterevidence when applicable. Use only supplied claim_id values. Repetition is not independent verification.
+6. Provide up to three story_loci: places where the event physically occurs or territory directly affected. Exclude publisher origins, company headquarters, actor nationality, and countries that are merely interested. Use [] for a non-geographic story. Return semantic labels only; do not invent coordinates.
+7. Do not return source_id values. Source selection happens later from target_tags.
+8. Do not leave countries or regions empty.
+9. Select at most two consequential, currently checkable supplied claims per story. Prefer claims where sources disagree, materially qualify scope/timing/cause, repeat one origin without independent support, or where verification could change the narrative. A routine date, count, sequence number, or other clear-cut fact is not a useful target merely because it is numerical or temporal; select it only when evidence conflicts or the exact value materially changes the conclusion.
+10. Give each selected claim at most two targeted queries: one for primary/origin evidence and one for independent/counterevidence when applicable. Use only supplied claim_id values. Repetition is not independent verification.
 
 Return:
 {{
@@ -512,6 +513,15 @@ Return:
       "anchor_groups": [
         {{"kind": "entity", "terms": ["primary entity", "common alias"]}},
         {{"kind": "event", "terms": ["event term", "meaningful synonym"]}}
+      ],
+      "story_loci": [
+        {{
+          "label": "place where the event occurs",
+          "country": "ISO country code, or empty for a cross-border area",
+          "kind": "event_site",
+          "confidence": "high",
+          "reason": "why this is an event location rather than a reporting origin"
+        }}
       ],
       "target_tags": {{
         "countries": ["US", "GB"],

@@ -7,7 +7,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import subprocess
 from typing import Any, Callable
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from mydailynews.gui.data import GuiDataService
 
@@ -58,7 +58,8 @@ class GuiRequestHandler(BaseHTTPRequestHandler):
         return
 
     def _route_get(self) -> None:
-        path = urlparse(self.path).path
+        parsed_url = urlparse(self.path)
+        path = parsed_url.path
         if path == "/":
             self._send_static(STATIC_DIR / "index.html")
             return
@@ -73,6 +74,10 @@ class GuiRequestHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/reports":
             self._send_json(self.service.list_reports())
+            return
+        if path == "/api/map":
+            date = parse_qs(parsed_url.query).get("date", [""])[0]
+            self._send_json(self.service.map_snapshot(date))
             return
         if path.startswith("/api/reports/") and path.endswith("/audio"):
             report_id = unquote(path[len("/api/reports/") : -len("/audio")])

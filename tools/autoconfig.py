@@ -967,6 +967,9 @@ def build_launch_command(ai_config: dict[str, Any]) -> list[str]:
     if not executable or not model_path or looks_like_placeholder(model_path):
         return []
     host, port = host_port_from_base_url(str(ai_config.get("base_url", DEFAULT_EXTERNAL_BASE_URL)))
+    server_arguments = [str(item) for item in ai_config.get("server_arguments", [])]
+    if ai_config.get("server_spec_default", True) and "--spec-default" not in server_arguments:
+        server_arguments.append("--spec-default")
     return [
         executable,
         "-m",
@@ -975,7 +978,7 @@ def build_launch_command(ai_config: dict[str, Any]) -> list[str]:
         host,
         "--port",
         str(port),
-        *[str(item) for item in ai_config.get("server_arguments", [])],
+        *server_arguments,
     ]
 
 

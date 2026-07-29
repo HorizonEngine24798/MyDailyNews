@@ -19,6 +19,7 @@
           </div>
           <nav class="nav-list" aria-label="Primary">
             <button class="nav-button active" data-view="reports">Reports</button>
+            <button class="nav-button" data-view="map">Map</button>
             <button class="nav-button" data-view="settings">Settings</button>
             <button class="nav-button" data-view="profiles">Profiles</button>
             <button class="nav-button" data-view="memory">Memory</button>
@@ -69,6 +70,31 @@
                 <div id="reportList" class="report-list grouped"></div>
               </div>
             </aside>
+          </div>
+        </section>
+
+        <section id="mapView" class="view">
+          <div class="map-toolbar">
+            <label class="map-date-label" for="mapDate">Report date</label>
+            <select id="mapDate" class="inline-input"></select>
+            <label class="map-toggle"><input id="mapCoverageToggle" type="checkbox" checked> Selected-story coverage</label>
+            <div class="map-legend" aria-label="Map legend">
+              <span><i class="legend-dot story-dot"></i> Event</span>
+              <span><i class="legend-dot found-dot"></i> Coverage found</span>
+              <span><i class="legend-dot empty-dot"></i> Searched, none retained</span>
+              <span class="muted">Unmarked countries were not searched</span>
+            </div>
+          </div>
+          <div id="mapWarnings" class="map-warnings"></div>
+          <div class="map-layout">
+            <aside class="map-panel">
+              <div class="pane-header"><h3>Stories</h3><span id="mapStoryCount" class="muted small"></span></div>
+              <div id="mapStoryList" class="map-story-list"></div>
+            </aside>
+            <div class="world-map-shell">
+              <svg id="worldMap" class="world-map" viewBox="0 0 1000 500" role="img" aria-label="World news events and reporting coverage"></svg>
+            </div>
+            <aside id="mapDetails" class="map-panel map-details"></aside>
           </div>
         </section>
 

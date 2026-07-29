@@ -29,6 +29,7 @@ class AIConfig:
     server_startup_timeout_seconds: int = 180
     server_shutdown_timeout_seconds: int = 15
     server_auto_stop: bool = False
+    server_spec_default: bool = True
 
     @property
     def effective_model_label(self) -> str:

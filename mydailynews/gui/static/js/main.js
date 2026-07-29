@@ -3,6 +3,7 @@ import { initAudioPlayer } from "./audio.js";
 import { byId, setStatus } from "./dom.js";
 import { renderForm } from "./forms.js";
 import { bindMemoryRepairEvents, renderMemory } from "./memory.js";
+import { bindMapEvents, loadMap } from "./map.js";
 import {
   renderReportList,
   selectReport,
@@ -122,6 +123,8 @@ async function refreshCurrent() {
       await Promise.all([loadMemory(), loadLearned()]);
     } else if (state.view === "runs") {
       await loadRuns();
+    } else if (state.view === "map") {
+      await loadMap(state.map?.date || "");
     }
     setStatus("Ready");
   } catch (error) {
@@ -140,6 +143,7 @@ function setView(view) {
   byId("viewTitle").textContent =
     {
       reports: "Reports",
+      map: "World Map",
       settings: "Settings",
       profiles: "Profiles",
       memory: "Memory",
@@ -148,6 +152,8 @@ function setView(view) {
     }[view] || "MyDailyNews";
   if (view === "runs") {
     renderRuns();
+  } else if (view === "map" && !state.map) {
+    loadMap().catch((error) => setStatus(error.message, true));
   }
 }
 
@@ -456,6 +462,7 @@ function bindEvents() {
   byId("uiFontSize").addEventListener("change", (event) => saveGuiPrefs({ uiSize: event.target.value }));
   byId("reportFontSize").addEventListener("change", (event) => saveGuiPrefs({ reportSize: event.target.value }));
   bindMemoryRepairEvents();
+  bindMapEvents();
   bindRunEvents();
   byId("runAutoconfigButton").addEventListener("click", runAutoconfig);
   byId("toggleReportContent").addEventListener("click", () => togglePane("content"));

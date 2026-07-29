@@ -51,6 +51,15 @@ class AutoconfigTests(unittest.TestCase):
     def _example_config(self) -> dict:
         return autoconfig.load_json(REPO_ROOT / "config.example.json")
 
+    def test_managed_launch_command_respects_spec_default(self) -> None:
+        ai = self._example_config()["ai_summary"]
+        ai.update(manage_server=True, server_executable="llama-server", server_model_path="model.gguf")
+
+        with patch("tools.autoconfig.resolve_executable", return_value="llama-server"):
+            self.assertIn("--spec-default", autoconfig.build_launch_command(ai))
+            ai["server_spec_default"] = False
+            self.assertNotIn("--spec-default", autoconfig.build_launch_command(ai))
+
     def test_hardware_tier_selects_recommended_model(self) -> None:
         catalog = self._catalog()
         hardware = autoconfig.HardwareInfo(

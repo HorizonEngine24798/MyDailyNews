@@ -33,6 +33,7 @@ from mydailynews.memory.repair import (
 
 
 REPORT_NAME_RE = re.compile(r"^(?P<date>\d{4}-\d{2}-\d{2})_(?P<kind>.+)\.md$")
+PERSPECTIVES_JSON_RE = re.compile(r"^(?P<date>\d{4}-\d{2}-\d{2})_perspectives_report\.json$")
 RECALL_PACKET_NAME_RE = re.compile(r"^(?P<date>\d{4}-\d{2}-\d{2})_(?P<brief>.+)$")
 AUTOCONFIG_TIMEOUT_DEFAULT_SECONDS = 90
 AUTOCONFIG_TIMEOUT_MIN_SECONDS = 5
@@ -220,6 +221,53 @@ class GuiDataService:
             "feedback_history": feedback_history,
             "has_audio": has_audio,
             "audio_url": f"/api/reports/{quote(path.name, safe='')}/audio" if has_audio else "",
+        }
+
+    def map_snapshot(self, date: str = "") -> Dict[str, Any]:
+        output_dir = self._output_dir()
+        dated_paths = {
+            match.group("date"): path
+            for path in output_dir.glob("*_perspectives_report.json") if output_dir.exists()
+            if (match := PERSPECTIVES_JSON_RE.match(path.name))
+        }
+        available_dates = sorted(dated_paths, reverse=True)
+        requested_date = str(date or "").strip()
+        if requested_date and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", requested_date):
+            raise ValueError("Map date must use YYYY-MM-DD format.")
+        if not available_dates:
+            return {
+                "schema": "gui_map.v1",
+                "date": "",
+                "available_dates": [],
+                "stories": [],
+                "warnings": ["No perspectives reports are available. Run the perspectives module to populate the map."],
+            }
+        selected_date = requested_date or available_dates[0]
+        if selected_date not in dated_paths:
+            raise ValueError(f"No perspectives report is available for {selected_date}.")
+        try:
+            payload = json.loads(dated_paths[selected_date].read_text(encoding="utf-8-sig"))
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Perspectives report for {selected_date} is not valid JSON.") from exc
+        if not isinstance(payload, dict):
+            raise ValueError(f"Perspectives report for {selected_date} must contain an object.")
+        places = _load_map_places()
+        warnings: List[str] = []
+        stories = [
+            _map_story(story, places)
+            for story in _as_list(payload.get("stories"))
+            if isinstance(story, dict)
+        ]
+        if stories and not any(story["loci"] for story in stories):
+            warnings.append(
+                "This report predates story locations or contains no geographic stories. Rerun perspectives to add event pins."
+            )
+        return {
+            "schema": "gui_map.v1",
+            "date": selected_date,
+            "available_dates": available_dates,
+            "stories": stories,
+            "warnings": _string_list(warnings),
         }
 
     def report_audio_path(self, report_id: str) -> Path:
@@ -659,6 +707,155 @@ def _feedback_event_matches_item(event: Any, item: Dict[str, Any], *, report_dat
 
 def _as_list(value: Any) -> List[Any]:
     return value if isinstance(value, list) else []
+
+
+def _load_map_places() -> Dict[str, Any]:
+    path = Path(__file__).with_name("places.json")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return payload if isinstance(payload, dict) else {}
+
+
+def _map_story(story: Dict[str, Any], places: Dict[str, Any]) -> Dict[str, Any]:
+    warnings: List[str] = []
+    loci = []
+    for raw_locus in _as_list(story.get("story_loci")):
+        if not isinstance(raw_locus, dict) or _text(raw_locus, "confidence").lower() not in {"high", "medium"}:
+            continue
+        resolved = _resolve_map_locus(raw_locus, places)
+        if resolved:
+            loci.append(resolved)
+        elif _text(raw_locus, "label"):
+            warnings.append(f"Unresolved event location: {_text(raw_locus, 'label')}")
+    if not loci:
+        warnings.append("No resolved event location; the story remains available for coverage inspection.")
+
+    articles = [item for item in _as_list(story.get("coverage_articles")) if isinstance(item, dict)]
+    selected_sources = [item for item in _as_list(story.get("selected_sources")) if isinstance(item, dict)]
+    source_yields = {
+        _text(item, "source_id"): item
+        for item in _as_list(story.get("source_yields"))
+        if isinstance(item, dict) and _text(item, "source_id")
+    }
+    countries: Dict[str, Dict[str, Any]] = {}
+    for source in selected_sources:
+        country = _text(source, "country").upper()
+        if not country:
+            continue
+        row = countries.setdefault(country, _empty_coverage_country())
+        row["sources"].add(_text(source, "name"))
+        row["languages"].add(_text(source, "language"))
+        source_yield = source_yields.get(_text(source, "source_id"), {})
+        row["raw_count"] += _safe_int(source_yield.get("raw"))
+        row["final_count"] += _safe_int(source_yield.get("final"))
+    compact_articles = []
+    for article in articles:
+        country = _text(article, "source_country").upper()
+        source_name = _text(article, "source_name") or _text(article, "source")
+        language = _text(article, "source_language") or _text(article, "language")
+        if country:
+            row = countries.setdefault(country, _empty_coverage_country())
+            row["article_count"] += 1
+            row["sources"].add(source_name)
+            row["languages"].add(language)
+        compact_articles.append(
+            {
+                "title": _text(article, "title") or _text(article, "headline"),
+                "url": _text(article, "url"),
+                "source": source_name,
+                "country": country,
+                "language": language,
+                "published_at": _text(article, "published_at"),
+            }
+        )
+
+    coverage_points = []
+    country_lookup = places.get("countries", {}) if isinstance(places.get("countries"), dict) else {}
+    for country, counts in sorted(countries.items()):
+        location = country_lookup.get(country)
+        if not isinstance(location, list) or len(location) < 3:
+            warnings.append(f"No map coordinate for source country: {country}")
+            continue
+        coverage_points.append(
+            {
+                "country": country,
+                "label": str(location[0]),
+                "lat": location[1],
+                "lon": location[2],
+                "status": "found" if counts["article_count"] else "searched_empty",
+                "article_count": counts["article_count"],
+                "raw_count": counts["raw_count"],
+                "final_count": counts["final_count"],
+                "sources": sorted(value for value in counts["sources"] if value),
+                "languages": sorted(value for value in counts["languages"] if value),
+            }
+        )
+    found_count = sum(point["status"] == "found" for point in coverage_points)
+    empty_count = sum(point["status"] == "searched_empty" for point in coverage_points)
+    framing = story.get("framing_report") if isinstance(story.get("framing_report"), dict) else {}
+    return {
+        "story_id": _text(story, "story_id"),
+        "title": _text(story, "story_title") or "Story",
+        "summary": _text(story, "summary"),
+        "loci": loci,
+        "coverage_points": coverage_points,
+        "coverage_articles": compact_articles,
+        "coverage_quality": story.get("coverage_quality") if isinstance(story.get("coverage_quality"), dict) else {},
+        "framing_summary": _text(framing, "synthesis"),
+        "search_summary": {
+            "coverage_status": _text(story, "coverage_status"),
+            "coverage_gap": _text(story, "coverage_gap"),
+            "selected_source_count": len(selected_sources),
+            "searched_country_count": len(coverage_points),
+            "found_country_count": found_count,
+            "searched_empty_country_count": empty_count,
+            "provider_statuses": story.get("provider_statuses") if isinstance(story.get("provider_statuses"), dict) else {},
+        },
+        "warnings": _string_list(warnings),
+    }
+
+
+def _empty_coverage_country() -> Dict[str, Any]:
+    return {"article_count": 0, "raw_count": 0, "final_count": 0, "sources": set(), "languages": set()}
+
+
+def _resolve_map_locus(locus: Dict[str, Any], places: Dict[str, Any]) -> Dict[str, Any] | None:
+    label = _text(locus, "label")
+    normalized_label = label.casefold()
+    for place in _as_list(places.get("places")):
+        if not isinstance(place, list) or len(place) < 5:
+            continue
+        aliases = [str(place[0]), *_string_list(place[4])]
+        if normalized_label in {alias.casefold() for alias in aliases}:
+            return _resolved_locus(locus, label=str(place[0]), country=str(place[1]), lat=place[2], lon=place[3], resolution="named_place")
+    countries = places.get("countries", {}) if isinstance(places.get("countries"), dict) else {}
+    country = _text(locus, "country").upper()
+    if country in countries:
+        value = countries[country]
+        return _resolved_locus(locus, label=label or str(value[0]), country=country, lat=value[1], lon=value[2], resolution="country_centroid")
+    for code, value in countries.items():
+        if isinstance(value, list) and value and normalized_label == str(value[0]).casefold():
+            return _resolved_locus(locus, label=label, country=code, lat=value[1], lon=value[2], resolution="country_centroid")
+    return None
+
+
+def _resolved_locus(locus: Dict[str, Any], *, label: str, country: str, lat: Any, lon: Any, resolution: str) -> Dict[str, Any]:
+    return {
+        "label": label,
+        "country": country,
+        "lat": lat,
+        "lon": lon,
+        "kind": _text(locus, "kind"),
+        "confidence": _text(locus, "confidence"),
+        "reason": _text(locus, "reason"),
+        "resolution": resolution,
+    }
+
+
+def _safe_int(value: Any) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
 
 
 def _story_index_row(item: Any, coverage_counts: Counter[str]) -> Dict[str, Any]:

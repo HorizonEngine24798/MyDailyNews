@@ -130,6 +130,15 @@ def _planner_response() -> dict:
             "Shared story leaders deal",
             "Shared story regional reaction",
         ],
+        "story_loci": [
+            {
+                "label": "Strait of Hormuz",
+                "country": "",
+                "kind": "event_site",
+                "confidence": "high",
+                "reason": "The reported shipping disruption occurs in the strait.",
+            }
+        ],
         "target_tags": {
             "countries": ["United Kingdom", "France", "Japan"],
             "regions": ["Europe", "East Asia"],
@@ -258,7 +267,7 @@ class PerspectivesReportModuleTests(unittest.TestCase):
         path.mkdir(parents=True, exist_ok=False)
         return path
 
-    def test_claim_synthesis_validates_complete_relationships_and_trusted_sources(self) -> None:
+    def test_claim_synthesis_accepts_sparse_relationships_and_reuses_upstream_claim_metadata(self) -> None:
         warnings: list[str] = []
         raw = {
             "story_id": "story-1",
@@ -275,19 +284,26 @@ class PerspectivesReportModuleTests(unittest.TestCase):
             "claim_perspectives": [
                 {
                     "claim_id": "claim-1",
-                    "importance_reason": "It sets the date.",
-                    "claimants": [],
-                    "coverage": [{"article_id": "a1", "relationship": "reports_or_quotes", "evidence_basis": "attribution", "explanation": "Repeats the announcement."}],
-                    "not_covered_article_ids": ["a2"],
+                    "coverage": [
+                        {"article_id": "a1", "relationship": "reports_or_quotes", "evidence_basis": "attribution", "explanation": "Repeats the announcement."},
+                        {"article_id": "unknown", "relationship": "reports_or_quotes", "evidence_basis": "bad id", "explanation": "Must be ignored."},
+                    ],
                     "synthesis": "One outlet repeats it.",
                     "coverage_limitations": [],
-                    "card": {"title": "Start date", "who_says": "The ministry.", "reporting_summary": "One outlet repeats it.", "evidence_check": "Not checked.", "qualification": "", "limitations": "No primary record."},
+                    "card": {"title": "Start date", "reporting_summary": "One outlet repeats it.", "evidence_check": "Not checked.", "qualification": "", "limitations": "No primary record."},
                 }
             ],
         }
         story = {
             "story_id": "story-1",
-            "claims": [{"claim_id": "claim-1", "claim": "The measure starts 1 August.", "claim_type": "factual"}],
+            "claims": [{
+                "claim_id": "claim-1",
+                "claim": "The measure starts 1 August.",
+                "claimant": "The ministry",
+                "claim_type": "factual",
+                "origin_article_ids": ["seed-a"],
+                "importance_reason": "It sets the date.",
+            }],
             "articles": [
                 {"article_id": "a1", "title": "Report", "source_name": "Outlet", "url": "https://trusted.example/report"},
                 {"article_id": "a2", "title": "Other", "source_name": "Other", "url": "javascript:alert(1)"},
@@ -306,8 +322,11 @@ class PerspectivesReportModuleTests(unittest.TestCase):
         claim = result["claim_perspectives"][0]
         self.assertEqual(claim["coverage"][0]["relationship"], "reports_or_quotes")
         self.assertEqual(claim["not_covered_article_ids"], ["a2"])
+        self.assertEqual(claim["importance_reason"], "It sets the date.")
+        self.assertEqual(claim["claimants"][0]["article_ids"], ["seed-a"])
+        self.assertEqual(claim["card"]["who_says"], "The ministry")
         self.assertEqual(claim["card"]["sources"][0]["url"], "https://trusted.example/report")
-        self.assertFalse(warnings)
+        self.assertEqual(len(warnings), 1)
 
     def test_visible_claim_cards_drop_routine_consensus_and_keep_evidentiary_tension(self) -> None:
         routine_card = {"claim": "Strikes continued for a ninth day.", "qualification": "", "limitations": ""}
@@ -343,6 +362,7 @@ class PerspectivesReportModuleTests(unittest.TestCase):
         output_dir = self._temp_dir()
         date = "2026-07-08"
         claim_text = "The next diplomatic talks are scheduled for September."
+        routine_claim_text = "Officials attended the diplomatic summit."
         claim_id = f"claim-{stable_id(claim_text.lower())}"
         brief_path = output_dir / f"{date}_general_brief.json"
         brief_path.write_text(
@@ -370,6 +390,13 @@ class PerspectivesReportModuleTests(unittest.TestCase):
                                             "claim_type": "factual",
                                             "support_article_ids": ["seed-a", "outside"],
                                             "origin_article_ids": ["seed-a", "outside"],
+                                        },
+                                        {
+                                            "claim": routine_claim_text,
+                                            "claimant": "",
+                                            "claim_type": "factual",
+                                            "support_article_ids": ["seed-a"],
+                                            "origin_article_ids": [],
                                         }
                                     ],
                                 },
@@ -594,11 +621,13 @@ class PerspectivesReportModuleTests(unittest.TestCase):
         self.assertIsNotNone(perspectives_output)
         perspectives = json.loads(Path(perspectives_output.json_path).read_text(encoding="utf-8"))
         story = perspectives["stories"][0]
-        self.assertEqual(perspectives["evidence_diagnostics"], {"status": "claims_available", "claims": 1})
+        self.assertEqual(perspectives["evidence_diagnostics"], {"status": "claims_available", "claims": 2})
         self.assertEqual(perspectives["verification_diagnostics"]["status"], "verification_completed")
         self.assertEqual(story["planner"]["verification_targets"][0]["status"], "selected")
         self.assertEqual(story["verification_documents"][0]["document_id"], document_id)
         self.assertEqual(story["claim_perspectives"][0]["verification"]["verdict"], "supported")
+        self.assertIn(claim_text, summary_ai.calls[-1]["user"])
+        self.assertNotIn(routine_claim_text, summary_ai.calls[-1]["user"])
         self.assertEqual(perspectives["claim_card_diagnostics"], {"status": "cards_produced", "cards": 1})
         self.assertIn(document_id, {source["article_id"] for source in story["claim_context_cards"][0]["sources"]})
 
@@ -711,6 +740,7 @@ class PerspectivesReportModuleTests(unittest.TestCase):
         self.assertIn("tag_options", ai.calls[0]["user"])
         self.assertIn("Do not return source_id values", ai.calls[0]["user"])
         self.assertEqual(story["planner"]["target_tags"]["normalized"]["countries"], ["GB", "FR", "JP"])
+        self.assertEqual(story["story_loci"][0]["label"], "Strait of Hormuz")
         self.assertEqual({source["source_id"] for source in story["selected_sources"]}, {"gb_test", "fr_test", "jp_test"})
         self.assertIn("registry_rss", story["provider_statuses"])
         self.assertIn("gnews", story["provider_statuses"])
@@ -820,6 +850,10 @@ class PerspectivesReportModuleTests(unittest.TestCase):
         self.assertEqual(
             PERSPECTIVES_PLANNER_SCHEMA.schema["properties"]["plans"]["items"]["properties"]["target_tags"]["required"],
             ["countries", "regions"],
+        )
+        self.assertIn(
+            "story_loci",
+            PERSPECTIVES_PLANNER_SCHEMA.schema["properties"]["plans"]["items"]["required"],
         )
 
     def test_anchor_groups_add_bounded_anchor_requests(self) -> None:
@@ -1045,6 +1079,7 @@ class PerspectivesReportModuleTests(unittest.TestCase):
                     "coverage_quality": {"thin_reasons": []},
                 },
             },
+            plans_by_story={},
             warnings=warnings,
         )
 

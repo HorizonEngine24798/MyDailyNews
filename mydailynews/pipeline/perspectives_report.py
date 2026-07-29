@@ -48,6 +48,19 @@ MEANINGFUL_PARAGRAPH_MIN_CHARS = 240
 RELATIONSHIPS = {"originates", "independently_supports", "reports_or_quotes", "qualifies", "disputes", "context_only"}
 VERDICTS = {"supported", "mostly_supported", "mixed", "contradicted", "unresolved", "not_checkable_yet"}
 EVIDENCE_TYPES = {"primary", "origin", "independent", "counterevidence"}
+PERSPECTIVES_EVIDENCE_LIST_SCHEMA = {
+    "type": "array",
+    "maxItems": MAX_ARTICLES_FOR_REPORT,
+    "items": {
+        "type": "object",
+        "properties": {
+            "text": {"type": "string"},
+            "article_ids": {"type": "array", "items": {"type": "string"}, "maxItems": MAX_ARTICLES_FOR_REPORT},
+        },
+        "required": ["text", "article_ids"],
+        "additionalProperties": False,
+    },
+}
 WORD_RE = re.compile(r"[a-z0-9]+", re.IGNORECASE)
 TAG_RE = re.compile(r"[^a-z0-9]+", re.IGNORECASE)
 QUERY_STOPWORDS = {
@@ -191,6 +204,22 @@ PERSPECTIVES_PLANNER_SCHEMA = JSONSchemaSpec(
                             },
                             "maxItems": 4,
                         },
+                        "story_loci": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "label": {"type": "string"},
+                                    "country": {"type": "string"},
+                                    "kind": {"type": "string", "enum": ["event_site", "affected_area"]},
+                                    "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+                                    "reason": {"type": "string"},
+                                },
+                                "required": ["label", "country", "kind", "confidence", "reason"],
+                                "additionalProperties": False,
+                            },
+                            "maxItems": 3,
+                        },
                         "target_tags": {
                             "type": "object",
                             "properties": {
@@ -227,7 +256,7 @@ PERSPECTIVES_PLANNER_SCHEMA = JSONSchemaSpec(
                             "maxItems": 2,
                         },
                     },
-                    "required": ["story_id", "queries", "target_tags", "verification_targets"],
+                    "required": ["story_id", "queries", "story_loci", "target_tags", "verification_targets"],
                     "additionalProperties": False,
                 },
             },
@@ -263,10 +292,85 @@ PERSPECTIVES_CLAIM_SYNTHESIS_SCHEMA = JSONSchemaSpec(
         "type": "object",
         "properties": {
             "story_id": {"type": "string"},
-            "framing_report": {"type": "object"},
-            "claim_perspectives": {"type": "array", "items": {"type": "object"}},
+            "framing_report": {
+                "type": "object",
+                "properties": {
+                    "synthesis": {"type": "string"},
+                    "synthesis_article_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "maxItems": MAX_ARTICLES_FOR_REPORT,
+                    },
+                    "shared_facts": PERSPECTIVES_EVIDENCE_LIST_SCHEMA,
+                    "repetition_without_independent_support": PERSPECTIVES_EVIDENCE_LIST_SCHEMA,
+                    "verified_or_independently_supported_claims": PERSPECTIVES_EVIDENCE_LIST_SCHEMA,
+                    "qualified_disputed_or_unresolved_claims": PERSPECTIVES_EVIDENCE_LIST_SCHEMA,
+                    "country_source_comparison": PERSPECTIVES_EVIDENCE_LIST_SCHEMA,
+                    "coverage_limitations": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "maxItems": MAX_ARTICLES_FOR_REPORT,
+                    },
+                },
+                "required": [
+                    "synthesis",
+                    "synthesis_article_ids",
+                    "shared_facts",
+                    "repetition_without_independent_support",
+                    "verified_or_independently_supported_claims",
+                    "qualified_disputed_or_unresolved_claims",
+                    "country_source_comparison",
+                    "coverage_limitations",
+                ],
+                "additionalProperties": False,
+            },
+            "claim_perspectives": {
+                "type": "array",
+                "maxItems": 2,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "claim_id": {"type": "string"},
+                        "coverage": {
+                            "type": "array",
+                            "maxItems": MAX_ARTICLES_FOR_REPORT,
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "article_id": {"type": "string"},
+                                    "relationship": {"type": "string", "enum": sorted(RELATIONSHIPS)},
+                                    "evidence_basis": {"type": "string"},
+                                    "explanation": {"type": "string"},
+                                },
+                                "required": ["article_id", "relationship", "evidence_basis", "explanation"],
+                                "additionalProperties": False,
+                            },
+                        },
+                        "synthesis": {"type": "string"},
+                        "coverage_limitations": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "maxItems": MAX_ARTICLES_FOR_REPORT,
+                        },
+                        "card": {
+                            "type": "object",
+                            "properties": {
+                                "title": {"type": "string"},
+                                "reporting_summary": {"type": "string"},
+                                "evidence_check": {"type": "string"},
+                                "qualification": {"type": "string"},
+                                "limitations": {"type": "string"},
+                            },
+                            "additionalProperties": False,
+                        },
+                    },
+                    "required": ["claim_id", "coverage", "synthesis", "coverage_limitations", "card"],
+                    "additionalProperties": False,
+                },
+            },
         },
         "required": ["story_id", "framing_report", "claim_perspectives"],
+        "additionalProperties": False,
     },
 )
 PERSPECTIVES_FRAMING_SCHEMA = JSONSchemaSpec(
@@ -276,15 +380,25 @@ PERSPECTIVES_FRAMING_SCHEMA = JSONSchemaSpec(
         "properties": {
             "stories": {
                 "type": "array",
+                "minItems": 1,
+                "maxItems": 1,
                 "items": {
                     "type": "object",
                     "properties": {
                         "story_id": {"type": "string"},
                         "synthesis": {"type": "string"},
-                        "synthesis_article_ids": {"type": "array", "items": {"type": "string"}},
-                        "shared_facts": {"type": "array", "items": {"type": "object"}},
-                        "country_source_comparison": {"type": "array", "items": {"type": "object"}},
-                        "coverage_limitations": {"type": "array", "items": {"type": "string"}},
+                        "synthesis_article_ids": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "maxItems": MAX_ARTICLES_FOR_REPORT,
+                        },
+                        "shared_facts": PERSPECTIVES_EVIDENCE_LIST_SCHEMA,
+                        "country_source_comparison": PERSPECTIVES_EVIDENCE_LIST_SCHEMA,
+                        "coverage_limitations": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "maxItems": MAX_ARTICLES_FOR_REPORT,
+                        },
                     },
                     "required": [
                         "story_id",
@@ -294,10 +408,12 @@ PERSPECTIVES_FRAMING_SCHEMA = JSONSchemaSpec(
                         "country_source_comparison",
                         "coverage_limitations",
                     ],
+                    "additionalProperties": False,
                 },
             }
         },
         "required": ["stories"],
+        "additionalProperties": False,
     },
 )
 
@@ -379,6 +495,7 @@ def run_perspectives_report(
         orchestrator,
         inputs=inputs,
         coverage_by_story=coverage_by_story,
+        plans_by_story=plans_by_story,
         warnings=warnings,
         verification_by_claim=verification_by_claim,
         verification_documents=verification_documents,
@@ -971,6 +1088,7 @@ def build_framing_comparisons(
     *,
     inputs: Dict[str, Any],
     coverage_by_story: Dict[str, Dict[str, Any]],
+    plans_by_story: Dict[str, Dict[str, Any]],
     warnings: List[str],
     verification_by_claim: Dict[str, Dict[str, Any]] | None = None,
     verification_documents: Dict[str, List[Dict[str, Any]]] | None = None,
@@ -988,6 +1106,21 @@ def build_framing_comparisons(
         if not articles:
             empty_reports[story_id] = _empty_framing_report("No retrieved articles were available for this story.")
             continue
+        target_by_claim = {
+            str(target.get("claim_id") or ""): target
+            for target in _as_list(plans_by_story.get(story_id, {}).get("verification_targets"))
+            if isinstance(target, dict)
+        }
+        focused_claims = [
+            {
+                **claim,
+                "importance_reason": str(
+                    target_by_claim[str(claim.get("claim_id") or "")].get("importance_reason") or ""
+                ),
+            }
+            for claim in _as_list(story.get("claims"))
+            if isinstance(claim, dict) and str(claim.get("claim_id") or "") in target_by_claim
+        ]
         story_payloads.append(
             {
                 "story_id": story_id,
@@ -995,7 +1128,7 @@ def build_framing_comparisons(
                 "summary": str(story.get("summary") or ""),
                 "articles": articles,
                 "coverage_limitations": list(coverage.get("coverage_quality", {}).get("thin_reasons", [])),
-                "claims": _as_list(story.get("claims")),
+                "claims": focused_claims,
                 "confirmed_facts": _as_list(story.get("confirmed_facts")),
                 "conflicting_claims": _as_list(story.get("conflicting_claims")),
                 "open_questions": _as_list(story.get("open_questions")),
@@ -1352,6 +1485,24 @@ def _normalize_planner_item(item: Dict[str, Any], story: Dict[str, Any], source_
         anchor_groups = _seed_anchor_groups(story)
     if not queries:
         diagnostics.append("no usable canonical query")
+    story_loci = []
+    for raw_locus in _as_list(item.get("story_loci"))[:3]:
+        if not isinstance(raw_locus, dict):
+            continue
+        label = _short_text(raw_locus.get("label"), 100)
+        kind = str(raw_locus.get("kind") or "").strip().lower()
+        confidence = str(raw_locus.get("confidence") or "").strip().lower()
+        if not label or kind not in {"event_site", "affected_area"} or confidence not in {"high", "medium", "low"}:
+            continue
+        story_loci.append(
+            {
+                "label": label,
+                "country": str(raw_locus.get("country") or "").strip().upper()[:3],
+                "kind": kind,
+                "confidence": confidence,
+                "reason": _short_text(raw_locus.get("reason"), 240),
+            }
+        )
     missing_tag_groups = [name for name in ("countries", "regions") if not normalized_tags.get(name)]
     if missing_tag_groups:
         diagnostics.append("missing required target tags: " + ", ".join(missing_tag_groups))
@@ -1400,6 +1551,7 @@ def _normalize_planner_item(item: Dict[str, Any], story: Dict[str, Any], source_
         "status": "ok" if queries and not missing_tag_groups else "planner_failed",
         "queries": queries,
         "anchor_groups": anchor_groups,
+        "story_loci": story_loci,
         "target_tags": {
             "raw": {
                 "countries": _string_list(raw_tags.get("countries") if isinstance(raw_tags, dict) else []),
@@ -2078,10 +2230,10 @@ def _framing_prompt(story_payloads: List[Dict[str, Any]]) -> str:
 
 
 def _claim_synthesis_prompt(ai_client: Any, story: Dict[str, Any], input_token_limit: int) -> str:
-    instructions = """Classify every supplied claim/article pair. Relationships: originates, independently_supports, reports_or_quotes, qualifies, disputes, context_only. Put articles that do not address a claim in not_covered_article_ids; missing coverage is never dispute or context_only. Syndication and repeated attribution are not independent support. Return the supplied story_id, a framing_report, and claim_perspectives. Each claim perspective must use a supplied claim_id, cover every supplied article exactly once across coverage and not_covered_article_ids, and may include a concise card only when context would materially help. Do not return URLs. Never put article IDs in prose fields; use only the dedicated article-id fields. Preserve framing analysis beyond verdicts: prominence, actors, agency, terminology, local stakes, hedging, and established omissions.
+    instructions = """Analyze only the supplied focus claims. Relationships: originates, independently_supports, reports_or_quotes, qualifies, disputes, context_only. For each claim, return coverage rows only for articles that address it or provide material context; omit unrelated articles. Use each article at most once per claim. Syndication and repeated attribution are not independent support. Return the supplied story_id, a framing_report, and one claim perspective for every supplied focus claim. Claimant, origin, and importance metadata are supplied upstream; do not recreate them. A concise card is optional and should appear only when context would materially help. Do not return URLs. Never put article IDs in prose fields; use only the dedicated article-id fields. Preserve framing analysis beyond verdicts: prominence, actors, agency, terminology, local stakes, hedging, and established omissions.
 
 Output shape:
-{"story_id":"supplied id","framing_report":{"synthesis":"prose","synthesis_article_ids":["article id"],"shared_facts":[{"text":"fact","article_ids":["article id"]}],"repetition_without_independent_support":[],"verified_or_independently_supported_claims":[],"qualified_disputed_or_unresolved_claims":[],"country_source_comparison":[],"coverage_limitations":[]},"claim_perspectives":[{"claim_id":"supplied claim id","importance_reason":"why it matters","claimants":[{"name":"actor","role":"originator","evidence_basis":"basis","article_ids":["article id"]}],"coverage":[{"article_id":"article id","relationship":"reports_or_quotes","evidence_basis":"basis","explanation":"explanation"}],"not_covered_article_ids":["article id"],"synthesis":"claim-level prose","coverage_limitations":[],"card":{"title":"claim title","who_says":"origin attribution","reporting_summary":"independent contribution versus repetition","evidence_check":"scoped verification result","qualification":"material qualification","limitations":"unresolved point"}}]}"""
+{"story_id":"supplied id","framing_report":{"synthesis":"prose","synthesis_article_ids":["article id"],"shared_facts":[{"text":"fact","article_ids":["article id"]}],"repetition_without_independent_support":[],"verified_or_independently_supported_claims":[],"qualified_disputed_or_unresolved_claims":[],"country_source_comparison":[],"coverage_limitations":[]},"claim_perspectives":[{"claim_id":"supplied claim id","coverage":[{"article_id":"article id","relationship":"reports_or_quotes","evidence_basis":"basis","explanation":"explanation"}],"synthesis":"claim-level prose","coverage_limitations":[],"card":{"title":"claim title","reporting_summary":"independent contribution versus repetition","evidence_check":"scoped verification result","qualification":"material qualification","limitations":"unresolved point"}}]}"""
     payload = dict(story)
     limit = int(input_token_limit)
     for context_chars in (ARTICLE_CONTEXT_MAX_CHARS, 1200, 700, 360, 180):
@@ -2138,15 +2290,15 @@ def _normalize_claim_synthesis_response(
             continue
         coverage = []
         covered_ids: set[str] = set()
-        invalid = False
         for relation in _as_list(item.get("coverage")):
             if not isinstance(relation, dict):
+                warnings.append(f"perspectives_report: claim {claim_id!r} used a non-object relationship row; ignored.")
                 continue
             article_id = str(relation.get("article_id") or "")
             relationship = str(relation.get("relationship") or "")
             if article_id not in valid_articles or relationship not in RELATIONSHIPS or article_id in covered_ids:
-                invalid = True
-                break
+                warnings.append(f"perspectives_report: claim {claim_id!r} used an unknown, duplicate, or invalid article relationship; ignored.")
+                continue
             covered_ids.add(article_id)
             coverage.append(
                 {
@@ -2156,34 +2308,25 @@ def _normalize_claim_synthesis_response(
                     "explanation": normalize_whitespace(str(relation.get("explanation") or "")),
                 }
             )
-        not_covered = _string_list(item.get("not_covered_article_ids"))
-        if len(not_covered) != len(set(not_covered)) or any(article_id not in valid_articles or article_id in covered_ids for article_id in not_covered):
-            invalid = True
-        if covered_ids.union(not_covered) != valid_articles:
-            invalid = True
-        if invalid:
-            warnings.append(f"perspectives_report: claim {claim_id!r} had invalid or incomplete article relationships; discarded.")
-            continue
-        claimants = []
-        for claimant in _as_list(item.get("claimants")):
-            if not isinstance(claimant, dict):
-                continue
-            article_ids = _string_list(claimant.get("article_ids"))
-            if any(article_id not in valid_articles for article_id in article_ids):
-                warnings.append(f"perspectives_report: claimant for {claim_id!r} used an unknown article id; discarded.")
-                continue
-            claimants.append(
+        not_covered = [article_id for article_id in known_article_ids if article_id and article_id not in covered_ids]
+        claim = known_claims[claim_id]
+        claimant = normalize_whitespace(str(claim.get("claimant") or ""))
+        claimants = (
+            [
                 {
-                    "name": normalize_whitespace(str(claimant.get("name") or "")),
-                    "role": normalize_whitespace(str(claimant.get("role") or "")),
-                    "evidence_basis": normalize_whitespace(str(claimant.get("evidence_basis") or "")),
-                    "article_ids": article_ids,
+                    "name": claimant,
+                    "role": "originator",
+                    "evidence_basis": "upstream evidence packet",
+                    "article_ids": _string_list(claim.get("origin_article_ids")),
                 }
-            )
+            ]
+            if claimant
+            else []
+        )
         card = _trusted_claim_card(
             item.get("card"),
             claim_id=claim_id,
-            claim=known_claims[claim_id],
+            claim=claim,
             coverage=coverage,
             article_metadata=article_metadata,
             verification=verification_by_claim.get(claim_id),
@@ -2193,9 +2336,9 @@ def _normalize_claim_synthesis_response(
         claim_perspectives.append(
             {
                 "claim_id": claim_id,
-                "claim": str(known_claims[claim_id].get("claim") or ""),
-                "claim_type": str(known_claims[claim_id].get("claim_type") or "other"),
-                "importance_reason": normalize_whitespace(str(item.get("importance_reason") or "")),
+                "claim": str(claim.get("claim") or ""),
+                "claim_type": str(claim.get("claim_type") or "other"),
+                "importance_reason": normalize_whitespace(str(claim.get("importance_reason") or "")),
                 "claimants": claimants,
                 "coverage": coverage,
                 "not_covered_article_ids": not_covered,
@@ -2207,7 +2350,7 @@ def _normalize_claim_synthesis_response(
         )
     omitted_claims = set(known_claims).difference(seen_claims)
     if omitted_claims:
-        warnings.append(f"perspectives_report: synthesis omitted or invalidated {len(omitted_claims)} supplied claim(s) for {story_id!r}.")
+        warnings.append(f"perspectives_report: synthesis omitted {len(omitted_claims)} focus claim(s) for {story_id!r}.")
     framing["claim_perspectives"] = claim_perspectives
     return framing
 
@@ -2267,7 +2410,7 @@ def _trusted_claim_card(
         "claim_id": claim_id,
         "claim": str(claim.get("claim") or ""),
         "title": normalize_whitespace(str(raw_card.get("title") or claim.get("claim") or "")),
-        "who_says": normalize_whitespace(str(raw_card.get("who_says") or "")),
+        "who_says": normalize_whitespace(str(claim.get("claimant") or raw_card.get("who_says") or "")),
         "reporting_summary": normalize_whitespace(str(raw_card.get("reporting_summary") or "")),
         "evidence_check": normalize_whitespace(str(raw_card.get("evidence_check") or "")),
         "verification_verdict": str((verification or {}).get("verdict") or "not_checked"),
@@ -2421,6 +2564,7 @@ def _story_report(
         "entities": _string_list(story.get("entities")),
         "seed_article_ids": [article["id"] for article in articles],
         "seed_sources": seed_sources,
+        "story_loci": plan.get("story_loci", []),
         "planner": _public_plan(plan),
         "coverage_status": coverage.get("coverage_status", "coverage_gap"),
         "coverage_gap": coverage.get("coverage_gap", ""),
@@ -2454,6 +2598,7 @@ def _public_plan(plan: Dict[str, Any]) -> Dict[str, Any]:
         "status": str(plan.get("status") or ""),
         "queries": _string_list(plan.get("queries")),
         "anchor_groups": plan.get("anchor_groups", []),
+        "story_loci": plan.get("story_loci", []),
         "target_tags": plan.get("target_tags", {}),
         "selected_sources": plan.get("selected_sources", []),
         "diagnostics": _unique_text(_string_list(plan.get("diagnostics"))),
@@ -3030,6 +3175,7 @@ def _empty_plan(story: Dict[str, Any], status: str, diagnostics: List[str]) -> D
         "status": status,
         "queries": [],
         "anchor_groups": [],
+        "story_loci": [],
         "target_tags": {"raw": {"countries": [], "languages": [], "regions": []}, "normalized": {"countries": [], "languages": [], "regions": []}, "rejected": {"countries": [], "languages": [], "regions": []}},
         "selected_sources": [],
         "verification_targets": [],

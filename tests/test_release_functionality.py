@@ -12,8 +12,10 @@ from unittest.mock import patch
 from mydailynews.ai import create_ai_client
 from mydailynews.ai.base import JSONSchemaSpec
 from mydailynews.ai.llama_cpp_server_client import LlamaCppServerClient
+from mydailynews.ai.managed_llama_server import ManagedLlamaServerLease
 from mydailynews.app.config import load_config
 from mydailynews.app.models import AIConfig
+from mydailynews.diagnostics.debug import DebugLogger
 from mydailynews.app.runtime_config import find_runtime_config_issues
 from mydailynews.pipeline.stages import PipelineRunOptions
 from mydailynews.pipeline.stage_artifacts import (
@@ -44,6 +46,7 @@ class ReleaseSmokeTests(unittest.TestCase):
         self.assertEqual(config.ai_final.backend, "llama_cpp_server")
         self.assertEqual(config.ai_summary.base_url, "http://127.0.0.1:1234/v1")
         self.assertFalse(config.ai_summary.manage_server)
+        self.assertTrue(config.ai_summary.server_spec_default)
         self.assertEqual(config.ai_summary.server_executable, "")
         self.assertEqual(config.ai_summary.server_model_path, "")
         self.assertEqual(config.ai_summary.effective_model_label, "Qwen3-8B-Q4_K_M")
@@ -84,6 +87,7 @@ class ReleaseSmokeTests(unittest.TestCase):
                 "server_arguments",
                 "server_log_dir",
                 "server_auto_stop",
+                "server_spec_default",
             )
             for field in shared_runtime_fields:
                 self.assertEqual(getattr(config.ai_summary, field), getattr(config.ai_final, field), field)
@@ -91,6 +95,18 @@ class ReleaseSmokeTests(unittest.TestCase):
         with self.subTest("factory trusts validated config"):
             with self.assertRaisesRegex(ValueError, "Unsupported ai backend: auto"):
                 create_ai_client(AIConfig(backend="auto"))
+
+    def test_managed_server_enables_default_speculation(self) -> None:
+        config = AIConfig(
+            manage_server=True,
+            server_executable=sys.executable,
+            server_model_path=__file__,
+        )
+        lease = ManagedLlamaServerLease(config, "http://127.0.0.1:8080/v1", DebugLogger(False))
+        try:
+            self.assertIn("--spec-default", lease._key.args)
+        finally:
+            lease.release()
 
     def test_default_ai_format_enforces_supplied_json_schema(self) -> None:
         config = load_config(REPO_ROOT / "config.example.json").ai_summary

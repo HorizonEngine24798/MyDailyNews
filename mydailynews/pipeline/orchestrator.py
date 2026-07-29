@@ -210,6 +210,8 @@ class NewsOrchestrator:
                 if not markdown_paths:
                     self.warnings.append("tts: no report modules are enabled for audio; skipped.")
                     continue
+                # TTS is forced to the end of the series, so release managed GPU memory before Kokoro starts.
+                self.close()
                 for markdown_path in markdown_paths:
                     result = self.run_tts(
                         date=date,

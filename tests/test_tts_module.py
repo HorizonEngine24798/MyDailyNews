@@ -13,7 +13,9 @@ from mydailynews.app.models import AppConfig, TTSConfig, TTSOutput
 from mydailynews.diagnostics.debug import DebugLogger
 from mydailynews.pipeline.tts_module import run_tts
 from mydailynews.tts.kokoro_backend import (
+    _iter_audio_chunks,
     _synthesize_audio_chunks,
+    _write_wav,
     speech_text_from_markdown,
     split_text_chunks,
     synthesize_narrative_markdown,
@@ -105,8 +107,8 @@ That is the brief.
         markdown_path.write_text("# Brief\n\nHello world.", encoding="utf-8")
 
         with patch(
-            "mydailynews.tts.kokoro_backend._synthesize_audio_chunks",
-            return_value=(24000, [[0.0, 0.5, -0.5, 0.0]]),
+            "mydailynews.tts.kokoro_backend._iter_audio_chunks",
+            return_value=iter([[0.0, 0.5, -0.5, 0.0]]),
         ):
             output = synthesize_narrative_markdown(markdown_path, wav_path, TTSConfig(enabled=True))
 
@@ -118,6 +120,37 @@ That is the brief.
         payload = json.loads(Path(output.json_path).read_text(encoding="utf-8"))
         self.assertEqual(payload["chunk_count"], output.chunk_count)
         self.assertEqual(payload["voice"], "af_heart")
+
+    def test_wav_writer_moves_tensor_audio_to_numpy(self) -> None:
+        calls: list[object] = []
+
+        class FakeAudio:
+            def detach(self):
+                calls.append("detach")
+                return self
+
+            def cpu(self):
+                calls.append("cpu")
+                return self
+
+            def numpy(self):
+                calls.append("numpy")
+                return [0.0, 0.5]
+
+        class FakeSoundFile:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args: object) -> None:
+                return None
+
+            def write(self, audio: object) -> None:
+                calls.append(audio)
+
+        with patch("mydailynews.tts.kokoro_backend.sf.SoundFile", return_value=FakeSoundFile()):
+            _write_wav(self._temp_dir() / "audio.wav", 24000, [FakeAudio()])
+
+        self.assertEqual(calls, ["detach", "cpu", "numpy", [0.0, 0.5]])
 
     def test_kokoro_pipeline_uses_configured_model_id(self) -> None:
         calls: dict[str, object] = {}
@@ -133,8 +166,8 @@ That is the brief.
         fake_kokoro.KPipeline = FakePipeline
 
         with patch.dict(sys.modules, {"kokoro": fake_kokoro}):
-            _sample_rate, audio_chunks = _synthesize_audio_chunks(
-                ["Hello."], TTSConfig(enabled=True, model_id="hexgrad/Kokoro-82M")
+            audio_chunks = list(
+                _iter_audio_chunks(["Hello."], TTSConfig(enabled=True, model_id="hexgrad/Kokoro-82M"))
             )
 
         self.assertEqual(calls["repo_id"], "hexgrad/Kokoro-82M")

@@ -24,6 +24,14 @@ python gui.py --config fixtures/gui_demo/config.demo.json --port 8766
 
 Then open `http://127.0.0.1:8766`.
 
+
+## To DO
+- Improve Perspectives Module
+- Improve global news coverage
+- Improve memory editing
+- Better AI endpoints support
+- New Map feature
+
 ## What It Does
 
 - Builds general and topic-focused news briefs from RSS, Google News, and configured topic searches.

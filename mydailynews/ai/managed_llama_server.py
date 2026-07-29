@@ -56,6 +56,8 @@ class ManagedLlamaServerLease:
 
         model_path = self._resolved_model_path(config.server_model_path)
         args = tuple(str(item).strip() for item in (config.server_arguments or []) if str(item).strip())
+        if config.server_spec_default and "--spec-default" not in args:
+            args += ("--spec-default",)
         key = _ServerKey(
             executable=self._resolved_executable(config.server_executable),
             model_path=model_path,

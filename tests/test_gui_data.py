@@ -102,6 +102,73 @@ class GuiDataServiceTests(unittest.TestCase):
         self.assertEqual(detail["audio_url"], "/api/reports/2026-06-28_general_brief.md/audio")
         self.assertEqual(service.report_audio_path("2026-06-28_general_brief.md"), wav_path)
 
+    def test_map_snapshot_resolves_event_loci_and_audits_searched_countries(self) -> None:
+        root = self._temp_root()
+        self._write_config(root)
+        output_dir = root / "output"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "2026-06-28_perspectives_report.json").write_text(
+            json.dumps(
+                {
+                    "stories": [
+                        {
+                            "story_id": "story-1",
+                            "story_title": "Shipping disruption",
+                            "summary": "Traffic was disrupted near a strategic waterway.",
+                            "story_loci": [
+                                {
+                                    "label": "Strait of Hormuz",
+                                    "country": "",
+                                    "kind": "event_site",
+                                    "confidence": "high",
+                                    "reason": "The disruption occurred there.",
+                                }
+                            ],
+                            "selected_sources": [
+                                {"source_id": "us_test", "name": "US Test", "country": "US", "language": "en"},
+                                {"source_id": "gb_test", "name": "GB Test", "country": "GB", "language": "en"},
+                            ],
+                            "source_yields": [
+                                {"source_id": "us_test", "source_name": "US Test", "raw": 2, "final": 1},
+                                {"source_id": "gb_test", "source_name": "GB Test", "raw": 0, "final": 0},
+                            ],
+                            "coverage_articles": [
+                                {
+                                    "title": "A US report",
+                                    "url": "https://example.com/story",
+                                    "source_name": "US Test",
+                                    "source_country": "US",
+                                    "source_language": "en",
+                                    "published_at": "2026-06-28T10:00:00Z",
+                                    "body": "large body must not reach the map API",
+                                    "context_text": "large context must not reach the map API",
+                                }
+                            ],
+                            "coverage_status": "ok",
+                            "coverage_quality": {"status": "thin"},
+                            "provider_statuses": {},
+                            "framing_report": {"synthesis": "The source emphasized shipping risk."},
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        service = GuiDataService(root, "config.local.json")
+
+        snapshot = service.map_snapshot()
+
+        self.assertEqual(snapshot["date"], "2026-06-28")
+        story = snapshot["stories"][0]
+        self.assertEqual(story["loci"][0]["resolution"], "named_place")
+        self.assertEqual(
+            {point["country"]: point["status"] for point in story["coverage_points"]},
+            {"GB": "searched_empty", "US": "found"},
+        )
+        self.assertNotIn("body", story["coverage_articles"][0])
+        self.assertNotIn("context_text", story["coverage_articles"][0])
+        self.assertEqual(story["search_summary"]["searched_empty_country_count"], 1)
+
     def test_record_feedback_updates_learned_preferences_not_user_memory(self) -> None:
         root = self._temp_root()
         self._write_config(root)

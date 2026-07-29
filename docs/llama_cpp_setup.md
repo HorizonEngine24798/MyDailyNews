@@ -30,11 +30,12 @@ Set both `ai_summary` and `ai_final` to managed mode. Use the same `base_url`, e
   "server_executable": "PATH/TO/llama-server",
   "server_model_path": "PATH/TO/model.gguf",
   "server_arguments": ["--no-webui", "--reasoning", "off", "-ngl", "999", "-c", "16384", "-np", "1"],
+  "server_spec_default": true,
   "server_auto_stop": true
 }
 ```
 
-Runtime checks require `server_executable` and `server_model_path` when `manage_server=true`.
+Runtime checks require `server_executable` and `server_model_path` when `manage_server=true`. `server_spec_default` defaults to `true`, enabling llama.cpp's draftless `ngram-mod` speculative decoding; set it to `false` if an older server does not support the flag or benchmarking shows a regression.
 
 ## Launch Command
 

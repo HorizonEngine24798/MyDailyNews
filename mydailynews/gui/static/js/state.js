@@ -11,6 +11,9 @@ export const state = {
   learnedDraft: null,
   runs: [],
   currentRun: null,
+  map: null,
+  currentMapStory: "",
+  mapShowCoverage: true,
   memoryFilters: {
     storySearch: "",
     status: "all",
