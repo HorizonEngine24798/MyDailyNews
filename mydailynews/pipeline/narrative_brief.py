@@ -14,6 +14,7 @@ from mydailynews.briefing.narrative import (
     write_narrative_outputs,
 )
 from mydailynews.common.warnings import extend_warnings
+from mydailynews.domain.text_similarity import normalized_word_text
 from mydailynews.memory.config import memory_enabled
 from mydailynews.memory.recall import combined_recall_packet_for_narrative
 
@@ -278,7 +279,7 @@ def _rank_claim_cards(cards: list[dict]) -> list[dict]:
     kept: list[dict] = []
     normalized_claims: list[str] = []
     for card in ranked:
-        claim = " ".join(re.findall(r"[a-z0-9]+", str(card.get("claim") or card.get("title") or "").lower()))
+        claim = normalized_word_text(card.get("claim") or card.get("title") or "")
         if not claim:
             continue
         # ponytail: quadratic comparison is bounded by the tiny per-run card set; index it only if card volume grows.

@@ -8,33 +8,17 @@ from typing import Any, Dict, Iterable, List
 
 from mydailynews.app.models import MemoryAnnotation, NewsCandidate, SelectedArticle
 from mydailynews.domain.candidate_annotations import candidate_memory_annotation, set_memory_annotation
+from mydailynews.domain.text_similarity import compare_token_sets
 from mydailynews.memory.story_keys import (
     StoryIdentity,
     slugify_text,
     story_identity_for_candidate,
-    token_overlap_confidence,
 )
 
 
 STORY_INDEX_SCHEMA_VERSION = 2
 MATCH_CONFIDENCE_THRESHOLD = 0.58
 STORY_STATUSES = {"active", "stale"}
-IDENTITY_WEAK_TOKENS = {
-    "ai",
-    "business",
-    "center",
-    "centers",
-    "data",
-    "economy",
-    "global",
-    "market",
-    "markets",
-    "model",
-    "models",
-    "policy",
-    "technology",
-    "world",
-}
 
 
 @dataclass(frozen=True)
@@ -209,9 +193,14 @@ class StoryIndexStore:
 def _candidate_record_confidence(base: StoryIdentity, record: StoryIndexRecord) -> float:
     if record.story_key == base.story_key:
         return 1.0
-    confidence = token_overlap_confidence(base.tokens, record.tokens)
-    left = set(base.story_key.split("-")).difference(IDENTITY_WEAK_TOKENS)
-    right = set(record.story_key.split("-")).difference(IDENTITY_WEAK_TOKENS)
+    similarity = compare_token_sets(base.tokens, record.tokens)
+    confidence = similarity.confidence
+    if similarity.numeric_conflict:
+        return confidence
+    # Key overlap is a broad candidate-recall signal, not a semantic action.
+    # Keep every domain token eligible instead of maintaining a news-topic list.
+    left = set(base.story_key.split("-"))
+    right = set(record.story_key.split("-"))
     overlap = left.intersection(right)
     if len(overlap) >= 2 and len(overlap) / max(1, min(len(left), len(right))) >= 0.4:
         confidence = max(confidence, 0.62)
@@ -376,7 +365,10 @@ def _semantic_baseline_fields(
             "last_report_id": previous.last_report_id if previous else "",
         }
     change_type = str(decision.get("change_type", "") or "").strip()
-    material = change_type in {"new", "escalated", "weakened", "reframed"}
+    try:
+        material = float(decision.get("materiality", 0.0) or 0.0) >= 0.7
+    except (TypeError, ValueError):
+        material = False
     return {
         "last_material_change_date": str(date or "") if material else (previous.last_material_change_date if previous else ""),
         "last_change_type": change_type or (previous.last_change_type if previous else ""),

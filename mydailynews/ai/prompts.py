@@ -37,13 +37,13 @@ Would this reader regret missing this today?
 - Weak or "no" => score lower.
 
 Explicit penalties:
-- Routine market or political noise without reader-specific stake.
+- Routine high-volume coverage without reader-specific stake.
 - Minor incremental updates that do not materially change understanding.
 - Rewrites of the same event with no meaningful new information.
 - Topic keyword match with low impact or low urgency.
 
 Examples:
-- High-value must-know (8-10): major policy shift, surprise escalation, large strategic move, or a development with immediate decision impact.
+- High-value must-know (8-10): a consequential state change with immediate impact on this reader's interests or decisions.
 - Mid-value monitor (5-7): relevant update with some signal but limited urgency or actionability.
 - Low-value noise (0-4): repetitive recap, small incremental change, promotional/clickbait framing, or weakly relevant topic mention.
 
@@ -63,7 +63,7 @@ Return:
       "urgency": 7.0,
       "actionability": 6.0,
       "confidence": 7.5,
-      "angle_type": "policy_change"
+      "angle_type": "material_state_change"
     }}
   ]
 }}"""
@@ -231,7 +231,7 @@ Return:
       "narrative_changes": [
         {{
           "narrative": "short label",
-          "status": "new | continuing | escalating | weakening | challenged | unresolved",
+          "status": "new | continuing | material_update | status_change | correction | resolved | reframed | unchanged | uncertain",
           "summary": "what changed"
         }}
       ],
@@ -384,6 +384,12 @@ Do not use markdown fences.
 Do not invent facts. Only use supplied article/context/prior-report evidence.
 If prior evidence is insufficient, state that directly in baseline_coverage_note and keep lists concise."""
 
+
+DELTA_DECISION_SYSTEM = """You classify story identity and source-backed change.
+Return exactly one valid JSON object matching the supplied schema.
+Do not invent facts, write markdown, or add editorial sections.
+Use only current evidence and the bounded candidate baselines."""
+
 DELTA_EXTRACTION_USER = """Reader profile and style:
 {memory}
 
@@ -409,74 +415,39 @@ Fallback selected article evidence:
 
 Work to perform:
 1. For every current story thread, decide whether it is the same concrete story, a related theme, distinct, or uncertain relative to the supplied baselines.
-2. If it is the same story, identify whether it is new, escalated, weakened, reframed, unchanged, or uncertain, and copy the matched baseline's supplied story_key into prior_story_key.
+2. If it is the same story, use a domain-neutral change label: material_update, status_change, correction, resolved, incremental, reframed, unchanged, or uncertain. Use escalated/weakened only when direction is explicitly supported. Copy the matched baseline's supplied story_key into prior_story_key.
 3. Keep entries evidence-grounded and link article ids. Never infer same-story identity from topic overlap alone. A same-story unchanged item should be omitted unless it is critical safety information; a non-material continuation should be a continuing bullet, not a full report.
 4. Use uncertain when the baseline is weak or evidence conflicts; do not suppress uncertain stories.
 5. Flag evidence gaps that limit confidence.
 
-Return:
-{{
-  "baseline_coverage_note": "how strong prior coverage was for this comparison",
-  "new": [
-    {{
-      "item": "new development label",
-      "summary": "what is newly observed",
-      "article_ids": ["article id"]
-    }}
-  ],
-  "escalated": [
-    {{
-      "item": "escalating development label",
-      "summary": "how/why it intensified",
-      "article_ids": ["article id"]
-    }}
-  ],
-  "weakened": [
-    {{
-      "item": "weakening development label",
-      "summary": "how/why momentum declined",
-      "article_ids": ["article id"]
-    }}
-  ],
-  "reframed": [
-    {{
-      "item": "reframed narrative label",
-      "summary": "what changed in interpretation",
-      "article_ids": ["article id"]
-    }}
-  ],
-  "unchanged_but_important": [
-    {{
-      "item": "still-important development label",
-      "summary": "why it remains important",
-      "article_ids": ["article id"]
-    }}
-  ],
-  "story_decisions": [
-    {{
-      "story_key": "current story key",
-      "article_ids": ["article id"],
-      "prior_story_key": "matched prior key or empty",
-      "relationship": "same_story | related_theme | distinct_story | uncertain",
-      "change_type": "new | escalated | weakened | reframed | unchanged | uncertain",
-      "materiality": 0.0,
-      "confidence": 0.0,
-      "disposition": "full_report | continuing_bullet | omit | uncertain",
-      "summary": "evidence-grounded decision summary",
-      "bullet": "short continuing bullet when applicable",
-      "reason": "why this identity and change decision was made",
-      "knowns": ["known baseline fact"],
-      "unknowns": ["important unresolved point"],
-      "watch_signals": ["future signal to monitor"]
-    }}
-  ],
-  "evidence_gaps": [
-    {{
-      "gap": "missing evidence or unresolved uncertainty",
-      "why_it_matters": "impact of this gap"
-    }}
-  ]
-}}"""
+Return one object matching the supplied JSON schema. Include every required
+top-level key, using empty arrays when a category has no items. Emit exactly
+one story_decisions entry per current story thread. Keep every prose value to
+at most 16 words. Omit optional knowns, unknowns, and watch_signals unless they
+are essential. Do not duplicate a decision into a change-category list unless
+that category adds useful information."""
+
+
+DELTA_DECISION_USER = """Date: {date}
+
+Profile priorities:
+{profile}
+
+Current source evidence:
+{current}
+
+Candidate prior-story baselines:
+{baselines}
+
+Classify every current article id (or evidence-cluster article id) exactly once.
+- same_story requires the same concrete event or tracked process, not topic overlap.
+- Copy the matching baseline story_key into prior_story_key; otherwise use an empty string.
+- A first observation is distinct_story + new + full_report.
+- For same_story choose the evidence-backed change: material_update, status_change, correction,
+  resolved, incremental, reframed, unchanged, or uncertain.
+- same_story + unchanged should be omitted. A non-material continuation should be a continuing_bullet.
+- Never omit an uncertain or materially changed story.
+- Keep summary to at most 12 words."""
 
 
 PERSPECTIVES_PLANNER_SYSTEM = """You plan bounded broad story retrieval and focused claim verification using English queries.

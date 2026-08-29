@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
 from typing import Dict, List
 
+from mydailynews.analysis.policy_filter import (
+    filter_delta_packet_for_articles,
+    filter_evidence_packet_for_articles,
+    filter_prior_reports_for_articles,
+)
 from mydailynews.analysis.rollout import resolve_analysis_stage_configs
-from mydailynews.briefing.generator import BriefGenerator, brief_metadata
+from mydailynews.briefing.generator import BriefGenerator, brief_metadata, no_material_changes_brief
 from mydailynews.pipeline.brief_analysis_stages import _run_delta_stage, _run_evidence_stage
 from mydailynews.pipeline.brief_stages import (
     _checkpoint_stage,
@@ -25,7 +31,14 @@ from mydailynews.common.warnings import extend_warnings
 from mydailynews.memory.config import memory_enabled, memory_state_dir
 from mydailynews.memory.coverage import CoverageMemoryStore
 from mydailynews.memory.learned_preferences import LearnedPreferencesStore
-from mydailynews.memory.recall import apply_delta_signals_to_selected, build_recall_packet, save_recall_packet
+from mydailynews.memory.recall import (
+    apply_delta_signals_to_selected,
+    build_recall_packet,
+    partition_selected_for_brief,
+    recall_packet_for_selected,
+    save_recall_packet,
+    selected_articles_represented_in_brief,
+)
 from mydailynews.memory.story_index import StoryIndexStore
 
 
@@ -379,8 +392,28 @@ def run_brief(
             )
             extend_warnings(run_warnings, delta_result.warnings)
             delta_packet = delta_result.delta_packet
+            apply_delta_signals_to_selected(selected=selected, delta_packet=delta_packet)
+            brief_selected, delta_omitted = partition_selected_for_brief(
+                selected=selected,
+                delta_packet=delta_packet,
+            )
+            allowed_article_ids = [article.candidate.id for article in brief_selected]
+            brief_delta_packet = filter_delta_packet_for_articles(
+                delta_packet,
+                allowed_article_ids=allowed_article_ids,
+                omitted_count=len(delta_omitted),
+            )
+            brief_evidence_packet = filter_evidence_packet_for_articles(
+                evidence_packet,
+                allowed_article_ids=allowed_article_ids,
+                omitted_count=len(delta_omitted),
+            )
+            brief_prior_reports = filter_prior_reports_for_articles(
+                prior_reports,
+                selected=brief_selected,
+                omitted_count=len(delta_omitted),
+            )
             if memory_is_enabled:
-                apply_delta_signals_to_selected(selected=selected, delta_packet=delta_packet)
                 if recall_prompt_enabled or save_recall_packets:
                     recall_packet = build_recall_packet(
                         date=date,
@@ -388,7 +421,11 @@ def run_brief(
                         candidates=limited_candidates,
                         decisions=decisions,
                     )
-                prompt_recall_packet = recall_packet if recall_prompt_enabled else {}
+                prompt_recall_packet = (
+                    recall_packet_for_selected(recall_packet, brief_selected)
+                    if recall_prompt_enabled
+                    else {}
+                )
                 if save_recall_packets and recall_packet and memory_dir is not None:
                     try:
                         recall_packet_path = str(
@@ -416,22 +453,22 @@ def run_brief(
                     "reframed_items": len(delta_packet.get("reframed", [])) if delta_packet else 0,
                     "evidence_gaps": len(delta_packet.get("evidence_gaps", [])) if delta_packet else 0,
                     "deterministic_scaffold": bool(delta_packet.get("deterministic_scaffold")) if delta_packet else False,
+                    "omitted_as_unchanged": len(delta_omitted),
                     "recall_guidance": len(prompt_recall_packet.get("coverage_guidance", [])) if prompt_recall_packet else 0,
                     "recall_packet_saved": bool(recall_packet_path),
                 },
                 next_stage_input={
-                    "selected": selected,
-                    "delta_packet": delta_packet,
-                    "evidence_packet": evidence_packet,
-                    "prior_reports": prior_reports,
+                    "selected": brief_selected,
+                    "delta_packet": brief_delta_packet,
+                    "evidence_packet": brief_evidence_packet,
+                    "prior_reports": brief_prior_reports,
                     "topics": topics,
                     "brief_goal": brief_goal,
                     "include_enrichment_context": include_enrichment_context,
                     "evidence_config": evidence_config,
                     "delta_config": delta_config,
                     "analysis_rollout_meta": analysis_rollout_meta,
-                    "recall_packet": recall_packet,
-                    "prompt_recall_packet": prompt_recall_packet,
+                    "recall_packet": prompt_recall_packet,
                 },
             ):
                 return None
@@ -449,18 +486,28 @@ def run_brief(
                 debug=orchestrator.debug,
             )
             with orchestrator.debug.span(f"brief.{name}.final_brief"):
-                brief = brief_generator.generate(
-                    selected,
-                    orchestrator.config.user_memory,
-                    topics,
-                    prior_reports,
-                    brief_goal,
-                    date,
-                    evidence_packet=evidence_packet,
-                    delta_packet=delta_packet,
-                    recall_packet=prompt_recall_packet,
-                    brief_name=name,
-                )
+                if brief_selected:
+                    brief = brief_generator.generate(
+                        brief_selected,
+                        orchestrator.config.user_memory,
+                        topics,
+                        brief_prior_reports,
+                        brief_goal,
+                        date,
+                        evidence_packet=brief_evidence_packet,
+                        delta_packet=brief_delta_packet,
+                        recall_packet=prompt_recall_packet,
+                        brief_name=name,
+                    )
+                else:
+                    brief = no_material_changes_brief(date)
+                    orchestrator.debug.log(
+                        "brief.ai",
+                        "skipped_no_material_changes",
+                        brief_name=name,
+                        omitted=len(delta_omitted),
+                    )
+            rendered_selected = selected_articles_represented_in_brief(brief_selected, brief)
             output_dir = Path(orchestrator.config.output_dir)
             markdown_path = output_dir / f"{date}_{output_suffix}_brief.md"
             json_path = output_dir / f"{date}_{output_suffix}_brief.json"
@@ -471,13 +518,17 @@ def run_brief(
                 model=f"{orchestrator.config.ai_summary.backend}:{orchestrator.config.ai_summary.effective_model_label} -> "
                 f"{orchestrator.config.ai_final.backend}:{orchestrator.config.ai_final.effective_model_label}",
                 candidate_count=len(unique_candidates),
-                selected_count=len(selected),
+                selected_count=len(rendered_selected),
                 topics=[topic.name for topic in topics],
-                prior_reports_count=len(prior_reports),
+                prior_reports_count=len(brief_prior_reports),
                 brief_name=name,
                 warnings=run_warnings,
             )
             brief["metadata"]["selection_reason_codes"] = selection_counts
+            brief["metadata"]["pre_delta_selected_count"] = len(selected)
+            brief["metadata"]["delta_omitted_count"] = len(delta_omitted)
+            brief["metadata"]["prompt_selected_count"] = len(brief_selected)
+            brief["metadata"]["final_generation_skipped_no_material_changes"] = not bool(brief_selected)
             brief["metadata"]["composite_ranking_enabled"] = bool(
                 getattr(filtering, "use_multifactor_composite_ranking", False)
             )
@@ -487,7 +538,7 @@ def run_brief(
                 "save_recall_packets": save_recall_packets,
                 "coverage_guidance_used": bool(prompt_recall_packet.get("coverage_guidance", [])),
                 "recall_packet_path": recall_packet_path,
-                "recall_packet": recall_packet if memory_is_enabled else {},
+                "recall_packet": prompt_recall_packet if memory_is_enabled else {},
                 **(selection_result.memory_summary if memory_is_enabled else {}),
             }
             brief["metadata"]["analysis_rollout"] = {
@@ -499,16 +550,16 @@ def run_brief(
                 "delta_requested_enabled": bool(analysis_rollout_meta.get("delta_requested_enabled", False)),
                 "delta_enabled": bool(delta_config.enabled),
             }
-            if evidence_packet:
+            if brief_evidence_packet:
                 brief.setdefault("analysis", {})
-                brief["analysis"]["evidence_packet"] = evidence_packet
+                brief["analysis"]["evidence_packet"] = brief_evidence_packet
                 brief["analysis"]["evidence_model_role"] = evidence_config.model_role
-            if delta_packet:
+            if brief_delta_packet:
                 brief.setdefault("analysis", {})
-                brief["analysis"]["delta_packet"] = delta_packet
+                brief["analysis"]["delta_packet"] = brief_delta_packet
                 brief["analysis"]["delta_model_role"] = (
                     "deterministic_scaffold"
-                    if bool(delta_packet.get("deterministic_scaffold"))
+                    if bool(brief_delta_packet.get("deterministic_scaffold"))
                     else delta_config.model_role
                 )
 
@@ -527,14 +578,14 @@ def run_brief(
                 },
                 next_stage_input={
                     "brief": brief,
-                    "selected": selected,
+                    "selected": rendered_selected,
                     "topics": topics,
-                    "prior_reports": prior_reports,
-                    "evidence_packet": evidence_packet,
-                    "delta_packet": delta_packet,
+                    "prior_reports": brief_prior_reports,
+                    "evidence_packet": brief_evidence_packet,
+                    "delta_packet": brief_delta_packet,
                     "brief_goal": brief_goal,
                     "brief_name": name,
-                    "recall_packet": recall_packet,
+                    "recall_packet": prompt_recall_packet,
                     "markdown_path": str(markdown_path),
                     "json_path": str(json_path),
                 },
@@ -558,7 +609,7 @@ def run_brief(
                     coverage_records = coverage_store.write_selected(
                         date=date,
                         brief_name=name,
-                        selected=selected,
+                        selected=rendered_selected,
                     )
                     coverage_rows_pruned = coverage_store.prune(
                         as_of_date=date,
@@ -597,18 +648,27 @@ def run_brief(
                     "markdown_path": str(markdown_path),
                     "json_path": str(json_path),
                     "candidate_count": len(unique_candidates),
-                    "selected_count": len(selected),
+                    "selected_count": len(rendered_selected),
                     "memory": memory_write_summary,
                 },
                 next_stage_input={
                     "brief": brief,
-                    "selected": selected,
+                    "selected": rendered_selected,
                     "memory": memory_write_summary,
                     "markdown_path": str(markdown_path),
                     "json_path": str(json_path),
                 },
             ):
                 return None
+            rendered_ids = {article.candidate.id for article in rendered_selected}
+            handoff_story_groups = [
+                replace(
+                    group,
+                    article_ids=[article_id for article_id in group.article_ids if article_id in rendered_ids],
+                )
+                for group in story_groups
+                if any(article_id in rendered_ids for article_id in group.article_ids)
+            ]
             handoff_written_path = write_brief_handoff(
                 output_dir=output_dir,
                 date=date,
@@ -616,11 +676,11 @@ def run_brief(
                 json_path=json_path,
                 markdown_path=markdown_path,
                 topics=topics,
-                prior_reports=prior_reports,
+                prior_reports=brief_prior_reports,
                 brief_goal=brief_goal,
                 filtering=filtering,
-                selected_articles=selected,
-                story_groups=story_groups,
+                selected_articles=rendered_selected,
+                story_groups=handoff_story_groups,
             )
             _checkpoint_stage(
                 orchestrator,
@@ -628,13 +688,13 @@ def run_brief(
                 stage="write_handoff",
                 summary={
                     "handoff_path": str(handoff_written_path),
-                    "selected_count": len(selected),
+                    "selected_count": len(rendered_selected),
                     "schema_version": "brief_handoff.v1",
                 },
                 next_stage_input={
                     "handoff_path": str(handoff_written_path),
                     "source_json_path": str(json_path),
-                    "selected": selected,
+                    "selected": rendered_selected,
                 },
             )
             _promote_run_warnings()
@@ -647,7 +707,7 @@ def run_brief(
                 markdown_path=str(markdown_path),
                 json_path=str(json_path),
                 candidate_count=len(unique_candidates),
-                selected_count=len(selected),
+                selected_count=len(rendered_selected),
                 warnings=run_warnings,
                 handoff_path=str(handoff_written_path),
             )

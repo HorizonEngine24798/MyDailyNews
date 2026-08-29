@@ -226,6 +226,7 @@ def _run_delta_stage(
         selected,
         prior_reports,
         max_prior_reports=delta_config.max_prior_reports,
+        story_memory=story_memory,
     )
     if deterministic_delta_packet and not delta_packet:
         delta_packet = deterministic_delta_packet

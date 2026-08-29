@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from typing import Any, Dict, List
 
 from .base import AIClient, AIJsonError, write_ai_json_artifact
@@ -11,6 +10,7 @@ from mydailynews.common.cache import JSONCache
 from mydailynews.diagnostics.debug import DebugLogger
 from mydailynews.app.models import HeadlineDecision, NewsCandidate, TopicConfig, UserMemory
 from mydailynews.common.utils import compact_json, datetime_to_iso
+from mydailynews.domain.text_similarity import word_tokens
 
 HEADLINE_DECISION_CACHE_FINGERPRINT_VERSION = 10
 _HEADLINE_OUTPUT_BASE_TOKENS = 64
@@ -472,14 +472,14 @@ class HeadlineAnalyzer:
 
     @staticmethod
     def _topic_match_score(item: NewsCandidate, topic: TopicConfig) -> float:
-        text = f"{item.title or ''} {item.snippet or ''}".lower()
-        text_tokens = set(re.findall(r"[a-z0-9]{3,}", text))
+        text = f"{item.title or ''} {item.snippet or ''}"
+        text_tokens = set(word_tokens(text, min_alpha_chars=2, keep_numbers=True))
         if not text_tokens:
             return 0.0
-        topic_tokens = set(re.findall(r"[a-z0-9]{3,}", topic.name.lower()))
-        topic_tokens.update(re.findall(r"[a-z0-9]{3,}", topic.description.lower()))
+        topic_tokens = set(word_tokens(topic.name, min_alpha_chars=2, keep_numbers=True))
+        topic_tokens.update(word_tokens(topic.description, min_alpha_chars=2, keep_numbers=True))
         for query in topic.queries or []:
-            topic_tokens.update(re.findall(r"[a-z0-9]{3,}", query.lower()))
+            topic_tokens.update(word_tokens(query, min_alpha_chars=2, keep_numbers=True))
         if not topic_tokens:
             return 0.0
         return len(text_tokens.intersection(topic_tokens)) / max(3, len(topic_tokens))

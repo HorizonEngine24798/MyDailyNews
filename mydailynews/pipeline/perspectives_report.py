@@ -23,6 +23,7 @@ from mydailynews.common.parallel import ordered_parallel_map
 from mydailynews.common.utils import canonical_article_url, compact_json, normalize_whitespace, stable_id, utc_now
 from mydailynews.common.warnings import extend_warnings
 from mydailynews.domain.article_identity import article_aliases_for_candidate
+from mydailynews.domain.text_similarity import normalized_word_text, word_tokens
 from mydailynews.perspectives.sources import load_source_registry, match_source_by_domain, source_domain_map
 from mydailynews.retrieval.article import ArticleRetriever
 from mydailynews.retrieval.ddg import DuckDuckGoSearchRetriever
@@ -61,7 +62,6 @@ PERSPECTIVES_EVIDENCE_LIST_SCHEMA = {
         "additionalProperties": False,
     },
 }
-WORD_RE = re.compile(r"[a-z0-9]+", re.IGNORECASE)
 TAG_RE = re.compile(r"[^a-z0-9]+", re.IGNORECASE)
 QUERY_STOPWORDS = {
     "about",
@@ -94,24 +94,11 @@ QUERY_STOPWORDS = {
     "with",
 }
 COVERAGE_RELEVANCE_WEAK_TOKENS = QUERY_STOPWORDS | {
-    "ai",
-    "eu",
-    "uk",
-    "year",
-    "years",
-    "global",
     "latest",
     "live",
     "news",
-    "rule",
-    "rules",
-    "ruling",
-    "supreme",
-    "court",
     "update",
     "updates",
-    "us",
-    "world",
 }
 COUNTRY_ALIASES = {
     "u_s": "US",
@@ -1976,24 +1963,36 @@ def _coverage_relevance_decision(row: Dict[str, Any], story: Dict[str, Any]) -> 
     query_tokens = _coverage_match_tokens(str(row.get("retrieval_query") or ""))
     title_tokens = _coverage_match_tokens(str(row.get("title") or ""))
     evidence_tokens = _coverage_match_tokens(" ".join([str(row.get("title") or ""), str(row.get("snippet") or ""), str(row.get("context_text") or "")]))
-    query_title_hits = len(title_tokens.intersection(query_tokens))
     query_evidence_hits = len(evidence_tokens.intersection(query_tokens))
     story_tokens = _coverage_match_tokens(
         " ".join([str(story.get("story_title") or ""), str(story.get("summary") or ""), str(story.get("_seed_text") or "")])
     )
-    seed_evidence_hits = len(evidence_tokens.intersection(story_tokens))
     anchor_hits = _anchor_group_hits(row.get("retrieval_anchor_groups"), evidence_tokens)
     if anchor_hits >= 2:
         return True, "multiple_anchor_groups"
     if anchor_hits and query_evidence_hits >= 2:
         return True, "anchor_and_query_overlap"
-    if query_title_hits >= 2:
+    if _substantial_token_overlap(query_tokens, title_tokens, min_hits=2, min_fraction=0.5):
         return True, "query_title_overlap"
-    if query_evidence_hits >= 3:
+    if _substantial_token_overlap(query_tokens, evidence_tokens, min_hits=3, min_fraction=0.45):
         return True, "query_evidence_overlap"
-    if seed_evidence_hits >= 2:
+    if _substantial_token_overlap(story_tokens, evidence_tokens, min_hits=2, min_fraction=0.45):
         return True, "seed_story_overlap"
     return False, "insufficient_event_overlap"
+
+
+def _substantial_token_overlap(
+    left: set[str],
+    right: set[str],
+    *,
+    min_hits: int,
+    min_fraction: float,
+) -> bool:
+    if not left or not right:
+        return False
+    hits = len(left.intersection(right))
+    containment = hits / max(1, min(len(left), len(right)))
+    return hits >= max(1, int(min_hits)) and containment >= float(min_fraction)
 
 
 def _anchor_group_hits(value: Any, evidence_tokens: set[str]) -> int:
@@ -3226,11 +3225,11 @@ def _story_identity(story: Dict[str, Any]) -> str:
 
 
 def normalize_name(value: Any) -> str:
-    return " ".join(WORD_RE.findall(str(value or "").lower()))
+    return normalized_word_text(value)
 
 
 def _tokens(value: str) -> set[str]:
-    return {token.lower() for token in WORD_RE.findall(value or "") if len(token) > 1 and token.lower() not in QUERY_STOPWORDS}
+    return set(word_tokens(value, stopwords=QUERY_STOPWORDS, min_alpha_chars=2, keep_numbers=True))
 
 
 def _coverage_match_tokens(value: str) -> set[str]:

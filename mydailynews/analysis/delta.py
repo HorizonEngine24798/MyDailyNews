@@ -3,8 +3,13 @@ from __future__ import annotations
 from typing import Any, Dict, List
 
 from mydailynews.ai.base import AIClient
-from mydailynews.ai.prompts import DELTA_EXTRACTION_SYSTEM, DELTA_EXTRACTION_USER
-from mydailynews.ai.schemas import DELTA_EXTRACTION_JSON_SCHEMA
+from mydailynews.ai.prompts import (
+    DELTA_DECISION_SYSTEM,
+    DELTA_DECISION_USER,
+    DELTA_EXTRACTION_SYSTEM,
+    DELTA_EXTRACTION_USER,
+)
+from mydailynews.ai.schemas import DELTA_DECISION_JSON_SCHEMA, DELTA_EXTRACTION_JSON_SCHEMA
 from mydailynews.ai.token_budget import TokenBudget, resolve_client_token_budget
 from mydailynews.analysis.shared import (
     _append_headline_context,
@@ -201,13 +206,14 @@ class DeltaExtractor:
             max_input_tokens=budget.input_tokens,
             max_new_tokens=budget.output_tokens,
         )
+        decision_only = self.config.output_mode == "decision_only"
         raw = self.client.complete_json(
-            DELTA_EXTRACTION_SYSTEM,
+            DELTA_DECISION_SYSTEM if decision_only else DELTA_EXTRACTION_SYSTEM,
             prompt,
             label=label,
             max_new_tokens=budget.output_tokens,
             input_token_limit=budget.input_tokens,
-            json_schema=DELTA_EXTRACTION_JSON_SCHEMA,
+            json_schema=DELTA_DECISION_JSON_SCHEMA if decision_only else DELTA_EXTRACTION_JSON_SCHEMA,
         )
         result = self._normalize_result(raw)
         if self.cache:
@@ -537,6 +543,17 @@ class DeltaExtractor:
         story_memory: Dict[str, Any],
         headline_context_articles: List[SelectedArticle] | None = None,
     ) -> str:
+        if self.config.output_mode == "decision_only":
+            return self._render_decision_prompt(
+                articles=articles,
+                excerpt_chars=excerpt_chars,
+                memory=memory,
+                prior_reports=prior_reports,
+                date=date,
+                story_memory=story_memory,
+                evidence_packet=evidence_packet,
+                headline_context_articles=headline_context_articles or [],
+            )
         article_payload = [self._article_payload(item, excerpt_chars) for item in articles]
         reduced_evidence: Dict[str, Any] = {}
         if self.config.input_source in {"evidence_or_articles", "evidence_only"}:
@@ -554,6 +571,58 @@ class DeltaExtractor:
         )
         return _append_headline_context(prompt, headline_context_articles or [], stage="delta")
 
+    def _render_decision_prompt(
+        self,
+        *,
+        articles: List[SelectedArticle],
+        excerpt_chars: int,
+        memory: UserMemory,
+        prior_reports: List[PriorReport],
+        date: str,
+        story_memory: Dict[str, Any],
+        evidence_packet: Dict[str, Any],
+        headline_context_articles: List[SelectedArticle],
+    ) -> str:
+        current = []
+        for article in articles:
+            annotation = candidate_memory_annotation(article.candidate)
+            current.append(
+                {
+                    "id": article.candidate.id,
+                    "headline": article.candidate.title,
+                    "source": article.candidate.source,
+                    "excerpt": (article.article_text or article.candidate.snippet)[:excerpt_chars],
+                    "candidate_story_key": annotation.story_key if annotation is not None else "",
+                }
+            )
+        profile = {
+            "role": memory.role,
+            "wants": list(memory.wants),
+            "avoid": list(memory.avoid),
+            "beats": dict(memory.beats),
+            "custom_instructions": memory.custom_instructions,
+        }
+        baselines = _compact_decision_baselines(story_memory, prior_reports, articles)
+        current_evidence: Any = current
+        if evidence_packet:
+            current_evidence = {
+                "articles": current,
+                "evidence_packet": self._compact_evidence_packet(evidence_packet),
+            }
+        prompt = DELTA_DECISION_USER.format(
+            date=date,
+            profile=compact_json(profile),
+            current=compact_json(current_evidence),
+            baselines=compact_json(baselines),
+        )
+        if headline_context_articles:
+            context = [
+                {"id": item.candidate.id, "headline": item.candidate.title}
+                for item in headline_context_articles
+            ]
+            prompt += "\n\nOther same-day headlines (context only; do not classify):\n" + compact_json(context)
+        return prompt
+
     def _cache_key(
         self,
         *,
@@ -569,7 +638,7 @@ class DeltaExtractor:
     ) -> str:
         budget = self._request_budget()
         fingerprint = {
-            "v": 8,
+            "v": 9,
             "stage": "delta_extraction",
             "backend": self.client.config.backend,
             "model": self.client.config.effective_model_label,
@@ -579,6 +648,7 @@ class DeltaExtractor:
             "memory": memory.to_prompt(),
             "config": {
                 "input_source": self.config.input_source,
+                "output_mode": self.config.output_mode,
                 "require_prior_reports": self.config.require_prior_reports,
                 "context_tokens": budget.context_tokens,
                 "max_input_tokens": budget.input_tokens,
@@ -601,6 +671,17 @@ class DeltaExtractor:
         return JSONCache.make_key(compact_json(fingerprint))
 
     def _normalize_result(self, result: Dict[str, Any]) -> Dict[str, Any]:
+        if self.config.output_mode == "decision_only":
+            result = {
+                "baseline_coverage_note": "Decision-only extraction; editorial delta lists were not requested.",
+                "new": [],
+                "escalated": [],
+                "weakened": [],
+                "reframed": [],
+                "unchanged_but_important": [],
+                "evidence_gaps": [],
+                "story_decisions": result.get("story_decisions", []),
+            }
         required = {
             "baseline_coverage_note",
             "new",
@@ -686,7 +767,19 @@ class DeltaExtractor:
 
 
 _RELATIONSHIPS = {"same_story", "related_theme", "distinct_story", "uncertain"}
-_CHANGE_TYPES = {"new", "escalated", "weakened", "reframed", "unchanged", "uncertain"}
+_CHANGE_TYPES = {
+    "new",
+    "material_update",
+    "status_change",
+    "correction",
+    "resolved",
+    "incremental",
+    "escalated",
+    "weakened",
+    "reframed",
+    "unchanged",
+    "uncertain",
+}
 _DISPOSITIONS = {"full_report", "continuing_bullet", "omit", "uncertain"}
 
 
@@ -772,3 +865,58 @@ def _story_memory_for_articles(packet: Dict[str, Any], articles: List[SelectedAr
         and article_ids.intersection(str(item) for item in story.get("current_article_ids", []))
     ]
     return {**packet, "stories": selected}
+
+
+def _compact_decision_baselines(
+    packet: Dict[str, Any],
+    prior_reports: List[PriorReport],
+    articles: List[SelectedArticle],
+) -> List[Dict[str, Any]]:
+    """Deduplicate the smallest source-free baseline needed for classification."""
+
+    filtered = _story_memory_for_articles(packet, articles)
+    output: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    stories = filtered.get("stories", []) if isinstance(filtered, dict) else []
+    for story in stories if isinstance(stories, list) else []:
+        if not isinstance(story, dict):
+            continue
+        baselines = story.get("prior_baselines", [])
+        for baseline in baselines if isinstance(baselines, list) else []:
+            if not isinstance(baseline, dict):
+                continue
+            story_key = str(baseline.get("story_key", "") or "").strip()
+            if not story_key or story_key in seen:
+                continue
+            seen.add(story_key)
+            output.append(
+                {
+                    "story_key": story_key,
+                    "title": str(baseline.get("title", "") or "")[:180],
+                    "last_seen": str(baseline.get("last_seen", "") or "")[:32],
+                    "last_change_type": str(baseline.get("last_change_type", "") or "")[:40],
+                    "last_delta_summary": str(baseline.get("last_delta_summary", "") or "")[:180],
+                    "knowns": _normalized_strings(baseline.get("knowns", []))[:3],
+                }
+            )
+            if len(output) >= 12:
+                return output
+
+    for report in prior_reports:
+        for headline in report.major_headlines:
+            if not isinstance(headline, dict):
+                continue
+            story_key = str(headline.get("story_key", "") or "").strip()
+            if not story_key or story_key in seen:
+                continue
+            seen.add(story_key)
+            output.append(
+                {
+                    "story_key": story_key,
+                    "title": str(headline.get("headline", "") or "")[:180],
+                    "last_seen": report.date,
+                }
+            )
+            if len(output) >= 12:
+                return output
+    return output

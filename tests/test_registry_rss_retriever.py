@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+from email.utils import format_datetime
 from types import SimpleNamespace
 import unittest
 
@@ -49,10 +51,11 @@ class RegistryRssRetrieverTests(unittest.TestCase):
             "enabled": True,
         }
         retriever = RegistryRssRetriever([source], user_agent="test")
+        published = format_datetime(datetime.now(timezone.utc))
         retriever.http = FakeHttp(
-            """<?xml version="1.0"?>
+            f"""<?xml version="1.0"?>
             <rss><channel>
-              <item><title>Shared summit reaction</title><link>https://gb.example/story</link><description>Diplomatic summit context</description><pubDate>Wed, 08 Jul 2026 12:00:00 GMT</pubDate></item>
+              <item><title>Shared summit reaction</title><link>https://gb.example/story</link><description>Diplomatic summit context</description><pubDate>{published}</pubDate></item>
               <item><title>Sports notebook</title><link>https://gb.example/sports</link><description>Unrelated</description></item>
             </channel></rss>"""
         )

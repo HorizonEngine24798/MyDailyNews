@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from typing import Callable
 from urllib.parse import urlparse
 
@@ -8,6 +7,7 @@ from mydailynews.app.models import SelectedArticle
 from mydailynews.common.parallel import ordered_parallel_map
 from mydailynews.common.utils import normalize_url
 from mydailynews.diagnostics.debug import safe_url
+from mydailynews.domain.text_similarity import word_tokens
 from mydailynews.enrichment.models import ResearchResult
 from mydailynews.retrieval.article import ArticleRetriever
 from mydailynews.retrieval.ddg import DuckDuckGoSearchRetriever
@@ -168,4 +168,4 @@ def _source_from_url(url: str) -> str:
 
 
 def _tokens(text: str) -> set[str]:
-    return set(re.findall(r"[a-z0-9]{3,}", (text or "").lower()))
+    return set(word_tokens(text, min_alpha_chars=2, keep_numbers=True))

@@ -16,6 +16,71 @@ DELTA_MATERIALITY_KEYS = {
     "weakened": ("weakened", 0.75),
 }
 
+MIN_CONFIDENCE_FOR_OMISSION = 0.7
+
+
+def partition_selected_for_brief(
+    *,
+    selected: List[SelectedArticle],
+    delta_packet: Dict[str, Any] | None,
+) -> tuple[List[SelectedArticle], List[SelectedArticle]]:
+    """Split safe omissions from articles that should reach the writer.
+
+    Unknown, malformed, duplicated, or conflicting decisions fail open. A weak
+    model's formatting mistake should not silently hide a material update.
+    """
+
+    decisions = _unambiguous_story_decisions_by_article(delta_packet)
+    included: List[SelectedArticle] = []
+    omitted: List[SelectedArticle] = []
+    for article in selected:
+        decision = decisions.get(str(article.candidate.id))
+        if _effective_disposition(decision) == "omit":
+            omitted.append(article)
+        else:
+            included.append(article)
+    return included, omitted
+
+
+def selected_articles_represented_in_brief(
+    selected: List[SelectedArticle],
+    brief: Dict[str, Any] | None,
+) -> List[SelectedArticle]:
+    """Return articles actually exposed after final-prompt compaction."""
+
+    rows = brief.get("selected_articles", []) if isinstance(brief, dict) else []
+    if not isinstance(rows, list):
+        return []
+    represented_ids = {
+        str(row.get("id", "") or "").strip()
+        for row in rows
+        if isinstance(row, dict) and str(row.get("id", "") or "").strip()
+    }
+    return [article for article in selected if str(article.candidate.id) in represented_ids]
+
+
+def recall_packet_for_selected(
+    packet: Dict[str, Any] | None,
+    selected: List[SelectedArticle],
+) -> Dict[str, Any]:
+    if not isinstance(packet, dict) or not packet:
+        return {}
+    story_keys = {
+        annotation.story_key
+        for article in selected
+        for annotation in [candidate_memory_annotation(article.candidate)]
+        if annotation is not None and annotation.story_key
+    }
+    rows = packet.get("coverage_guidance", [])
+    if not isinstance(rows, list):
+        rows = []
+    filtered_rows = [
+        dict(row)
+        for row in rows
+        if isinstance(row, dict) and str(row.get("story_key", "") or "") in story_keys
+    ]
+    return {**packet, "coverage_guidance": filtered_rows}
+
 
 def apply_delta_signals_to_selected(
     *,
@@ -25,19 +90,7 @@ def apply_delta_signals_to_selected(
     if not isinstance(delta_packet, dict) or not delta_packet:
         return
     by_article_id: Dict[str, tuple[str, float]] = {}
-    decision_by_article: Dict[str, Dict[str, Any]] = {}
-    story_decisions = delta_packet.get("story_decisions", [])
-    if isinstance(story_decisions, list):
-        for decision in story_decisions:
-            if not isinstance(decision, dict):
-                continue
-            article_ids = decision.get("article_ids", [])
-            if not isinstance(article_ids, list):
-                continue
-            for article_id in article_ids:
-                text_id = str(article_id or "").strip()
-                if text_id:
-                    decision_by_article[text_id] = decision
+    decision_by_article = _unambiguous_story_decisions_by_article(delta_packet)
     for key, signal in DELTA_MATERIALITY_KEYS.items():
         change_type, materiality = signal
         for item in delta_packet.get(key, []):
@@ -57,7 +110,7 @@ def apply_delta_signals_to_selected(
             if annotation is not None:
                 change_type = str(decision.get("change_type", "") or "").strip()
                 materiality = _bounded_float(decision.get("materiality"), annotation.materiality)
-                disposition = str(decision.get("disposition", "") or "").strip()
+                disposition = _effective_disposition(decision)
                 relationship = str(decision.get("relationship", "") or "").strip()
                 prior_story_key = str(decision.get("prior_story_key", "") or "").strip()
                 set_memory_annotation(
@@ -127,6 +180,62 @@ def _bounded_float(value: Any, default: float) -> float:
         return max(0.0, min(1.0, float(value)))
     except (TypeError, ValueError):
         return default
+
+
+def _unambiguous_story_decisions_by_article(
+    delta_packet: Dict[str, Any] | None,
+) -> Dict[str, Dict[str, Any]]:
+    if not isinstance(delta_packet, dict):
+        return {}
+    rows = delta_packet.get("story_decisions", [])
+    if not isinstance(rows, list):
+        return {}
+    grouped: Dict[str, List[Dict[str, Any]]] = {}
+    for decision in rows:
+        if not isinstance(decision, dict):
+            continue
+        article_ids = decision.get("article_ids", [])
+        if not isinstance(article_ids, list):
+            continue
+        for article_id in article_ids:
+            text_id = str(article_id or "").strip()
+            if text_id:
+                grouped.setdefault(text_id, []).append(decision)
+
+    output: Dict[str, Dict[str, Any]] = {}
+    for article_id, decisions in grouped.items():
+        signatures = {
+            (
+                str(item.get("relationship", "") or "").strip(),
+                str(item.get("change_type", "") or "").strip(),
+                str(item.get("disposition", "") or "").strip(),
+            )
+            for item in decisions
+        }
+        if len(signatures) == 1:
+            output[article_id] = max(
+                decisions,
+                key=lambda item: _bounded_float(item.get("confidence"), 0.0),
+            )
+    return output
+
+
+def _effective_disposition(decision: Dict[str, Any] | None) -> str:
+    if not isinstance(decision, dict):
+        return "full_report"
+    disposition = str(decision.get("disposition", "") or "").strip()
+    if disposition != "omit":
+        return "continuing_bullet" if disposition == "continuing_bullet" else "full_report"
+    relationship = str(decision.get("relationship", "") or "").strip()
+    change_type = str(decision.get("change_type", "") or "").strip()
+    confidence = _bounded_float(decision.get("confidence"), 0.0)
+    if (
+        relationship == "same_story"
+        and change_type == "unchanged"
+        and confidence >= MIN_CONFIDENCE_FOR_OMISSION
+    ):
+        return "omit"
+    return "full_report"
 
 
 def build_recall_packet(

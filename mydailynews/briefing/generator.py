@@ -809,3 +809,20 @@ def brief_metadata(
         "selected_count": selected_count,
         "warnings": warnings or [],
     }
+
+
+def no_material_changes_brief(date: str) -> Dict[str, Any]:
+    """Return a source-empty brief without giving an LLM room to reconstruct repeats."""
+
+    return {
+        "title": f"Daily Brief - {date}",
+        "lead": "No material changes met this brief's reporting threshold in the supplied sources.",
+        "knowns": [],
+        "unknowns": [],
+        "watch_signals": [],
+        "topic_reports": [],
+        "sections": [],
+        "major_headlines": [],
+        "selected_articles": [],
+        "references": [],
+    }

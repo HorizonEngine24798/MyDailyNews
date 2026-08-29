@@ -378,7 +378,22 @@ DELTA_EXTRACTION_JSON_SCHEMA = JSONSchemaSpec(
                         "article_ids": {"type": "array", "items": {"type": "string"}},
                         "prior_story_key": {"type": "string"},
                         "relationship": {"type": "string", "enum": ["same_story", "related_theme", "distinct_story", "uncertain"]},
-                        "change_type": {"type": "string", "enum": ["new", "escalated", "weakened", "reframed", "unchanged", "uncertain"]},
+                        "change_type": {
+                            "type": "string",
+                            "enum": [
+                                "new",
+                                "material_update",
+                                "status_change",
+                                "correction",
+                                "resolved",
+                                "incremental",
+                                "escalated",
+                                "weakened",
+                                "reframed",
+                                "unchanged",
+                                "uncertain"
+                            ]
+                        },
                         "materiality": {"type": "number"},
                         "confidence": {"type": "number"},
                         "disposition": {"type": "string", "enum": ["full_report", "continuing_bullet", "omit", "uncertain"]},
@@ -414,5 +429,70 @@ DELTA_EXTRACTION_JSON_SCHEMA = JSONSchemaSpec(
             "story_decisions",
             "evidence_gaps",
         ],
+    },
+)
+
+
+# Classification-only contract for constrained local models. The full delta
+# schema intentionally remains available for stages that also need editorial
+# prose; this one asks the model only for decisions the policy layer consumes.
+DELTA_DECISION_JSON_SCHEMA = JSONSchemaSpec(
+    name="delta_decisions",
+    schema={
+        "type": "object",
+        "properties": {
+            "story_decisions": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "story_key": {"type": "string"},
+                        "article_ids": {"type": "array", "items": {"type": "string"}},
+                        "prior_story_key": {"type": "string"},
+                        "relationship": {
+                            "type": "string",
+                            "enum": ["same_story", "related_theme", "distinct_story", "uncertain"],
+                        },
+                        "change_type": {
+                            "type": "string",
+                            "enum": [
+                                "new",
+                                "material_update",
+                                "status_change",
+                                "correction",
+                                "resolved",
+                                "incremental",
+                                "escalated",
+                                "weakened",
+                                "reframed",
+                                "unchanged",
+                                "uncertain",
+                            ],
+                        },
+                        "materiality": {"type": "number"},
+                        "confidence": {"type": "number"},
+                        "disposition": {
+                            "type": "string",
+                            "enum": ["full_report", "continuing_bullet", "omit", "uncertain"],
+                        },
+                        "summary": {"type": "string"},
+                    },
+                    "required": [
+                        "story_key",
+                        "article_ids",
+                        "prior_story_key",
+                        "relationship",
+                        "change_type",
+                        "materiality",
+                        "confidence",
+                        "disposition",
+                        "summary",
+                    ],
+                    "additionalProperties": False,
+                },
+            },
+        },
+        "required": ["story_decisions"],
+        "additionalProperties": False,
     },
 )

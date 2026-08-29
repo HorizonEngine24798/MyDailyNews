@@ -174,11 +174,13 @@ def coverage_records_for_selected(
     selected: List[SelectedArticle],
 ) -> List[CoverageRecord]:
     records: List[CoverageRecord] = []
-    for index, article in enumerate(selected):
+    for article in selected:
         annotation = candidate_memory_annotation(article.candidate)
         if annotation is None or not annotation.story_key:
             continue
-        prominence = "lead" if index == 0 else "body"
+        if annotation.today_policy == "omit":
+            continue
+        prominence = "lead" if not records else "body"
         if prominence != "lead" and annotation.today_policy.startswith("capsule"):
             prominence = "capsule"
         rank_score = float(article.selection_rank_score or article.decision.selection_rank_score or 0.0)

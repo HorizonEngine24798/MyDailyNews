@@ -4,7 +4,6 @@ import calendar
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 import json
-import re
 from typing import Any, Dict, List, Tuple
 
 import feedparser
@@ -12,13 +11,13 @@ import feedparser
 from mydailynews.common.cache import CachedHttpClient, HTTPCache
 from mydailynews.common.utils import canonical_article_url, normalize_whitespace, stable_id, strip_html
 from mydailynews.diagnostics.debug import DebugLogger
+from mydailynews.domain.text_similarity import word_tokens
 
 
-TOKEN_RE = re.compile(r"[A-Za-z0-9_]+")
 SEARCH_STOPWORDS = {
     "about", "after", "again", "against", "amid", "and", "are", "as", "at", "be", "by", "for", "from",
     "has", "have", "in", "into", "is", "it", "its", "new", "of", "on", "over", "says", "the", "to", "with",
-    "need", "additional", "latest", "global", "news", "today", "year", "years", "us", "uk", "eu", "ai",
+    "need", "additional", "latest", "news", "today",
 }
 
 
@@ -131,11 +130,14 @@ def _normalize_article(source: Dict[str, Any], article: Dict[str, Any]) -> Dict[
 
 
 def _tokens(value: Any) -> set[str]:
-    return {
-        token.lower()
-        for token in TOKEN_RE.findall(str(value or ""))
-        if len(token) >= 3 and token.lower() not in SEARCH_STOPWORDS and not token.isdigit()
-    }
+    return set(
+        word_tokens(
+            value,
+            stopwords=SEARCH_STOPWORDS,
+            min_alpha_chars=2,
+            keep_numbers=True,
+        )
+    )
 
 
 def parse_feed_articles(feed_text: str, *, feed_url: str, source: Dict[str, Any]) -> List[Dict[str, Any]]:

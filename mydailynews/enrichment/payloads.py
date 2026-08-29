@@ -4,6 +4,7 @@ import re
 from typing import Any
 
 from mydailynews.app.models import ContextSource, SelectedArticle
+from mydailynews.domain.text_similarity import word_tokens
 from mydailynews.enrichment.models import ResearchResult, StoryEnrichment
 from mydailynews.story_grouping.payloads import (
     clean_text,
@@ -152,7 +153,7 @@ def relevant_excerpt(
 
 
 def _tokens(text: str) -> set[str]:
-    return set(re.findall(r"[a-z0-9]{3,}", (text or "").lower()))
+    return set(word_tokens(text, min_alpha_chars=2, keep_numbers=True))
 
 
 def fact_list(value: Any, *, text_key: str) -> list[dict[str, Any]]:

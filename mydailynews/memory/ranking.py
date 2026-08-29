@@ -10,19 +10,6 @@ from mydailynews.memory.story_index import MATCH_CONFIDENCE_THRESHOLD, StoryInde
 from mydailynews.memory.story_keys import StoryIdentity, story_identity_for_candidate, token_overlap_confidence
 
 
-MATERIAL_ANGLE_TYPES = {
-    "breakthrough",
-    "escalation",
-    "material_update",
-    "major_update",
-    "new_phase",
-    "policy_change",
-    "regulatory_action",
-    "resolution",
-    "reversal",
-}
-
-
 def annotate_candidates_with_memory(
     *,
     candidates: List[NewsCandidate],
@@ -121,9 +108,9 @@ def annotate_candidates_with_memory(
 def materiality_for_decision(decision: HeadlineDecision | None) -> float:
     if decision is None:
         return 0.0
-    angle_type = str(decision.angle_type or "").strip().lower().replace("-", "_").replace(" ", "_")
-    if angle_type in MATERIAL_ANGLE_TYPES:
-        return 0.9
+    # Angle names are model-authored, open-ended text.  Treating a hand-picked
+    # vocabulary as an action API made unfamiliar domains behave differently.
+    # Materiality now comes from the model's domain-neutral scalar judgments.
     novelty = _score_0_to_10(getattr(decision, "novelty", 5.0))
     impact = _score_0_to_10(getattr(decision, "impact", 5.0))
     urgency = _score_0_to_10(getattr(decision, "urgency", 5.0))

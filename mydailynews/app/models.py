@@ -202,6 +202,7 @@ class DeltaExtractionConfig:
     enabled: bool = False
     model_role: str = "summary"
     input_source: str = "evidence_or_articles"
+    output_mode: str = "full"
     require_prior_reports: bool = False
     max_input_tokens: int = 8000
     max_new_tokens: int = 1000

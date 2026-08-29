@@ -293,6 +293,13 @@ def _normalize_delta_input_source(value: Any) -> str:
     return mode
 
 
+def _normalize_delta_output_mode(value: Any) -> str:
+    mode = str(value or "full").strip().lower()
+    if mode not in {"full", "decision_only"}:
+        raise ValueError("analysis.delta_extraction.output_mode must be one of: full, decision_only")
+    return mode
+
+
 def _normalize_enrichment_mode(value: Any) -> str:
     mode = str(value or DEFAULT_ENRICHMENT["mode"]).strip().lower()
     allowed = {"story_llm", "disabled"}
@@ -651,6 +658,7 @@ def _load_analysis(raw: Dict[str, Any]) -> AnalysisConfig:
                 "analysis.delta_extraction.model_role",
             ),
             input_source=_normalize_delta_input_source(delta_raw.get("input_source", delta_defaults["input_source"])),
+            output_mode=_normalize_delta_output_mode(delta_raw.get("output_mode", delta_defaults["output_mode"])),
             require_prior_reports=parse_bool(
                 delta_raw.get("require_prior_reports", delta_defaults["require_prior_reports"]),
                 default=delta_defaults["require_prior_reports"],

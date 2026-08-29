@@ -33,6 +33,7 @@ from mydailynews.memory.preference_learning import (
 )
 from mydailynews.memory.ranking import annotate_candidates_with_memory
 from mydailynews.memory.story_index import StoryIndexStore
+from mydailynews.domain.text_similarity import normalized_word_text, word_tokens
 from mydailynews.common.utils import utc_now
 
 PROFILE_GEO_MATCH_BONUS = 0.7
@@ -330,12 +331,11 @@ def tokenize_for_match(text: str) -> List[str]:
         "major",
         "about",
     }
-    tokens = [token for token in re.findall(r"[a-z0-9]{3,}", text.lower()) if token not in stop]
-    return tokens
+    return word_tokens(text, stopwords=stop, min_alpha_chars=2, keep_numbers=True)
 
 
 def _normalized_match_text(text: str) -> str:
-    return re.sub(r"[^a-z0-9]+", " ", (text or "").lower()).strip()
+    return normalized_word_text(text)
 
 
 def _normalized_profile_terms(values: List[str], *, max_items: int = 10, max_chars: int = 48) -> List[str]:
@@ -431,6 +431,12 @@ def _profile_signal_matches(candidate: NewsCandidate, user_memory: UserMemory) -
     }
 
 
+def profile_match_signals(candidate: NewsCandidate, user_memory: UserMemory) -> Dict[str, Any]:
+    """Public, domain-neutral profile matching signals used by offline evals."""
+
+    return dict(_profile_signal_matches(candidate, user_memory))
+
+
 def _profile_scoring_signals(candidate: NewsCandidate, user_memory: UserMemory) -> tuple[bool, int, int, float]:
     annotation = candidate_profile_match_annotation(candidate)
     if annotation is not None:
@@ -516,7 +522,7 @@ def dedupe_similar_titles(candidates: List[NewsCandidate], debug) -> List[NewsCa
 
 
 def title_dedupe_key(title: str) -> str:
-    tokens = re.findall(r"[a-z0-9]{3,}", (title or "").lower())
+    tokens = word_tokens(title, min_alpha_chars=2, keep_numbers=True)
     if not tokens:
         return ""
     stop = {
