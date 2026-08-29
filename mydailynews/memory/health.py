@@ -11,11 +11,11 @@ from mydailynews.memory.feedback import FEEDBACK_ACTIONS
 def memory_health_checks(
     *,
     state_dir: Path | str,
-    story_index: Iterable[Any],
+    story_store: Iterable[Any],
     coverage_records: Iterable[Any],
     feedback_events: Iterable[Any],
 ) -> dict[str, Any]:
-    stories = list(story_index)
+    stories = list(story_store)
     coverage = list(coverage_records)
     feedback = list(feedback_events)
 
@@ -29,12 +29,12 @@ def memory_health_checks(
         if _field(record, "story_key") and not _field(record, "last_seen")
     )
 
-    indexed_story_keys = set(story_keys)
+    stored_story_keys = set(story_keys)
     coverage_without_story = sorted(
         {
             _field(record, "story_key")
             for record in coverage
-            if _field(record, "story_key") and _field(record, "story_key") not in indexed_story_keys
+            if _field(record, "story_key") and _field(record, "story_key") not in stored_story_keys
         }
     )
 
@@ -88,12 +88,12 @@ def memory_health_checks(
     if coverage_without_story:
         warnings.append(
             _warning(
-                "coverage_story_key_missing_from_index",
+                "coverage_story_key_missing_from_store",
                 len(coverage_without_story),
                 _plural(
                     len(coverage_without_story),
-                    "coverage story key is absent from the story index",
-                    "coverage story keys are absent from the story index",
+                    "coverage story key is absent from the story store",
+                    "coverage story keys are absent from the story store",
                 ),
                 story_keys=coverage_without_story[:20],
             )
@@ -119,7 +119,7 @@ def memory_health_checks(
             "invalid_feedback_rows": int(feedback_stats["invalid_rows"]),
             "duplicate_story_keys": len(duplicate_keys),
             "story_records_missing_last_seen": len(stories_missing_last_seen),
-            "coverage_story_key_missing_from_index": len(coverage_without_story),
+            "coverage_story_key_missing_from_store": len(coverage_without_story),
             "feedback_rows_missing_identity": len(feedback_without_identity),
         },
     }

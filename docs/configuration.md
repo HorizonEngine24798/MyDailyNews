@@ -138,7 +138,7 @@ Important fields:
 - `recall_prompt_enabled` and `save_recall_packets`: compact coverage guidance and debug packets.
 - `feedback_enabled`: file-backed feedback events used by the GUI and learned preferences.
 
-Memory files are inspectable under `state/memory/`, including `coverage_log.jsonl`, `story_index.json`, `feedback_events.jsonl`, `learned_preferences.json`, `backups/`, and `recall_packets/`.
+Memory files are inspectable under `state/memory/`, including `coverage_log.jsonl`, `story_store.json`, `feedback_events.jsonl`, `learned_preferences.json`, `backups/`, and `recall_packets/`. `story_store.json` is the single durable record for story identity, lifecycle, semantic state, retrieval signals, and bounded source evidence. On an existing installation, the store reads legacy `story_index.json` and `story_ledger.json` together until the next normal write creates `story_store.json`; the legacy files are then retained as migration backups but no longer read.
 
 The memory layer does not add LLM calls and does not mutate `user_memory`. Learned preferences are stored separately and applied as bounded deterministic rank adjustments.
 

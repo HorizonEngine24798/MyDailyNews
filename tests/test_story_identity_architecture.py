@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -22,8 +23,8 @@ from mydailynews.domain.headline_selection import select_articles
 from mydailynews.memory.context import build_story_memory_context
 from mydailynews.memory.coverage import CoverageMemoryStore, CoverageRecord
 from mydailynews.memory.recall import apply_delta_signals_to_selected
-from mydailynews.memory.story_ledger import StoryLedgerStore
-from mydailynews.evaluation.retrieval_diagnostics import evaluate_story_ledger_retrieval
+from mydailynews.memory.story_store import StoryStore
+from mydailynews.evaluation.retrieval_diagnostics import evaluate_story_store_retrieval
 from mydailynews.evaluation.schema import load_corpus
 
 
@@ -190,18 +191,99 @@ class CandidateIdentityGateTests(unittest.TestCase):
         self.assertEqual(packet["new"][0]["article_ids"], ["current"])
 
 
-class StoryLedgerTests(unittest.TestCase):
+class StoryStoreTests(unittest.TestCase):
+    def test_legacy_index_and_ledger_merge_once_into_canonical_store(self) -> None:
+        with TemporaryDirectory() as raw_dir:
+            root = Path(raw_dir)
+            (root / "story_index.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 2,
+                        "stories": [
+                            {
+                                "story_key": "elf-toenail-trend",
+                                "story_family_key": "faraway-fashion",
+                                "title": "Moon-crystal toenail fashion",
+                                "topic": "Faraway fashion",
+                                "tokens": ["moon", "crystal", "toenail", "fashion"],
+                                "first_seen": "2026-01-01",
+                                "last_seen": "2026-01-03",
+                                "status": "active",
+                                "last_change_type": "escalated",
+                                "last_delta_summary": "The guild adopted the style.",
+                                "last_knowns": ["The style is now official."],
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (root / "story_ledger.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "stories": [
+                            {
+                                "story_key": "elf-toenail-trend",
+                                "story_family_key": "faraway-fashion",
+                                "title": "Moon-crystal charms reach Lyr Vale",
+                                "aliases": ["Moon-crystal charms reach Lyr Vale"],
+                                "entity_tokens": ["moon", "crystal", "lyr", "vale"],
+                                "event_tokens": ["charms", "fashion"],
+                                "first_seen": "2026-01-01",
+                                "last_seen": "2026-01-02",
+                                "source_document_ids": ["elf-01"],
+                                "facts": [
+                                    {
+                                        "fact_id": "fact:elf-01",
+                                        "text": "Moon-crystal toenail charms debuted at Lyr Vale market.",
+                                        "kind": "source_sentence",
+                                        "source_id": "elf-01",
+                                        "source_name": "Faraway Chronicle",
+                                        "source_url": "https://fixture.test/elf-01",
+                                        "published_at": "2026-01-01T00:00:00+00:00",
+                                        "observed_at": "2026-01-01",
+                                        "tokens": ["moon", "crystal", "toenail", "charms"],
+                                        "user_visible": True,
+                                    }
+                                ],
+                                "last_user_visible_fact_ids": ["fact:elf-01"],
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            store = StoryStore.from_state_dir(root)
+            self.assertTrue(store.using_legacy_migration)
+            records = store.records()
+
+            self.assertEqual(len(records), 1)
+            record = records[0]
+            self.assertEqual(record.title, "Moon-crystal toenail fashion")
+            self.assertEqual(record.last_seen, "2026-01-03")
+            self.assertEqual(record.last_change_type, "escalated")
+            self.assertEqual(record.source_document_ids, ["elf-01"])
+            self.assertEqual(record.facts[0].source_url, "https://fixture.test/elf-01")
+
+            store.replace_records(records)
+            self.assertTrue((root / "story_store.json").exists())
+            self.assertTrue((root / "story_index.json").exists())
+            self.assertTrue((root / "story_ledger.json").exists())
+            self.assertFalse(StoryStore.from_state_dir(root).using_legacy_migration)
+
     def test_unvalidated_retrieval_candidate_cannot_hard_suppress_selection(self) -> None:
         with TemporaryDirectory() as raw_dir:
             root = Path(raw_dir)
-            ledger = StoryLedgerStore.from_state_dir(root)
+            store = StoryStore.from_state_dir(root)
             previous = _candidate(
                 "prior",
                 "Glass Orchard northern gate closes for repair",
                 "The Glass Orchard northern gate closed for a month-long repair.",
             )
             _annotate(previous, "glass-orchard-gate")
-            ledger.update_selected(selected=[_article(previous)], date="2026-03-01")
+            store.update_selected(selected=[_article(previous)], date="2026-03-01")
             coverage = CoverageMemoryStore.from_state_dir(root)
             coverage.write_records(
                 [
@@ -242,7 +324,7 @@ class StoryLedgerTests(unittest.TestCase):
                 user_memory=UserMemory(),
                 memory_config=MemoryConfig(enabled=True),
                 coverage_store=coverage,
-                story_ledger_store=ledger,
+                story_store=store,
                 date="2026-03-02",
             )
 
@@ -252,9 +334,9 @@ class StoryLedgerTests(unittest.TestCase):
             self.assertGreaterEqual(annotation.score_adjustment, -0.35)
             self.assertEqual(current.metadata["memory_identity_state"], "provisional")
 
-    def test_ledger_persists_exact_source_facts_and_provenance(self) -> None:
+    def test_store_persists_exact_source_facts_and_provenance(self) -> None:
         with TemporaryDirectory() as raw_dir:
-            store = StoryLedgerStore.from_state_dir(Path(raw_dir))
+            store = StoryStore.from_state_dir(Path(raw_dir))
             body = "Moon-crystal toenail charms debuted at Lyr Vale market. The guild has not adopted them yet."
             candidate = _candidate("elf-01", "Moon-crystal toenail charms reach Lyr Vale", body)
             _annotate(candidate, "elf-toenail-trend")
@@ -265,7 +347,7 @@ class StoryLedgerTests(unittest.TestCase):
                 visible_article_ids=["elf-01"],
                 delta_packet={},
             )
-            reloaded = StoryLedgerStore.from_state_dir(Path(raw_dir)).records()[0]
+            reloaded = StoryStore.from_state_dir(Path(raw_dir)).records()[0]
 
             self.assertEqual(reloaded.story_key, "elf-toenail-trend")
             self.assertIn("elf-01", reloaded.source_document_ids)
@@ -285,16 +367,16 @@ class StoryLedgerTests(unittest.TestCase):
                 visible_article_ids=[],
                 delta_packet={},
             )
-            hidden_pass_record = StoryLedgerStore.from_state_dir(Path(raw_dir)).records()[0]
+            hidden_pass_record = StoryStore.from_state_dir(Path(raw_dir)).records()[0]
             hidden_pass_fact = next(
                 fact for fact in hidden_pass_record.facts if fact.fact_id == source_fact.fact_id
             )
             self.assertTrue(hidden_pass_fact.user_visible)
             self.assertIn(source_fact.fact_id, hidden_pass_record.last_user_visible_fact_ids)
 
-    def test_hybrid_retrieval_handles_invented_domain_and_changed_headline(self) -> None:
+    def test_heuristic_retrieval_handles_invented_domain_and_changed_headline(self) -> None:
         with TemporaryDirectory() as raw_dir:
-            store = StoryLedgerStore.from_state_dir(Path(raw_dir))
+            store = StoryStore.from_state_dir(Path(raw_dir))
             first_body = (
                 "Artisans demonstrated moon-crystal toenail charms at Lyr Vale market. "
                 "The Royal Tailors Guild called the style voluntary."
@@ -334,7 +416,7 @@ class StoryLedgerTests(unittest.TestCase):
 
     def test_numeric_signals_rank_model_four_above_model_three(self) -> None:
         with TemporaryDirectory() as raw_dir:
-            store = StoryLedgerStore.from_state_dir(Path(raw_dir))
+            store = StoryStore.from_state_dir(Path(raw_dir))
             model_three = _candidate(
                 "beacon-3",
                 "Aster launches Model 3 rescue beacon",
@@ -371,7 +453,7 @@ class StoryLedgerTests(unittest.TestCase):
     def test_story_context_contains_only_retrieved_source_backed_candidates(self) -> None:
         with TemporaryDirectory() as raw_dir:
             root = Path(raw_dir)
-            store = StoryLedgerStore.from_state_dir(root)
+            store = StoryStore.from_state_dir(root)
             first = _candidate(
                 "ledger-old",
                 "Glass Orchard opens its northern gate",
@@ -389,8 +471,7 @@ class StoryLedgerTests(unittest.TestCase):
             context = build_story_memory_context(
                 selected=[_article(current)],
                 story_groups=[],
-                story_index_store=None,
-                story_ledger_store=store,
+                story_store=store,
                 coverage_store=None,
                 prior_reports=[],
                 date="2026-03-02",
@@ -409,7 +490,7 @@ class StoryLedgerTests(unittest.TestCase):
 
     def test_full_corpus_candidate_recall_regression(self) -> None:
         corpus_path = Path(__file__).resolve().parents[1] / "evals" / "cases" / "change_monitoring.v1.json"
-        payload = evaluate_story_ledger_retrieval(load_corpus(corpus_path)).payload()
+        payload = evaluate_story_store_retrieval(load_corpus(corpus_path)).payload()
 
         self.assertEqual(payload["documents"], 74)
         self.assertEqual(payload["historical_continuations"], 25)

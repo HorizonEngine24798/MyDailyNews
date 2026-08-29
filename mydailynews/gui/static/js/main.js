@@ -12,7 +12,7 @@ import {
   updateReportTypeOptions,
 } from "./reports.js";
 import { bindRunEvents, loadRuns, renderRuns, setRunRefreshCallbacks } from "./runs.js";
-import { defaultStoryIndex, state } from "./state.js";
+import { defaultStoryStore, state } from "./state.js";
 
 const PIPELINE_MODULES = [
   ["briefs", "Briefs"],
@@ -100,7 +100,7 @@ async function loadReports() {
 
 async function loadMemory() {
   state.memory = await api("/api/memory");
-  state.storyIndexDraft = clone(state.memory.story_index_file || defaultStoryIndex());
+  state.storyStoreDraft = clone(state.memory.story_store_file || defaultStoryStore());
   renderMemory();
 }
 
@@ -356,12 +356,12 @@ async function previewLearned(targetId = "learnedPreview") {
   }
 }
 
-async function saveStoryIndex() {
+async function saveStoryStore() {
   try {
-    state.memory = await api("/api/memory/story-index", { method: "PUT", body: JSON.stringify(state.storyIndexDraft) });
-    state.storyIndexDraft = clone(state.memory.story_index_file || defaultStoryIndex());
+    state.memory = await api("/api/memory/story-store", { method: "PUT", body: JSON.stringify(state.storyStoreDraft) });
+    state.storyStoreDraft = clone(state.memory.story_store_file || defaultStoryStore());
     renderMemory();
-    setStatus("Story index saved");
+    setStatus("Story store saved");
   } catch (error) {
     setStatus(error.message, true);
   }
@@ -371,7 +371,7 @@ async function pruneMemory() {
   try {
     const payload = await api("/api/memory/prune", { method: "POST", body: JSON.stringify({}) });
     state.memory = payload.memory;
-    state.storyIndexDraft = clone(state.memory.story_index_file || defaultStoryIndex());
+    state.storyStoreDraft = clone(state.memory.story_store_file || defaultStoryStore());
     renderMemory();
     setStatus("Memory pruned");
   } catch (error) {
@@ -454,7 +454,7 @@ function bindEvents() {
   byId("saveMemoryLearnedButton").addEventListener("click", saveLearned);
   byId("previewLearnedButton").addEventListener("click", () => previewLearned("learnedPreview"));
   byId("previewMemoryLearnedButton").addEventListener("click", () => previewLearned("memoryLearnedPreview"));
-  byId("saveStoryIndexButton").addEventListener("click", saveStoryIndex);
+  byId("saveStoryStoreButton").addEventListener("click", saveStoryStore);
   byId("pruneMemoryButton").addEventListener("click", pruneMemory);
   document.querySelectorAll("[data-gui-theme]").forEach((button) => {
     button.addEventListener("click", () => saveGuiPrefs({ theme: button.dataset.guiTheme }));

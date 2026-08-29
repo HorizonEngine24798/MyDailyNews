@@ -8,7 +8,7 @@ from typing import Any, Dict, List
 from mydailynews.app.models import HeadlineDecision, MemoryAnnotation, SelectedArticle
 from mydailynews.domain.candidate_annotations import set_memory_annotation
 from mydailynews.evaluation.schema import EvalCorpus
-from mydailynews.memory.story_ledger import DEFAULT_CANDIDATE_THRESHOLD, StoryLedgerStore
+from mydailynews.memory.story_store import DEFAULT_CANDIDATE_THRESHOLD, StoryStore
 
 
 @dataclass
@@ -16,7 +16,7 @@ class StoryRetrievalDiagnostics:
     """Gold-assisted diagnostic that isolates candidate retrieval quality.
 
     Gold canonical identity is used only after each day to seed the historical
-    ledger. It is never supplied to retrieval for the current day.
+    store. It is never supplied to retrieval for the current day.
     """
 
     historical_continuations: int = 0
@@ -68,7 +68,7 @@ class StoryRetrievalDiagnostics:
         }
 
 
-def evaluate_story_ledger_retrieval(
+def evaluate_story_store_retrieval(
     corpus: EvalCorpus,
     *,
     threshold: float = DEFAULT_CANDIDATE_THRESHOLD,
@@ -77,15 +77,15 @@ def evaluate_story_ledger_retrieval(
     """Measure the source-backed retriever against prior-day story history.
 
     This is an intervention diagnostic, not an end-to-end production score:
-    private canonical IDs are used to make historical ledger writeback perfect.
+    private canonical IDs are used to make historical store writeback perfect.
     Current documents are retrieved from title/snippet/body only.
     """
 
     result = StoryRetrievalDiagnostics()
-    with TemporaryDirectory(prefix="mydailynews-ledger-eval-") as raw_root:
+    with TemporaryDirectory(prefix="mydailynews-story-store-eval-") as raw_root:
         root = Path(raw_root)
         for arc in corpus.arcs:
-            store = StoryLedgerStore(root / f"{arc.id}.json")
+            store = StoryStore(root / f"{arc.id}.json")
             seen_before_day: set[str] = set()
             for day in arc.days:
                 expected_by_id = {item.document_id: item for item in day.expectations}

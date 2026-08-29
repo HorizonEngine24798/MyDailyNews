@@ -35,7 +35,7 @@ from mydailynews.memory.repair import (
     repair_feedback_events,
     split_story,
 )
-from mydailynews.memory.story_index import StoryIndexStore
+from mydailynews.memory.story_store import StoryStore
 from mydailynews.memory.story_keys import story_identity_for_candidate
 from mydailynews.pipeline.handoff import load_brief_handoff, write_brief_handoff
 from mydailynews.retrieval.reports import PriorReportRetriever
@@ -252,9 +252,9 @@ class MemoryModuleTests(unittest.TestCase):
         self.assertEqual([article.candidate.id for article in selected], ["fresh"])
         self.assertEqual(decisions["repeat"].selection_reason_code, "skipped_recent_coverage")
 
-    def test_story_index_matches_same_event_with_changed_sequence_words(self) -> None:
+    def test_story_store_matches_same_event_with_changed_sequence_words(self) -> None:
         temp_dir = self._temp_dir()
-        store = StoryIndexStore.from_state_dir(temp_dir)
+        store = StoryStore.from_state_dir(temp_dir)
         store.path.write_text(
             json.dumps(
                 {
@@ -395,9 +395,9 @@ class MemoryModuleTests(unittest.TestCase):
         self.assertEqual(removed, 1)
         self.assertEqual([record.story_key for record in store.read_records()], ["recent-story"])
 
-    def test_story_index_marks_stale_after_week_and_prunes_old_records(self) -> None:
+    def test_story_store_marks_stale_after_week_and_prunes_old_records(self) -> None:
         temp_dir = self._temp_dir()
-        store = StoryIndexStore.from_state_dir(temp_dir)
+        store = StoryStore.from_state_dir(temp_dir)
         store.path.parent.mkdir(parents=True, exist_ok=True)
         store.path.write_text(
             json.dumps(
@@ -598,7 +598,7 @@ class MemoryModuleTests(unittest.TestCase):
 
         health = memory_health_checks(
             state_dir=temp_dir,
-            story_index=[
+            story_store=[
                 {"story_key": "duplicate-story", "last_seen": "2026-06-28"},
                 {"story_key": "duplicate-story", "last_seen": ""},
             ],
@@ -621,10 +621,10 @@ class MemoryModuleTests(unittest.TestCase):
         self.assertEqual(health["counts"]["invalid_feedback_rows"], 1)
         self.assertEqual(health["counts"]["duplicate_story_keys"], 1)
         self.assertEqual(health["counts"]["story_records_missing_last_seen"], 1)
-        self.assertEqual(health["counts"]["coverage_story_key_missing_from_index"], 1)
+        self.assertEqual(health["counts"]["coverage_story_key_missing_from_store"], 1)
         self.assertEqual(health["counts"]["feedback_rows_missing_identity"], 1)
 
-    def test_story_merge_rewrites_index_coverage_feedback_and_creates_backup(self) -> None:
+    def test_story_merge_rewrites_store_coverage_feedback_and_creates_backup(self) -> None:
         temp_dir = self._temp_dir()
         self._write_repair_memory(
             temp_dir,
@@ -657,7 +657,7 @@ class MemoryModuleTests(unittest.TestCase):
             confirm=True,
         )
 
-        stories = {record.story_key: record for record in StoryIndexStore.from_state_dir(temp_dir).records()}
+        stories = {record.story_key: record for record in StoryStore.from_state_dir(temp_dir).records()}
         self.assertEqual(sorted(stories), ["story-ab", "story-c"])
         self.assertEqual(stories["story-ab"].first_seen, "2026-06-20")
         self.assertEqual(stories["story-ab"].last_seen, "2026-06-28")
@@ -666,9 +666,75 @@ class MemoryModuleTests(unittest.TestCase):
         feedback_keys = [event.story_key for event in FeedbackStore.from_state_dir(temp_dir).read_events()]
         self.assertEqual(feedback_keys, ["story-ab", "story-ab"])
         backup = Path(result["backup"]["path"])
-        self.assertTrue((backup / "story_index.json").exists())
+        self.assertTrue((backup / "story_store.json").exists())
         self.assertTrue((backup / "coverage_log.jsonl").exists())
         self.assertTrue((backup / "feedback_events.jsonl").exists())
+
+    def test_story_merge_preserves_source_evidence_and_semantic_state(self) -> None:
+        temp_dir = self._temp_dir()
+        self._write_repair_memory(
+            temp_dir,
+            stories=[
+                {
+                    "story_key": "story-a",
+                    "title": "Story A",
+                    "tokens": ["alpha"],
+                    "last_seen": "2026-06-27",
+                    "source_document_ids": ["doc-a"],
+                    "facts": [
+                        {
+                            "fact_id": "fact:a",
+                            "text": "Alpha was announced.",
+                            "source_id": "doc-a",
+                            "tokens": ["alpha", "announced"],
+                            "user_visible": True,
+                        }
+                    ],
+                    "last_user_visible_fact_ids": ["fact:a"],
+                },
+                {
+                    "story_key": "story-b",
+                    "title": "Story B",
+                    "tokens": ["beta"],
+                    "last_seen": "2026-06-28",
+                    "source_document_ids": ["doc-b"],
+                    "facts": [
+                        {
+                            "fact_id": "fact:b",
+                            "text": "Beta was confirmed.",
+                            "source_id": "doc-b",
+                            "tokens": ["beta", "confirmed"],
+                        }
+                    ],
+                    "last_change_type": "confirmed",
+                    "last_delta_summary": "Beta is now confirmed.",
+                },
+            ],
+            coverage=[],
+            feedback=[],
+        )
+
+        merge_stories(
+            temp_dir,
+            source_story_keys=["story-a", "story-b"],
+            canonical_story={
+                "story_key": "story-ab",
+                "story_family_key": "",
+                "title": "",
+                "topic": "",
+                "tokens": ["canonical", "token"],
+            },
+            confirm=True,
+        )
+
+        record = StoryStore.from_state_dir(temp_dir).records()[0]
+        self.assertEqual(record.title, "Story B")
+        self.assertEqual(record.tokens, ["canonical", "token"])
+        self.assertEqual(record.source_document_ids, ["doc-a", "doc-b"])
+        self.assertEqual({fact.fact_id for fact in record.facts}, {"fact:a", "fact:b"})
+        self.assertEqual(record.last_user_visible_fact_ids, ["fact:a"])
+        self.assertEqual(record.last_change_type, "confirmed")
+        self.assertEqual(record.last_delta_summary, "Beta is now confirmed.")
 
     def test_story_repair_invalid_payload_fails_without_backup_or_rewrite(self) -> None:
         temp_dir = self._temp_dir()
@@ -681,7 +747,7 @@ class MemoryModuleTests(unittest.TestCase):
             coverage=[],
             feedback=[],
         )
-        story_path = temp_dir / "story_index.json"
+        story_path = temp_dir / "story_store.json"
         before = story_path.read_text(encoding="utf-8")
 
         with self.assertRaisesRegex(ValueError, "Story key not found"):
@@ -729,13 +795,13 @@ class MemoryModuleTests(unittest.TestCase):
         )
 
         self.assertEqual(result["coverage_rows_rewritten"], 1)
-        stories = {record.story_key: record for record in StoryIndexStore.from_state_dir(temp_dir).records()}
+        stories = {record.story_key: record for record in StoryStore.from_state_dir(temp_dir).records()}
         self.assertEqual(sorted(stories), ["story-a", "story-new"])
         coverage_after = CoverageMemoryStore.from_state_dir(temp_dir).read_records()
         self.assertEqual([record.story_key for record in coverage_after], ["story-new", "story-a"])
         feedback_after = FeedbackStore.from_state_dir(temp_dir).read_events()
         self.assertEqual(feedback_after[0].story_key, "story-new")
-        self.assertTrue((Path(result["backup"]["path"]) / "story_index.json").exists())
+        self.assertTrue((Path(result["backup"]["path"]) / "story_store.json").exists())
 
     def test_coverage_archive_and_feedback_edit_delete_create_backups(self) -> None:
         temp_dir = self._temp_dir()
@@ -868,7 +934,7 @@ class MemoryModuleTests(unittest.TestCase):
         feedback: List[dict],
     ) -> None:
         state_dir.mkdir(parents=True, exist_ok=True)
-        (state_dir / "story_index.json").write_text(
+        (state_dir / "story_store.json").write_text(
             json.dumps({"schema_version": 1, "stories": stories}, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )

@@ -194,24 +194,26 @@ supplied key. A relationship label alone no longer advances the funnel.
 
 This four-condition run is the stopping point for Qwen investigation. After it,
 treat remaining weaknesses as an accepted model constraint and return to
-candidate retrieval, source-backed ledger state, relevance filtering, and
+candidate retrieval, source-backed story state, relevance filtering, and
 deterministic policy architecture. Do not begin another prompt or context sweep
 unless an architectural change creates a specific regression question.
 
-### Production source-ledger retrieval diagnostic
+### Production source-backed retrieval diagnostic
 
 The lexical `retrieved_top3` result above is preserved as the historical Qwen
-ablation. Production now has a separate hybrid retriever backed by exact source
-facts and provenance. Measure that stage without a model call:
+ablation. Production now has a separate heuristic retriever backed by exact
+source facts and provenance in the unified StoryStore. It uses hand-weighted
+lexical signals; "hybrid" in older notes was a loose label, not a sparse+dense
+retrieval design. Measure that stage without a model call:
 
 ```powershell
 .\.venv-cpu-test\Scripts\python.exe tools\run_story_retrieval_diagnostics.py
 ```
 
 This diagnostic is deliberately gold-assisted: after every simulated day it
-uses private canonical identity to write the correct historical ledger key.
+uses private canonical identity to write the correct historical store key.
 The current day's retrieval still receives only title, snippet, body, and the
-accumulated source ledger. The result therefore isolates retrieval capability;
+accumulated source evidence. The result therefore isolates retrieval capability;
 it is not production-comparable end-to-end quality.
 
 At the default threshold `0.25` and limit three:
@@ -224,13 +226,13 @@ At the default threshold `0.25` and limit three:
 | Mean reciprocal rank | 0.9600 |
 | Truly new stories receiving no candidate | 0.9787 (46/47) |
 | Related-theme items receiving a candidate | 1.0000 (1/1) |
-| Mean candidates per document | 0.3784 |
+| Mean candidates per document | 0.3919 |
 
 The corpus has 26 `same_story` labels, but one is a second document first seen
 in the same daily batch. It is excluded from historical candidate recall and
 belongs to current-day story grouping. The sole prior-day miss is `rum-03`, an
 indirect relation in which the alleged buyer signs an unrelated partnership.
-Its expected story scores `0.2015`; catching it by lowering the global
+Its expected story scores `0.2103`; catching it by lowering the global
 threshold would trade safe fragmentation for broader overmerge risk. Add an
 explicit actor/relation edge if that failure becomes important.
 
@@ -291,12 +293,14 @@ change, materiality, and disposition. Its identity score therefore measures the
 combined candidate-recall/model decision path, not unconstrained entity
 resolution. Use the prediction-file contract for a true full-pipeline run.
 
-The production memory path is newer than that adapter. It stores exact source
-sentences and provenance in `story_ledger.json`, proposes at most three hybrid
-candidates, keeps current identity provisional, and validates every model link
-through `candidate-gated.v1`. The retrieval diagnostic above tests that newer
-stage directly. A future full-pipeline adapter should use the production ledger
-instead of silently substituting the historical lexical retriever.
+The production memory path is newer than that adapter. `story_store.json`
+combines durable identity/lifecycle fields with exact source sentences and
+provenance, while retrieval remains a separate heuristic in
+`memory/story_retrieval.py`. It proposes at most three candidates, keeps current
+identity provisional, and validates every model link through
+`candidate-gated.v1`. The retrieval diagnostic above tests that newer stage
+directly. A future full-pipeline adapter should use StoryStore instead of
+silently substituting the historical lexical retriever.
 
 ## Corpus v1
 

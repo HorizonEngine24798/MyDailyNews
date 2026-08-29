@@ -42,7 +42,7 @@ from mydailynews.evaluation.runner import evaluate_adapter
 from mydailynews.evaluation.schema import EvalExpectation, EvalPrediction, load_corpus
 from mydailynews.memory.coverage import coverage_records_for_selected
 from mydailynews.memory.recall import partition_selected_for_brief, recall_packet_for_selected
-from mydailynews.memory.story_index import StoryIndexRecord, StoryIndexStore
+from mydailynews.memory.story_store import StoryRecord, StoryStore
 from mydailynews.memory.story_keys import story_identity_for_candidate
 
 
@@ -534,9 +534,9 @@ class EvaluationHarnessTests(unittest.TestCase):
         self.assertIn("3", model_3.tokens)
         self.assertIn("4", model_4.tokens)
 
-        store = StoryIndexStore(Path("unused-story-index.json"))
+        store = StoryStore(Path("unused-story-store.json"))
         store._records = [
-            StoryIndexRecord(
+            StoryRecord(
                 story_key=model_3.story_key,
                 story_family_key=model_3.story_family_key,
                 title=model_3.story_title,

@@ -26,7 +26,7 @@ from mydailynews.evaluation.schema import (
     EvalCorpus,
     EvalPrediction,
 )
-from mydailynews.memory.story_index import MATCH_CONFIDENCE_THRESHOLD
+from mydailynews.memory.story_store import MATCH_CONFIDENCE_THRESHOLD
 from mydailynews.memory.story_keys import StoryIdentity, story_identity_for_candidate
 
 

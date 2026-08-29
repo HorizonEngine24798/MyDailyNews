@@ -32,8 +32,7 @@ from mydailynews.memory.preference_learning import (
     write_learned_preference_effect,
 )
 from mydailynews.memory.ranking import annotate_candidates_with_memory
-from mydailynews.memory.story_ledger import StoryLedgerStore
-from mydailynews.memory.story_index import StoryIndexStore
+from mydailynews.memory.story_store import StoryStore
 from mydailynews.domain.text_similarity import normalized_word_text, word_tokens
 from mydailynews.common.utils import utc_now
 
@@ -729,8 +728,7 @@ def select_articles(
     user_memory: UserMemory | None = None,
     memory_config: MemoryConfig | None = None,
     coverage_store: CoverageMemoryStore | None = None,
-    story_index_store: StoryIndexStore | None = None,
-    story_ledger_store: StoryLedgerStore | None = None,
+    story_store: StoryStore | None = None,
     learned_preferences: LearnedPreferences | None = None,
     date: str = "",
 ) -> List[SelectedArticle]:
@@ -742,8 +740,7 @@ def select_articles(
             decisions=decisions,
             memory_config=memory_config,
             coverage_store=coverage_store,
-            story_index_store=story_index_store,
-            story_ledger_store=story_ledger_store,
+            story_store=story_store,
             date=date,
         )
     max_selected = filtering.max_selected_articles

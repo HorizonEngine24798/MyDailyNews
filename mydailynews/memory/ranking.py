@@ -6,8 +6,7 @@ from mydailynews.app.models import HeadlineDecision, MemoryAnnotation, MemoryCon
 from mydailynews.domain.candidate_annotations import candidate_memory_annotation, set_memory_annotation
 from mydailynews.memory.coverage import CoverageMemoryStore
 from mydailynews.memory.preference_learning import learned_preference_effect_from_candidate
-from mydailynews.memory.story_ledger import StoryLedgerStore, provisional_story_key
-from mydailynews.memory.story_index import MATCH_CONFIDENCE_THRESHOLD, StoryIndexStore
+from mydailynews.memory.story_store import MATCH_CONFIDENCE_THRESHOLD, StoryStore, provisional_story_key
 from mydailynews.memory.story_keys import StoryIdentity, story_identity_for_candidate, token_overlap_confidence
 
 
@@ -20,9 +19,8 @@ def annotate_candidates_with_memory(
     decisions: Dict[str, HeadlineDecision],
     memory_config: MemoryConfig | None,
     coverage_store: CoverageMemoryStore | None,
-    story_index_store: StoryIndexStore | None,
+    story_store: StoryStore | None,
     date: str,
-    story_ledger_store: StoryLedgerStore | None = None,
 ) -> Dict[str, Any]:
     if not getattr(memory_config, "enabled", False):
         return {"enabled": False, "annotated": 0}
@@ -35,20 +33,17 @@ def annotate_candidates_with_memory(
     candidate_links = 0
     occupied_story_keys = {
         record.story_key
-        for record in story_ledger_store.records()
-    } if story_ledger_store is not None else set()
-    if story_index_store is not None:
-        occupied_story_keys.update(record.story_key for record in story_index_store.records())
+        for record in story_store.records()
+    } if story_store is not None else set()
 
     for candidate in candidates:
         decision = decisions.get(candidate.id)
         coverage_story_key = ""
-        if story_ledger_store is not None:
+        if story_store is not None:
             base_identity = story_identity_for_candidate(candidate)
-            matches = story_ledger_store.candidate_stories(
+            matches = story_store.candidate_stories(
                 candidate,
                 source_text=candidate.snippet,
-                fallback_records=(story_index_store.records() if story_index_store is not None else []),
             )
             candidate.metadata["memory_prior_story_candidates"] = [match.metadata() for match in matches]
             candidate.metadata["memory_identity_state"] = "provisional"
@@ -67,11 +62,7 @@ def annotate_candidates_with_memory(
                 match_confidence=(matches[0].score if matches else base_identity.match_confidence),
             )
         else:
-            base_identity = (
-                story_index_store.match_candidate(candidate)
-                if story_index_store is not None
-                else story_identity_for_candidate(candidate)
-            )
+            base_identity = story_identity_for_candidate(candidate)
             identity = _match_same_run_story(base_identity, run_identities)
             coverage_story_key = identity.story_key
         run_identities.append(identity)
@@ -114,7 +105,7 @@ def annotate_candidates_with_memory(
             else:
                 today_policy = "deprioritize_repeat"
                 reason = "Recently covered in the memory window."
-            if story_ledger_store is not None and adjustment < 0.0:
+            if story_store is not None and adjustment < 0.0:
                 adjustment = max(adjustment, -MAX_PROVISIONAL_COVERAGE_PENALTY)
                 reason = (
                     "A retrieved prior candidate was recently covered, but identity remains "

@@ -11,12 +11,16 @@ from typing import Any, Dict, Iterable, List, Sequence
 
 from mydailynews.memory.coverage import CoverageMemoryStore
 from mydailynews.memory.feedback import FEEDBACK_ACTIONS, FeedbackStore
-from mydailynews.memory.story_index import STORY_INDEX_SCHEMA_VERSION, STORY_STATUSES
+from mydailynews.memory.story_store import (
+    StoryStore,
+    merge_story_records,
+    story_record_from_payload,
+)
 
 
 MEMORY_REPAIR_BACKUP_DIR = "backups"
 REPAIRABLE_MEMORY_FILES = {
-    "story_index": "story_index.json",
+    "story_store": "story_store.json",
     "coverage": "coverage_log.jsonl",
     "coverage_archive": "coverage_log.archive.jsonl",
     "feedback": "feedback_events.jsonl",
@@ -49,7 +53,7 @@ def delete_story_record(
     if removed <= 0:
         raise ValueError(f"Story key not found: {key}")
 
-    backup = _create_backup(state, [REPAIRABLE_MEMORY_FILES["story_index"]], reason="story_delete")
+    backup = _create_backup(state, _story_backup_files(state), reason="story_delete")
     _write_story_records(state, kept)
     return {
         "operation": "story_delete",
@@ -200,7 +204,7 @@ def merge_stories(
     backup = _create_backup(
         state,
         [
-            REPAIRABLE_MEMORY_FILES["story_index"],
+            *_story_backup_files(state),
             REPAIRABLE_MEMORY_FILES["coverage"],
             REPAIRABLE_MEMORY_FILES["feedback"],
         ],
@@ -308,7 +312,7 @@ def split_story(
     backup = _create_backup(
         state,
         [
-            REPAIRABLE_MEMORY_FILES["story_index"],
+            *_story_backup_files(state),
             REPAIRABLE_MEMORY_FILES["coverage"],
             REPAIRABLE_MEMORY_FILES["feedback"],
         ],
@@ -332,6 +336,12 @@ def _require_confirm(confirm: bool) -> None:
         raise ValueError("Memory repair requires confirm=true.")
 
 
+def _story_backup_files(state_dir: Path) -> List[str]:
+    candidates = ["story_store.json", "story_index.json", "story_ledger.json"]
+    existing = [name for name in candidates if (state_dir / name).exists()]
+    return existing or [REPAIRABLE_MEMORY_FILES["story_store"]]
+
+
 def _row_id(prefix: str, index: int, row: Any) -> str:
     payload = _row_payload(row)
     rendered = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -351,50 +361,24 @@ def _row_payload(row: Any) -> Dict[str, Any]:
 
 
 def _read_story_records(state_dir: Path) -> List[Dict[str, Any]]:
-    path = state_dir / REPAIRABLE_MEMORY_FILES["story_index"]
-    if not path.exists():
-        return []
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8-sig"))
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"Story index is not valid JSON: {exc}") from exc
-    if not isinstance(payload, dict):
-        raise ValueError("Story index root must be an object.")
-    stories = payload.get("stories", [])
-    if not isinstance(stories, list):
-        raise ValueError("Story index stories must be a list.")
-    return [_normalize_story_record(story) for story in stories if isinstance(story, dict)]
+    return [asdict(record) for record in StoryStore.from_state_dir(state_dir).records()]
 
 
 def _write_story_records(state_dir: Path, records: Sequence[Dict[str, Any]]) -> None:
     _validate_unique_story_keys(records)
-    payload = {
-        "schema_version": STORY_INDEX_SCHEMA_VERSION,
-        "stories": sorted((dict(record) for record in records), key=lambda item: item["story_key"]),
-    }
-    _write_text_atomic(
-        state_dir / REPAIRABLE_MEMORY_FILES["story_index"],
-        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+    normalized = [story_record_from_payload(record) for record in records]
+    if any(record is None for record in normalized):
+        raise ValueError("Story records require valid story payloads.")
+    StoryStore.from_state_dir(state_dir).replace_records(
+        [record for record in normalized if record is not None]
     )
 
 
 def _normalize_story_record(raw: Dict[str, Any]) -> Dict[str, Any]:
-    story_key = _clean(raw.get("story_key"), 160)
-    if not story_key:
+    record = story_record_from_payload(raw)
+    if record is None:
         raise ValueError("Story records require story_key.")
-    status = _clean(raw.get("status", "active"), 40).lower() or "active"
-    if status not in STORY_STATUSES:
-        status = "active"
-    return {
-        "story_key": story_key,
-        "story_family_key": _clean(raw.get("story_family_key"), 160),
-        "title": _clean(raw.get("title"), 140),
-        "topic": _clean(raw.get("topic"), 120),
-        "tokens": _unique_strings(raw.get("tokens", []))[:24],
-        "first_seen": _clean(raw.get("first_seen"), 40),
-        "last_seen": _clean(raw.get("last_seen"), 40),
-        "status": status,
-    }
+    return asdict(record)
 
 
 def _read_coverage_records(state_dir: Path) -> List[Dict[str, Any]]:
@@ -470,27 +454,11 @@ def _merge_rows_by_original_index(
 
 
 def _canonical_story_record(source_records: Sequence[Dict[str, Any]], raw: Dict[str, Any]) -> Dict[str, Any]:
-    first = source_records[0]
-    tokens = _unique_strings(raw.get("tokens", []))
-    if not tokens:
-        tokens = _unique_strings(token for record in source_records for token in record.get("tokens", []))
-    first_seen = _clean(raw.get("first_seen"), 40) or _min_nonempty(record.get("first_seen", "") for record in source_records)
-    last_seen = _clean(raw.get("last_seen"), 40) or _max_nonempty(record.get("last_seen", "") for record in source_records)
-    status = _clean(raw.get("status"), 40).lower()
-    if status not in STORY_STATUSES:
-        status = "active" if any(record.get("status") == "active" for record in source_records) else "stale"
-    return _normalize_story_record(
-        {
-            "story_key": _clean(raw.get("story_key"), 160) or first["story_key"],
-            "story_family_key": _clean(raw.get("story_family_key"), 160) or first.get("story_family_key", ""),
-            "title": _clean(raw.get("title"), 140) or first.get("title", ""),
-            "topic": _clean(raw.get("topic"), 120) or first.get("topic", ""),
-            "tokens": tokens,
-            "first_seen": first_seen,
-            "last_seen": last_seen,
-            "status": status,
-        }
-    )
+    parsed = [story_record_from_payload(record) for record in source_records]
+    valid = [record for record in parsed if record is not None]
+    if not valid:
+        raise ValueError("Story merge requires valid source records.")
+    return asdict(merge_story_records(valid, raw))
 
 
 def _rewrite_story_references(

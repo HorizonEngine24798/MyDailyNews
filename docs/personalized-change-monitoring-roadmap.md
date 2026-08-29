@@ -23,8 +23,8 @@ Useful / keep-watch signals
 ## Existing foundations
 
 - Editable user profile and deterministic profile-aware candidate ranking.
-- Local coverage memory, story keys/families, legacy story index, source-backed
-  story ledger, and recall packets.
+- Local coverage memory, story keys/families, unified source-backed StoryStore,
+  and recall packets.
 - Recent-story penalties, material-update boosts, and story-family caps.
 - Prior-report context and a delta-extraction stage.
 - File-backed feedback, a GUI/API path, and learned topic/source preferences.
@@ -34,7 +34,7 @@ Useful / keep-watch signals
 
 - A material update is still inferred too broadly by model output rather than
   demonstrated by deterministic comparison of old and new source-backed facts.
-- The new ledger records source evidence and retrieves candidate stories, but
+- StoryStore records source evidence and supplies heuristic retrieval state, but
   it does not yet normalize facts into status/contradiction/resolution state.
 - The active local configuration has feedback disabled and no feedback events
   have been collected.
@@ -68,17 +68,19 @@ Useful / keep-watch signals
   classification and enforces `candidate-gated.v1`: no candidate is always a
   new, visible story; unknown or ambiguous model keys cannot merge or suppress;
   only one of at most three supplied candidates can become the durable key.
-- Done: added a domain-general hybrid retriever using aliases, recurring entity
+- Done: added a domain-general heuristic retriever using aliases, recurring entity
   and event signals, numbers, source-body fact overlap, and numeric-conflict
   penalties. The gold-assisted 74-document diagnostic retrieves 24/25
   prior-day continuations at rank one and supplies no candidate for 46/47 true
   new stories. The one same-day continuation is measured as grouping, not
   historical retrieval.
-- Done: added `story_ledger.json` with exact bounded source facts, document IDs,
-  source names/URLs, publication and observation dates, user-visible flags,
-  aliases, retrieval signals, and last delta metadata. Bounded provenance now
-  survives into the small-model decision prompt and writeback marks only
-  rendered articles as user-visible.
+- Done: consolidated the overlapping story index and source ledger into
+  `story_store.json`, the single durable record for identity, lifecycle,
+  semantic state, aliases/retrieval signals, exact bounded source facts,
+  provenance, and user-visible fact IDs. Existing legacy files are merged on
+  read and preserved as migration backups after the first canonical write.
+  Retrieval remains separate in `story_retrieval.py`, so storage and matching
+  can evolve independently.
 - Done: removed news-specific regex verb lists and model-angle whitelists from
   deterministic materiality decisions; lexical fallback now suppresses only a
   confirmed duplicate and otherwise fails open.
@@ -99,17 +101,17 @@ Useful / keep-watch signals
   The noise-heavy arcs had only 0.0968 display accuracy.
 - Next: add adjudicated real-source snapshots and claim-to-fact annotation so
   final-prose faithfulness can be measured rather than left unavailable.
-- Next: compare current source facts against last-user-visible ledger facts and
+- Next: compare current source facts against last-user-visible StoryStore facts and
   derive status changes, contradictions, resolutions, incremental changes, and
   no-change decisions before display policy.
-- Next: implement the two-button Useful / Keep watching interaction against the
-  ledger after deterministic delta behavior is reliable.
+- Next: implement the two-button Useful / Keep watching interaction against
+  StoryStore after deterministic delta behavior is reliable.
 - Next: add a full-pipeline evaluation adapter (or a separate ranking contract)
   so profile selection is measured before delta classification; keep claim
   faithfulness unavailable until mapped source facts are emitted.
 - Boundary reached: stop model/context experiments and accept the weak model as
   a design constraint. Resume architecture work on relevance filtering,
-  candidate retrieval, source-backed ledger state, fact-difference logic, and
+  candidate retrieval, source-backed story state, fact-difference logic, and
   deterministic display policy. Qwen may normalize bounded facts or write
   source-grounded prose after those decisions; it must not own the state
   transition.

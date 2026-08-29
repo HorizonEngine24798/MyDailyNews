@@ -140,8 +140,9 @@ class GuiRequestHandler(BaseHTTPRequestHandler):
             section = unquote(path[len("/api/config/section/") :])
             self._send_json(self.service.save_config_section(section, self._read_json()))
             return
-        if path == "/api/memory/story-index":
-            self._send_json(self.service.save_story_index(self._read_json()))
+        if path in {"/api/memory/story-store", "/api/memory/story-index"}:
+            # Keep the old route as a compatibility alias for existing GUI clients.
+            self._send_json(self.service.save_story_store(self._read_json()))
             return
         if path == "/api/learned-preferences":
             self._send_json(self.service.save_learned_preferences(self._read_json()))

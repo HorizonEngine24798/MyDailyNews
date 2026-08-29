@@ -10,7 +10,7 @@ from mydailynews.analysis.delta import DeltaExtractor
 from mydailynews.domain.candidate_annotations import set_memory_annotation
 from mydailynews.memory.context import build_story_memory_context
 from mydailynews.memory.coverage import CoverageMemoryStore, CoverageRecord
-from mydailynews.memory.story_index import StoryIndexRecord, StoryIndexStore
+from mydailynews.memory.story_store import StoryRecord, StoryStore
 
 
 class StoryMemoryContextTests(unittest.TestCase):
@@ -57,9 +57,9 @@ class StoryMemoryContextTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1] / ".codex_tmp_test" / f"story_memory_{uuid.uuid4().hex}"
         root.mkdir(parents=True, exist_ok=False)
         try:
-            index = StoryIndexStore(root / "story_index.json")
-            index._records = [
-                StoryIndexRecord(
+            store = StoryStore(root / "story_store.json")
+            store.replace_records(
+                [StoryRecord(
                     story_key="iran-ceasefire",
                     story_family_key="iran-israel",
                     title="Iran-Israel ceasefire",
@@ -74,9 +74,8 @@ class StoryMemoryContextTests(unittest.TestCase):
                     last_unknowns=["Whether it will hold."],
                     last_watch_signals=["New violations or formal talks."],
                     last_disposition="full_report",
-                )
-            ]
-            index._write_records(index.records())
+                )]
+            )
             coverage = CoverageMemoryStore.from_state_dir(root)
             coverage.write_records(
                 [
@@ -123,7 +122,7 @@ class StoryMemoryContextTests(unittest.TestCase):
             context = build_story_memory_context(
                 selected=[article],
                 story_groups=[],
-                story_index_store=index,
+                story_store=store,
                 coverage_store=coverage,
                 prior_reports=[PriorReport("r1", "2026-06-26", "Yesterday", "", "", story_baselines=[])],
                 date="2026-06-27",

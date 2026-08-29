@@ -5,8 +5,8 @@ Repository: `C:\Users\daroi\Desktop\Project\MyDailyNews`
 
 ## Executive state
 
-The expanded evaluation harness and first production story-ledger slice are
-working and all 253 tests pass. The corpus still contains 15 story arcs, 74
+The expanded evaluation harness and first production StoryStore slice are
+working and all 255 tests pass. The corpus still contains 15 story arcs, 74
 dated documents, 50 simulated days, four completely
 source-empty days, and 25 intentionally unrelated daily-noise documents around
 sparse tracked-story updates.
@@ -79,7 +79,7 @@ regression question after an architectural change.
 The first architecture slice requested after that stopping point is now also
 complete. Production uses provisional current-story keys, retrieves at most
 three source-backed prior candidates, enforces candidate-bounded model links,
-and persists an inspectable fact ledger. The gold-assisted retrieval diagnostic
+and persists an inspectable unified story store. The gold-assisted retrieval diagnostic
 recalled 24/25 prior-day continuations at rank one (0.9600), supplied no
 candidate for 46/47 truly new stories (0.9787), and retrieved the one labelled
 related-theme case. This diagnostic uses private canonical identity only for
@@ -111,12 +111,13 @@ on `main`:
 | `534737d` | Offline adversarial change-monitor evaluator and 74-document corpus |
 | `775ae77` | Lightweight-install TTS fallback when `soundfile` is unavailable |
 | `38a6bd7` | Guarded CPU diagnostics, replay tools, and local-asset ignore rules |
+| `d248db7` | Stage-conditioned model investigations and adversarial evaluator hardening |
+| `42e4a1d` | Source-backed story identity gate, heuristic retrieval, and provenance writeback |
+| `486f7a7` | Qwen investigation results, retrieval results, roadmap, and handover |
 
-The original handover and supporting documents were committed previously. The
-final stage-conditioned evaluator, ablation results, candidate-gated identity,
-hybrid retrieval, source ledger, retrieval diagnostic, tests, and this updated
-handover are local worktree changes at the time of writing and have not been
-committed or pushed in this follow-up turn.
+Those checkpoints are already on `origin/main`. The StoryStore consolidation
+described below is the current follow-up checkpoint; its final commit hash is
+recorded in the post-commit update to this handover.
 
 An older local-only Codex CLI comparison bridge remains deliberately outside
 these commits. Its tracked hooks appear as local modifications in
@@ -137,7 +138,7 @@ git -c safe.directory=C:/Users/daroi/Desktop/Project/MyDailyNews status --short
 .\.venv-cpu-test\Scripts\python.exe -m unittest discover -s tests
 ```
 
-Expected test result at handover: `Ran 253 tests ... OK`.
+Expected test result at handover: `Ran 255 tests ... OK`.
 
 ## Production story architecture completed
 
@@ -146,10 +147,11 @@ The following is now in the normal memory-enabled brief path:
 1. Candidate retrieval no longer assigns a prior story key. Every current item
    receives a collision-safe provisional key and keeps that key through
    selection.
-2. The hybrid retriever uses title aliases, recurring entity tokens, event
+2. The heuristic retriever uses title aliases, recurring entity tokens, event
    tokens, numeric identity, source-body fact overlap, and numeric-conflict
    penalties. It returns at most three candidates at the measured default
-   threshold of `0.25`.
+   threshold of `0.25`. It is explicitly named heuristic because it combines
+   hand-weighted lexical signals, not sparse and dense retrieval.
 3. An unvalidated retrieval candidate may softly affect ranking through recent
    coverage, but its penalty is capped at `-0.35` and it cannot trigger the old
    hard recent-story suppression. The item reaches delta classification when
@@ -158,18 +160,19 @@ The following is now in the normal memory-enabled brief path:
    `distinct_story/new/full_report`; an unknown or ambiguous prior key becomes
    uncertain and remains visible; only an explicitly supplied prior key may be
    linked. Missing model decisions are synthesized conservatively.
-5. `state/memory/story_ledger.json` stores exact bounded source facts with
-   source document ID, source name, URL, publication date, observation date,
-   and whether the fact was user-visible. It also stores aliases, retrieval
-   signals, source-document history, last-visible fact IDs, and the last delta
-   metadata.
+5. `state/memory/story_store.json` is the single durable source of truth. Each
+   record combines identity, lifecycle, semantic delta state, exact bounded
+   source facts, provenance, aliases/retrieval signals, source-document
+   history, and last-user-visible fact IDs.
 6. Delta context contains at most three retrieved baselines and at most four
    cited facts per baseline. The compact `decision_only` prompt preserves that
    provenance rather than reducing the baseline back to unsupported prose.
-7. After output, the ledger records all selected source observations while
-   marking only rendered articles as user-visible. The legacy story index is
-   still maintained as a migration/fallback source; it is not the authority
-   for model-created links.
+7. After output, one StoryStore write records all selected source observations
+   while marking only rendered articles as user-visible, then applies story
+   lifecycle retention. If `story_store.json` is absent, legacy
+   `story_index.json` and `story_ledger.json` records are merged in memory; the
+   first normal write creates the canonical store. The legacy files remain as
+   untouched migration backups and are ignored afterward.
 
 The new diagnostic command is:
 
@@ -186,20 +189,20 @@ Current result on all 74 documents:
 | Mean reciprocal rank | 0.9600 |
 | Truly new stories with no candidate | 0.9787 (46/47) |
 | Related-theme candidate recall | 1.0000 (1/1) |
-| Mean candidates per document | 0.3784 |
+| Mean candidates per document | 0.3919 |
 
 One historical continuation remains missed: `rum-03`, where a supposed buyer's
 unrelated logistics partnership indirectly resolves an acquisition rumor. Its
-best score is `0.2015`. Lowering the global threshold enough to catch this is a
+best score is `0.2103`. Lowering the global threshold enough to catch this is a
 poor trade-off; recovering it requires an explicit actor/relation edge rather
 than broader lexical matching. The safe failure is a visible new item, not a
 silent merge or omission.
 
-This slice does not yet prove material change. The ledger stores source facts,
+This slice does not yet prove material change. StoryStore stores source facts,
 but deterministic old-fact/new-fact comparison, contradiction/status handling,
 and final display derivation remain next. No new Qwen benchmark or production
-news run was performed for this architecture turn, so `story_ledger.json` will
-be populated by the next normal memory-enabled run.
+news run was performed for this architecture turn, so `story_store.json` will
+be created or populated by the next normal memory-enabled write.
 
 ## Evaluation corpus added
 
@@ -544,7 +547,7 @@ Remaining threats:
 Do not run another full Qwen benchmark until a story-state or stage-boundary
 change creates a specific regression hypothesis. The next order should be:
 
-1. Build deterministic source-fact differencing on top of the new ledger.
+1. Build deterministic source-fact differencing on top of StoryStore.
    Extract bounded fact records or source spans, compare current evidence with
    the last user-visible facts, and represent additions, contradictions,
    numeric changes, status transitions, resolutions, and insufficient evidence.
@@ -565,7 +568,7 @@ change creates a specific regression hypothesis. The next order should be:
    post-architecture regression hypothesis.
 7. Add adjudicated real-source snapshots and a private rotating recent-news set.
 8. After relevance and deterministic delta policy are reliable, connect
-   `Useful` and `Keep watching` to ledger state. Do not infer dislike from no
+   `Useful` and `Keep watching` to StoryStore state. Do not infer dislike from no
    interaction.
 
 The key design conclusion is that a tiny model can reliably serialize a narrow
@@ -581,7 +584,8 @@ relevance, identity, delta proof, display policy, and prose simultaneously.
 - [`mydailynews/evaluation/scoring.py`](../mydailynews/evaluation/scoring.py): metrics, including quiet-day behavior.
 - [`mydailynews/evaluation/adapters.py`](../mydailynews/evaluation/adapters.py): heuristic, local model, oracle, and fault adapters.
 - [`mydailynews/evaluation/retrieval_diagnostics.py`](../mydailynews/evaluation/retrieval_diagnostics.py): gold-assisted isolation of production candidate retrieval.
-- [`mydailynews/memory/story_ledger.py`](../mydailynews/memory/story_ledger.py): source facts, retrieval signals, candidates, and durable writeback.
+- [`mydailynews/memory/story_store.py`](../mydailynews/memory/story_store.py): canonical identity, lifecycle, semantic state, bounded evidence, migration, and writeback.
+- [`mydailynews/memory/story_retrieval.py`](../mydailynews/memory/story_retrieval.py): isolated heuristic candidate retrieval and source-signal extraction.
 - [`mydailynews/analysis/identity_gate.py`](../mydailynews/analysis/identity_gate.py): candidate-bounded identity invariant.
 - [`mydailynews/memory/context.py`](../mydailynews/memory/context.py): bounded source-backed candidate context.
 - [`mydailynews/analysis/delta.py`](../mydailynews/analysis/delta.py): full and decision-only delta execution.
@@ -590,7 +594,7 @@ relevance, identity, delta proof, display policy, and prose simultaneously.
 - [`tools/run_change_monitor_evals.py`](../tools/run_change_monitor_evals.py): CLI and CPU-profile overrides.
 - [`tools/run_story_retrieval_diagnostics.py`](../tools/run_story_retrieval_diagnostics.py): reproducible 74-document retrieval diagnostic.
 - [`tests/test_evaluation_harness.py`](../tests/test_evaluation_harness.py): anti-leak, fault, compact-contract, and fallback tests.
-- [`tests/test_story_identity_architecture.py`](../tests/test_story_identity_architecture.py): identity-gate, provenance, hybrid-retrieval, and corpus regression tests.
+- [`tests/test_story_identity_architecture.py`](../tests/test_story_identity_architecture.py): identity-gate, provenance, heuristic-retrieval, migration, and corpus regression tests.
 
 ## Copy/paste prompt for the next agentic chat
 
@@ -604,13 +608,14 @@ the dirty worktree and do not reset, clean, or overwrite unrelated changes.
 Continue from the completed 74-document Qwen CPU benchmark, four-mode ablation,
 and first production story architecture slice. Do not run another generic
 model, prompt, context, or quantization experiment. Candidate-gated identity,
-hybrid top-three retrieval, and `story_ledger.json` source/provenance writeback
-are implemented; read their tests before changing them. Build the next bounded
+heuristic top-three retrieval, and unified `story_store.json`
+source/provenance writeback are implemented; read their tests before changing
+them. Build the next bounded
 slice: deterministic old-fact/new-fact comparison and display policy based on
 validated identity plus cited source evidence. Preserve fail-open behavior,
 the elf/toenail-magic and numeric regressions, and the retrieval diagnostic
 floors (recall@3 >= 0.95; new-story no-candidate rate >= 0.97). Keep
 faithfulness unavailable unless emitted claims map to source facts/spans. Qwen
 is an accepted weak component and may explain a validated decision, but it must
-not own ledger identity, suppression, or state transition.
+not own StoryStore identity, suppression, or state transition.
 ```

@@ -39,8 +39,7 @@ from mydailynews.memory.recall import (
     save_recall_packet,
     selected_articles_represented_in_brief,
 )
-from mydailynews.memory.story_index import StoryIndexStore
-from mydailynews.memory.story_ledger import StoryLedgerStore
+from mydailynews.memory.story_store import StoryStore
 
 
 def run_brief(
@@ -68,8 +67,7 @@ def run_brief(
         save_recall_packets = memory_is_enabled and bool(getattr(memory_config, "save_recall_packets", True))
         memory_dir = memory_state_dir(orchestrator.config) if memory_is_enabled else None
         coverage_store = CoverageMemoryStore.from_state_dir(memory_dir) if memory_dir is not None else None
-        story_index_store = StoryIndexStore.from_state_dir(memory_dir) if memory_dir is not None else None
-        story_ledger_store = StoryLedgerStore.from_state_dir(memory_dir) if memory_dir is not None else None
+        story_store = StoryStore.from_state_dir(memory_dir) if memory_dir is not None else None
         learned_preferences = (
             LearnedPreferencesStore.from_state_dir(memory_dir).read()
             if memory_dir is not None
@@ -215,8 +213,7 @@ def run_brief(
                 date=date,
                 include_enrichment_context=include_enrichment_context,
                 coverage_store=coverage_store,
-                story_index_store=story_index_store,
-                story_ledger_store=story_ledger_store,
+                story_store=story_store,
                 learned_preferences=learned_preferences,
             )
             extend_warnings(run_warnings, selection_result.warnings)
@@ -389,8 +386,7 @@ def run_brief(
                 delta_config=delta_config,
                 analysis_rollout_meta=analysis_rollout_meta,
                 story_groups=story_groups,
-                story_index_store=story_index_store,
-                story_ledger_store=story_ledger_store,
+                story_store=story_store,
                 coverage_store=coverage_store,
                 coverage_window_days=int(getattr(memory_config, "coverage_window_days", 10)),
             )
@@ -600,25 +596,16 @@ def run_brief(
                 write_markdown(markdown_path, brief)
                 write_json(json_path, brief)
             memory_write_summary = {}
-            if memory_is_enabled and coverage_store is not None and story_index_store is not None:
+            if memory_is_enabled and coverage_store is not None and story_store is not None:
                 try:
-                    story_records = story_index_store.update_selected(
+                    story_records = story_store.update_selected(
                         selected=selected,
                         date=date,
+                        visible_article_ids=[article.candidate.id for article in rendered_selected],
                         story_groups=story_groups,
                         delta_packet=delta_packet,
                         stale_after_days=int(getattr(memory_config, "story_stale_after_days", 7)),
                         retention_days=int(getattr(memory_config, "story_retention_days", 30)),
-                    )
-                    ledger_records = (
-                        story_ledger_store.update_selected(
-                            selected=selected,
-                            date=date,
-                            visible_article_ids=[article.candidate.id for article in rendered_selected],
-                            delta_packet=delta_packet,
-                        )
-                        if story_ledger_store is not None
-                        else []
                     )
                     coverage_records = coverage_store.write_selected(
                         date=date,
@@ -632,10 +619,9 @@ def run_brief(
                     memory_write_summary = {
                         "coverage_rows_written": len(coverage_records),
                         "coverage_rows_pruned": coverage_rows_pruned,
-                        "story_index_records": len(story_records),
-                        "story_index_stale_records": sum(1 for record in story_records if record.status == "stale"),
-                        "story_ledger_records": len(ledger_records),
-                        "story_ledger_source_facts": sum(len(record.facts) for record in ledger_records),
+                        "story_store_records": len(story_records),
+                        "story_store_stale_records": sum(1 for record in story_records if record.status == "stale"),
+                        "story_store_source_facts": sum(len(record.facts) for record in story_records),
                     }
                     orchestrator.debug.set_metric(
                         f"brief.{name}.memory.coverage_rows_written",
@@ -646,20 +632,16 @@ def run_brief(
                         coverage_rows_pruned,
                     )
                     orchestrator.debug.set_metric(
-                        f"brief.{name}.memory.story_index_records",
+                        f"brief.{name}.memory.story_store_records",
                         len(story_records),
                     )
                     orchestrator.debug.set_metric(
-                        f"brief.{name}.memory.story_index_stale_records",
-                        memory_write_summary["story_index_stale_records"],
+                        f"brief.{name}.memory.story_store_stale_records",
+                        memory_write_summary["story_store_stale_records"],
                     )
                     orchestrator.debug.set_metric(
-                        f"brief.{name}.memory.story_ledger_records",
-                        len(ledger_records),
-                    )
-                    orchestrator.debug.set_metric(
-                        f"brief.{name}.memory.story_ledger_source_facts",
-                        memory_write_summary["story_ledger_source_facts"],
+                        f"brief.{name}.memory.story_store_source_facts",
+                        memory_write_summary["story_store_source_facts"],
                     )
                 except Exception as exc:
                     memory_write_summary = {"write_error": f"{type(exc).__name__}: {exc}"}

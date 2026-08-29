@@ -10,16 +10,16 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from mydailynews.evaluation.retrieval_diagnostics import evaluate_story_ledger_retrieval  # noqa: E402
+from mydailynews.evaluation.retrieval_diagnostics import evaluate_story_store_retrieval  # noqa: E402
 from mydailynews.evaluation.schema import load_corpus  # noqa: E402
-from mydailynews.memory.story_ledger import DEFAULT_CANDIDATE_THRESHOLD  # noqa: E402
+from mydailynews.memory.story_store import DEFAULT_CANDIDATE_THRESHOLD  # noqa: E402
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Measure source-backed prior-story retrieval. Private canonical IDs are used only "
-            "for historical ledger writeback, so this is a retrieval intervention diagnostic."
+            "for historical store writeback, so this is a retrieval intervention diagnostic."
         )
     )
     parser.add_argument(
@@ -34,7 +34,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_parser().parse_args()
-    result = evaluate_story_ledger_retrieval(
+    result = evaluate_story_store_retrieval(
         load_corpus(args.corpus),
         threshold=args.threshold,
         limit=args.limit,

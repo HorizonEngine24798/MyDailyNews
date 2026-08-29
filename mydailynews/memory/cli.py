@@ -12,7 +12,7 @@ from mydailynews.memory.config import memory_state_dir
 from mydailynews.memory.coverage import CoverageMemoryStore
 from mydailynews.memory.feedback import FeedbackStore
 from mydailynews.memory.learned_preferences import LearnedPreferencesStore
-from mydailynews.memory.story_index import StoryIndexStore
+from mydailynews.memory.story_store import LEGACY_STORY_FILES, StoryStore
 
 
 MEMORY_ACTIONS = ("inspect", "prune", "export", "reset")
@@ -61,12 +61,12 @@ def prune_memory(config: AppConfig, *, state_dir: Path) -> Dict[str, Any]:
     memory_config = config.memory
     today = date_type.today().isoformat()
     coverage_store = CoverageMemoryStore.from_state_dir(state_dir)
-    story_index_store = StoryIndexStore.from_state_dir(state_dir)
+    story_store = StoryStore.from_state_dir(state_dir)
     coverage_pruned = coverage_store.prune(
         as_of_date=today,
         retention_days=int(memory_config.coverage_retention_days),
     )
-    story_records = story_index_store.refresh_lifecycle(
+    story_records = story_store.refresh_lifecycle(
         as_of_date=today,
         stale_after_days=int(memory_config.story_stale_after_days),
         retention_days=int(memory_config.story_retention_days),
@@ -74,17 +74,17 @@ def prune_memory(config: AppConfig, *, state_dir: Path) -> Dict[str, Any]:
     )
     summary = _memory_summary(config, state_dir)
     summary["coverage_records_pruned"] = coverage_pruned
-    summary["story_index_records_after_prune"] = len(story_records)
+    summary["story_store_records_after_prune"] = len(story_records)
     return summary
 
 
 def export_memory(config: AppConfig, *, state_dir: Path) -> Dict[str, Any]:
     coverage_store = CoverageMemoryStore.from_state_dir(state_dir)
-    story_index_store = StoryIndexStore.from_state_dir(state_dir)
+    story_store = StoryStore.from_state_dir(state_dir)
     feedback_store = FeedbackStore.from_state_dir(state_dir)
     learned_store = LearnedPreferencesStore.from_state_dir(state_dir)
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "state_dir": str(state_dir),
         "config": {
             "coverage_window_days": config.memory.coverage_window_days,
@@ -94,7 +94,9 @@ def export_memory(config: AppConfig, *, state_dir: Path) -> Dict[str, Any]:
             "feedback_enabled": config.memory.feedback_enabled,
         },
         "coverage_records": [asdict(record) for record in coverage_store.read_records()],
-        "story_index": [asdict(record) for record in story_index_store.records()],
+        "story_store": [asdict(record) for record in story_store.records()],
+        "story_store_path": str(story_store.path),
+        "story_store_uses_legacy_migration": story_store.using_legacy_migration,
         "feedback_events": [asdict(event) for event in feedback_store.read_events()],
         "learned_preferences": asdict(learned_store.read()),
     }
@@ -103,7 +105,8 @@ def export_memory(config: AppConfig, *, state_dir: Path) -> Dict[str, Any]:
 def reset_memory(state_dir: Path) -> None:
     targets = (
         Path(state_dir) / "coverage_log.jsonl",
-        Path(state_dir) / "story_index.json",
+        Path(state_dir) / "story_store.json",
+        *(Path(state_dir) / name for name in LEGACY_STORY_FILES),
         Path(state_dir) / "feedback_events.jsonl",
         Path(state_dir) / "learned_preferences.json",
     )
@@ -117,10 +120,10 @@ def reset_memory(state_dir: Path) -> None:
 
 def _memory_summary(config: AppConfig, state_dir: Path) -> Dict[str, Any]:
     coverage_store = CoverageMemoryStore.from_state_dir(state_dir)
-    story_index_store = StoryIndexStore.from_state_dir(state_dir)
+    story_store = StoryStore.from_state_dir(state_dir)
     feedback_store = FeedbackStore.from_state_dir(state_dir)
     learned_store = LearnedPreferencesStore.from_state_dir(state_dir)
-    stories = story_index_store.records()
+    stories = story_store.records()
     feedback_events = feedback_store.read_events()
     learned_path = learned_store.path
     return {
@@ -132,9 +135,10 @@ def _memory_summary(config: AppConfig, state_dir: Path) -> Dict[str, Any]:
         "story_retention_days": config.memory.story_retention_days,
         "feedback_enabled": bool(config.memory.feedback_enabled),
         "coverage_records": len(coverage_store.read_records()),
-        "story_index_records": len(stories),
-        "story_index_active": sum(1 for record in stories if record.status == "active"),
-        "story_index_stale": sum(1 for record in stories if record.status == "stale"),
+        "story_store_records": len(stories),
+        "story_store_active": sum(1 for record in stories if record.status == "active"),
+        "story_store_stale": sum(1 for record in stories if record.status == "stale"),
+        "story_store_uses_legacy_migration": story_store.using_legacy_migration,
         "feedback_events": len(feedback_events),
         "feedback_counts": feedback_store.counts_by_action(),
         "learned_preferences_path": str(learned_path),
@@ -153,9 +157,9 @@ def _print_summary(summary: Dict[str, Any]) -> None:
     )
     print(f"Coverage records: {summary['coverage_records']}")
     print(
-        "Story index records: "
-        f"{summary['story_index_records']} "
-        f"({summary['story_index_active']} active, {summary['story_index_stale']} stale)"
+        "Story store records: "
+        f"{summary['story_store_records']} "
+        f"({summary['story_store_active']} active, {summary['story_store_stale']} stale)"
     )
     print(f"Feedback events: {summary['feedback_events']}")
     print(f"Learned preferences: {summary['learned_preferences_path']}")
