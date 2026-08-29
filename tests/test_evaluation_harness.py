@@ -29,12 +29,15 @@ from mydailynews.domain.candidate_annotations import set_memory_annotation
 from mydailynews.domain.headline_selection import profile_match_signals
 from mydailynews.domain.text_similarity import word_tokens
 from mydailynews.evaluation.adapters import (
+    CandidateMetadataReplayAdapter,
     FaultInjectionAdapter,
     LocalDeltaModelAdapter,
+    PredictionFileAdapter,
     ProductionHeuristicAdapter,
     ScriptedOracleAdapter,
 )
 from mydailynews.evaluation.providers import FixtureNewsProvider
+from mydailynews.evaluation.investigations import build_investigation
 from mydailynews.evaluation.runner import evaluate_adapter
 from mydailynews.evaluation.schema import EvalExpectation, EvalPrediction, load_corpus
 from mydailynews.memory.coverage import coverage_records_for_selected
@@ -67,6 +70,27 @@ def _selected(candidate_id: str, title: str) -> SelectedArticle:
     )
 
 
+class _RecordingDeltaClient:
+    max_input_tokens = 4000
+    max_new_tokens = 1000
+    config = SimpleNamespace(
+        backend="fake",
+        effective_model_label="fake",
+        response_format="json_schema",
+        context_window_tokens=4096,
+    )
+
+    def __init__(self) -> None:
+        self.prompts: list[str] = []
+
+    def estimate_tokens(self, text: str) -> int:
+        return max(1, len(text) // 4)
+
+    def complete_json(self, system, user, **kwargs):
+        self.prompts.append(f"{system}\n{user}")
+        return {"story_decisions": []}
+
+
 class EvaluationHarnessTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -95,6 +119,29 @@ class EvaluationHarnessTests(unittest.TestCase):
         self.assertNotIn("expected", candidate.metadata)
         self.assertNotIn("fact", candidate.metadata)
 
+    def test_existing_corpus_supports_oracle_candidate_and_ledger_interventions(self) -> None:
+        candidate_investigation = build_investigation(self.corpus, "oracle_candidate")
+        ledger_investigation = build_investigation(self.corpus, "oracle_ledger")
+        continuation_keys = [
+            (arc.id, day.date, expected.document_id)
+            for arc in self.corpus.arcs
+            for day in arc.days
+            for expected in day.expectations
+            if expected.relationship == "same_story"
+        ]
+
+        self.assertEqual(len(continuation_keys), 26)
+        self.assertTrue(all(candidate_investigation.case_for(*key).has_prior_story for key in continuation_keys))
+        self.assertTrue(all(not candidate_investigation.case_for(*key).prior_facts for key in continuation_keys))
+        self.assertTrue(all(ledger_investigation.case_for(*key).prior_facts for key in continuation_keys))
+        self.assertEqual(
+            sum(bool(ledger_investigation.case_for(*key).current_facts) for key in continuation_keys),
+            18,
+        )
+        disclosure = ledger_investigation.disclosure()
+        self.assertTrue(disclosure["uses_private_gold"])
+        self.assertFalse(disclosure["production_comparable"])
+
     def test_oracle_proves_scoring_contract_can_reach_perfect_scores(self) -> None:
         result = evaluate_adapter(self.corpus, ScriptedOracleAdapter(self.corpus))
         overall = result["overall"]
@@ -109,6 +156,21 @@ class EvaluationHarnessTests(unittest.TestCase):
         self.assertEqual(overall["quiet_days"], 4)
         self.assertEqual(overall["quiet_day_outputs"], 0)
         self.assertEqual(overall["quiet_day_abstention_rate"], 1.0)
+        self.assertEqual(overall["candidate_recall_at_1"], 1.0)
+        self.assertEqual(overall["relationship_accuracy_given_candidate"], 1.0)
+        self.assertEqual(overall["continuation_delta_accuracy_given_correct_identity"], 1.0)
+        self.assertEqual(overall["display_accuracy_given_correct_semantics"], 1.0)
+        self.assertEqual(overall["stage_diagnostics"]["policy"]["cases_with_correct_semantics"], 74)
+        self.assertTrue(result["run"]["investigation"]["uses_private_gold"])
+        self.assertTrue(any("capability ceiling" in item for item in result["validation"]["warnings"]))
+        rescored = evaluate_adapter(
+            self.corpus,
+            PredictionFileAdapter(
+                [EvalPrediction.from_dict(item) for item in result["predictions"]],
+                name="oracle-roundtrip",
+            ),
+        )
+        self.assertTrue(rescored["run"]["investigation"]["uses_private_gold"])
 
     def test_corpus_validation_rejects_bad_source_metadata_and_impossible_history(self) -> None:
         arc = self.corpus.arcs[0]
@@ -142,6 +204,111 @@ class EvaluationHarnessTests(unittest.TestCase):
                     "reported_fact_ids": "fact-1",
                 }
             )
+
+    def test_candidate_stage_metadata_cannot_reference_unknown_or_future_documents(self) -> None:
+        predictions = [
+            item
+            for arc in self.corpus.arcs
+            for item in ScriptedOracleAdapter(self.corpus).predict(arc.public_input())
+        ]
+        predictions[0].metadata["candidate_prior_stories"] = [
+            {
+                "story_key": "invalid",
+                "document_ids": [predictions[0].document_id, "not-in-corpus"],
+                "score": 1.0,
+            }
+        ]
+        valid_prior_candidate = next(
+            item
+            for item in predictions[1:]
+            if item.metadata.get("candidate_prior_stories")
+        )
+        valid_prior_candidate.metadata["candidate_prior_stories"][0]["story_key"] = "fabricated-link"
+        result = evaluate_adapter(
+            self.corpus,
+            PredictionFileAdapter(predictions, name="invalid-candidate-metadata"),
+        )
+
+        errors = "\n".join(result["validation"]["errors"])
+        self.assertIn("is not earlier in corpus chronology", errors)
+        self.assertIn("references unknown document", errors)
+        self.assertIn("does not match prior prediction", errors)
+
+    def test_candidate_recall_penalizes_selectively_missing_stage_metadata(self) -> None:
+        expected_by_key = self.corpus.expectations_by_key()
+        predictions = [
+            item
+            for arc in self.corpus.arcs
+            for item in ScriptedOracleAdapter(self.corpus).predict(arc.public_input())
+        ]
+        kept_continuation = False
+        for prediction in predictions:
+            key = (prediction.arc_id, prediction.date, prediction.document_id)
+            if expected_by_key[key].relationship != "same_story":
+                continue
+            if not kept_continuation:
+                kept_continuation = True
+                continue
+            prediction.metadata.pop("candidate_prior_stories")
+
+        result = evaluate_adapter(
+            self.corpus,
+            PredictionFileAdapter(predictions, name="selective-candidate-metadata"),
+        )
+        stage = result["overall"]["stage_diagnostics"]["candidate_retrieval"]
+
+        self.assertEqual(stage["continuation_cases"], 26)
+        self.assertEqual(stage["continuation_cases_with_metadata"], 1)
+        self.assertEqual(stage["recall_at_1"], round(1 / 26, 4))
+
+    def test_correct_identity_requires_linking_the_correct_supplied_candidate(self) -> None:
+        predictions = [
+            item
+            for arc in self.corpus.arcs
+            for item in ScriptedOracleAdapter(self.corpus).predict(arc.public_input())
+        ]
+        expected_by_key = self.corpus.expectations_by_key()
+        broken = next(
+            prediction
+            for prediction in predictions
+            if expected_by_key[(prediction.arc_id, prediction.date, prediction.document_id)].relationship
+            == "same_story"
+        )
+        broken.predicted_story_id = "not-the-supplied-prior-story"
+        broken.delta_type = "uncertain"
+
+        result = evaluate_adapter(
+            self.corpus,
+            PredictionFileAdapter(predictions, name="unlinked-same-story"),
+        )
+        stages = result["overall"]["stage_diagnostics"]
+
+        self.assertEqual(stages["candidate_retrieval"]["recall_at_1"], 1.0)
+        self.assertEqual(stages["identity"]["same_story_recall_given_correct_candidate"], 1.0)
+        self.assertEqual(
+            stages["identity"]["same_story_link_accuracy_given_correct_candidate"],
+            round(25 / 26, 4),
+        )
+        self.assertEqual(stages["delta"]["continuation_cases_with_correct_identity"], 25)
+        self.assertEqual(stages["delta"]["continuation_accuracy_given_correct_identity"], 1.0)
+        self.assertLess(result["overall"]["continuation_delta_type_accuracy"], 1.0)
+
+    def test_historical_predictions_can_replay_broad_candidate_metadata_without_gold(self) -> None:
+        corpus = replace(self.corpus, arcs=[self.corpus.arcs[0]])
+        predictions = ScriptedOracleAdapter(corpus).predict(corpus.arcs[0].public_input())
+        for prediction in predictions:
+            prediction.metadata = {}
+        result = evaluate_adapter(
+            corpus,
+            CandidateMetadataReplayAdapter(
+                PredictionFileAdapter(predictions, name="historical-local-delta")
+            ),
+        )
+
+        self.assertEqual(result["overall"]["candidate_metadata_coverage"], 1.0)
+        self.assertEqual(result["overall"]["candidate_recall_at_3"], 1.0)
+        self.assertTrue(result["run"]["investigation"]["candidate_metadata_replayed"])
+        self.assertFalse(result["run"]["investigation"]["uses_private_gold"])
 
     def test_negative_controls_are_detected(self) -> None:
         oracle = ScriptedOracleAdapter(self.corpus)
@@ -231,6 +398,67 @@ class EvaluationHarnessTests(unittest.TestCase):
         self.assertEqual(len(predictions), sum(len(day.documents) for day in arc.days))
         self.assertGreater(client.calls, 0)
         self.assertTrue(all(item.metadata["model_fallback_used"] for item in predictions))
+
+    def test_retrieved_top3_mode_is_gold_blind_and_emits_candidate_stage_metadata(self) -> None:
+        corpus = replace(self.corpus, arcs=[self.corpus.arcs[0]])
+        client = _RecordingDeltaClient()
+        result = evaluate_adapter(
+            corpus,
+            LocalDeltaModelAdapter(
+                client,
+                DeltaExtractionConfig(
+                    enabled=True,
+                    output_mode="decision_only",
+                    max_input_tokens=4000,
+                    max_new_tokens=1000,
+                    max_articles_per_batch=4,
+                ),
+                investigation=build_investigation(corpus, "retrieved_top3"),
+                candidate_limit=3,
+            ),
+        )
+
+        self.assertFalse(result["run"]["investigation"]["uses_private_gold"])
+        self.assertTrue(result["run"]["investigation"]["production_comparable"])
+        self.assertEqual(result["overall"]["candidate_metadata_coverage"], 1.0)
+        self.assertTrue(
+            all(len(item["metadata"]["candidate_prior_stories"]) <= 3 for item in result["predictions"])
+        )
+        self.assertFalse(any("private evaluation intervention" in prompt for prompt in client.prompts))
+
+    def test_oracle_ledger_mode_supplies_existing_fact_packets_and_discloses_contamination(self) -> None:
+        corpus = replace(self.corpus, arcs=[self.corpus.arcs[0]])
+        investigation = build_investigation(corpus, "oracle_ledger")
+        client = _RecordingDeltaClient()
+        result = evaluate_adapter(
+            corpus,
+            LocalDeltaModelAdapter(
+                client,
+                DeltaExtractionConfig(
+                    enabled=True,
+                    output_mode="decision_only",
+                    max_input_tokens=4000,
+                    max_new_tokens=1000,
+                    max_articles_per_batch=4,
+                ),
+                investigation=investigation,
+            ),
+        )
+        fact_texts = [
+            fact
+            for packet in investigation.cases.values()
+            for fact in [*packet.prior_facts, *packet.current_facts]
+        ]
+
+        self.assertTrue(result["run"]["investigation"]["uses_private_gold"])
+        self.assertFalse(result["run"]["investigation"]["production_comparable"])
+        self.assertTrue(any("capability ceiling" in item for item in result["validation"]["warnings"]))
+        self.assertTrue(any("private evaluation intervention" in prompt for prompt in client.prompts))
+        self.assertTrue(any(fact in prompt for fact in fact_texts for prompt in client.prompts))
+        self.assertEqual(
+            result["overall"]["stage_diagnostics"]["oracle_fact_packet"]["continuation_prior_fact_coverage"],
+            1.0,
+        )
 
     def test_local_model_adapter_preserves_results_when_one_model_call_fails(self) -> None:
         class FailingDeltaClient:

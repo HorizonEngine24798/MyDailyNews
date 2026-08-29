@@ -12,6 +12,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from mydailynews.evaluation.adapters import (  # noqa: E402
+    CandidateMetadataReplayAdapter,
     FaultInjectionAdapter,
     PredictionFileAdapter,
     ProductionHeuristicAdapter,
@@ -19,6 +20,10 @@ from mydailynews.evaluation.adapters import (  # noqa: E402
     LocalDeltaModelAdapter,
 )
 from mydailynews.evaluation.runner import evaluate_adapter, write_evaluation_report  # noqa: E402
+from mydailynews.evaluation.investigations import (  # noqa: E402
+    INVESTIGATION_MODES,
+    build_investigation,
+)
 from mydailynews.evaluation.schema import load_corpus, load_predictions  # noqa: E402
 
 
@@ -32,6 +37,11 @@ def main() -> int:
     parser.add_argument("--split", choices=("development", "holdout"), help="Evaluate only one corpus split.")
     parser.add_argument("--adapter", choices=("heuristic", "oracle", "predictions", "delta-model"), default="heuristic")
     parser.add_argument("--predictions", type=Path, help="Standardized prediction JSON for --adapter predictions")
+    parser.add_argument(
+        "--replay-candidate-metadata",
+        action="store_true",
+        help="Reconstruct broad-baseline candidate metadata for a historical local-delta prediction file.",
+    )
     parser.add_argument("--config", type=Path, help="Application config for --adapter delta-model")
     parser.add_argument("--model-role", choices=("summary", "final"), default="summary")
     parser.add_argument(
@@ -48,6 +58,27 @@ def main() -> int:
         "--delta-max-articles-per-batch",
         type=int,
         help="Override delta batch width; use a small value when output tokens are constrained.",
+    )
+    parser.add_argument(
+        "--investigation-mode",
+        choices=tuple(sorted(INVESTIGATION_MODES)),
+        default="baseline",
+        help=(
+            "Model capability condition: baseline, gold-blind retrieved_top3, or the "
+            "private-gold oracle_candidate/oracle_ledger ceilings."
+        ),
+    )
+    parser.add_argument(
+        "--candidate-limit",
+        type=int,
+        default=3,
+        help="Maximum prior stories supplied in retrieved_top3 mode, from 1 to 3 (default: 3).",
+    )
+    parser.add_argument(
+        "--candidate-min-score",
+        type=float,
+        default=0.34,
+        help="Minimum lexical candidate score in retrieved_top3 mode (default: 0.34).",
     )
     parser.add_argument(
         "--fixture-mode",
@@ -102,6 +133,14 @@ def main() -> int:
     if not selected_arcs:
         parser.error("corpus filters selected no arcs")
     corpus = replace(corpus, arcs=selected_arcs)
+    if args.investigation_mode != "baseline" and args.adapter != "delta-model":
+        parser.error("--investigation-mode other than baseline requires --adapter delta-model")
+    if args.replay_candidate_metadata and args.adapter != "predictions":
+        parser.error("--replay-candidate-metadata requires --adapter predictions")
+    if not 1 <= args.candidate_limit <= 3:
+        parser.error("--candidate-limit must be between 1 and 3")
+    if not 0.0 <= args.candidate_min_score <= 1.0:
+        parser.error("--candidate-min-score must be between 0 and 1")
     client = None
     if args.adapter == "oracle":
         adapter = ScriptedOracleAdapter(corpus)
@@ -109,6 +148,8 @@ def main() -> int:
         if args.predictions is None:
             parser.error("--predictions is required with --adapter predictions")
         adapter = PredictionFileAdapter(load_predictions(args.predictions), name=args.predictions.stem)
+        if args.replay_candidate_metadata:
+            adapter = CandidateMetadataReplayAdapter(adapter)
     elif args.adapter == "delta-model":
         if args.config is None:
             parser.error("--config is required with --adapter delta-model")
@@ -150,8 +191,11 @@ def main() -> int:
             client,
             delta_config,
             debug=debug,
-            name=f"delta_model:{model_config.effective_model_label}",
+            name=f"delta_model:{model_config.effective_model_label}:{args.investigation_mode}",
             fixture_mode=args.fixture_mode,
+            investigation=build_investigation(corpus, args.investigation_mode),
+            candidate_limit=args.candidate_limit,
+            candidate_min_score=args.candidate_min_score,
         )
     else:
         adapter = ProductionHeuristicAdapter(fixture_mode=args.fixture_mode)
@@ -170,6 +214,19 @@ def main() -> int:
     print(f"Identity F1: {result['overall']['story_identity_pairwise_f1']:.4f}")
     print(f"Delta accuracy: {result['overall']['delta_type_accuracy']:.4f}")
     print(f"Display accuracy: {result['overall']['display_policy_accuracy']:.4f}")
+    print(f"Candidate recall@3: {result['overall'].get('candidate_recall_at_3')}")
+    print(
+        "Relationship given correct candidate: "
+        f"{result['overall'].get('relationship_accuracy_given_candidate')}"
+    )
+    print(
+        "Correct candidate actually linked: "
+        f"{result['overall'].get('same_story_link_accuracy_given_candidate')}"
+    )
+    print(
+        "Continuation delta given correct identity: "
+        f"{result['overall'].get('continuation_delta_accuracy_given_correct_identity')}"
+    )
 
     validation_errors = result.get("validation", {}).get("errors", [])
     if validation_errors:

@@ -14,12 +14,22 @@ from mydailynews.evaluation.schema import (
 )
 
 
-EVAL_REPORT_SCHEMA_VERSION = "change_monitor.eval_report.v1"
+EVAL_REPORT_SCHEMA_VERSION = "change_monitor.eval_report.v2"
 
 
 def score_predictions(corpus: EvalCorpus, predictions: Iterable[EvalPrediction]) -> Dict[str, Any]:
     rows = list(predictions)
     expected_by_key = corpus.expectations_by_key()
+    document_key_by_arc_and_id = {
+        (key[0], key[2]): key
+        for key in expected_by_key
+    }
+    document_order = {
+        (arc.id, document.id): (day_index, document_index)
+        for arc in corpus.arcs
+        for day_index, day in enumerate(arc.days)
+        for document_index, document in enumerate(day.documents)
+    }
     prediction_by_key: Dict[tuple[str, str, str], EvalPrediction] = {}
     duplicate_keys: List[str] = []
     for prediction in rows:
@@ -78,6 +88,9 @@ def score_predictions(corpus: EvalCorpus, predictions: Iterable[EvalPrediction])
     for key in sorted(expected_keys.intersection(predicted_keys)):
         prediction = prediction_by_key[key]
         label = "/".join(key)
+        private_candidate_intervention = str(
+            prediction.metadata.get("investigation_mode", "") or ""
+        ) in {"oracle_candidate", "oracle_ledger"}
         if not prediction.predicted_story_id:
             validation_errors.append(f"{label}: predicted_story_id is empty")
         if prediction.relationship not in RELATIONSHIPS:
@@ -96,6 +109,45 @@ def score_predictions(corpus: EvalCorpus, predictions: Iterable[EvalPrediction])
             unknown_facts = set(prediction.reported_fact_ids).difference(known_fact_ids.get(key[0], set()))
             if unknown_facts:
                 validation_errors.append(f"{label}: unknown reported fact IDs {sorted(unknown_facts)}")
+        if "candidate_prior_stories" in prediction.metadata:
+            candidates = prediction.metadata.get("candidate_prior_stories")
+            if not isinstance(candidates, list):
+                validation_errors.append(f"{label}: candidate_prior_stories must be an array")
+            else:
+                for candidate_index, candidate in enumerate(candidates):
+                    if not isinstance(candidate, dict) or not isinstance(candidate.get("document_ids"), list):
+                        validation_errors.append(
+                            f"{label}: candidate_prior_stories[{candidate_index}] needs a document_ids array"
+                        )
+                        continue
+                    story_key = str(candidate.get("story_key", "") or "").strip()
+                    if not story_key:
+                        validation_errors.append(
+                            f"{label}: candidate_prior_stories[{candidate_index}] needs a story_key"
+                        )
+                    for document_id in candidate["document_ids"]:
+                        prior_key = document_key_by_arc_and_id.get((key[0], str(document_id or "")))
+                        if prior_key is None:
+                            validation_errors.append(
+                                f"{label}: candidate_prior_stories[{candidate_index}] references unknown document "
+                                f"{document_id!r}"
+                            )
+                        elif document_order[(key[0], str(document_id))] >= document_order[(key[0], key[2])]:
+                            validation_errors.append(
+                                f"{label}: candidate prior document {document_id!r} is not earlier in corpus chronology"
+                            )
+                        elif prior_key not in prediction_by_key:
+                            validation_errors.append(
+                                f"{label}: candidate prior document {document_id!r} has no prediction to verify"
+                            )
+                        elif (
+                            not private_candidate_intervention
+                            and prediction_by_key[prior_key].predicted_story_id != story_key
+                        ):
+                            validation_errors.append(
+                                f"{label}: candidate story_key {story_key!r} does not match prior prediction "
+                                f"for document {document_id!r}"
+                            )
     warnings = []
     if overall["claim_evaluation_coverage"] < 1.0:
         warnings.append(
@@ -233,6 +285,12 @@ def _score_subset(
 
     latencies = sorted(max(0.0, float(item.latency_ms)) for item in actual)
     instruction_following = round((display_accuracy + selection["accuracy"]) / 2.0, 4)
+    stage_diagnostics = _stage_diagnostics(
+        ordered_keys,
+        expected_by_key,
+        expected,
+        actual,
+    )
     return {
         "cases": len(ordered_keys),
         "story_identity_pairwise_precision": identity["precision"],
@@ -283,7 +341,280 @@ def _score_subset(
         "latency_ms_mean": round(sum(latencies) / max(1, len(latencies)), 4),
         "latency_ms_p50": _percentile(latencies, 0.5),
         "latency_ms_p95": _percentile(latencies, 0.95),
+        "candidate_metadata_coverage": stage_diagnostics["candidate_retrieval"]["metadata_coverage"],
+        "candidate_recall_at_1": stage_diagnostics["candidate_retrieval"]["recall_at_1"],
+        "candidate_recall_at_3": stage_diagnostics["candidate_retrieval"]["recall_at_3"],
+        "candidate_recall_at_limit": stage_diagnostics["candidate_retrieval"]["recall_at_limit"],
+        "relationship_accuracy_given_candidate": stage_diagnostics["identity"]["relationship_accuracy_given_correct_candidate"],
+        "same_story_link_accuracy_given_candidate": stage_diagnostics["identity"]["same_story_link_accuracy_given_correct_candidate"],
+        "continuation_delta_accuracy_given_correct_identity": stage_diagnostics["delta"]["continuation_accuracy_given_correct_identity"],
+        "display_accuracy_given_correct_semantics": stage_diagnostics["policy"]["display_accuracy_given_correct_semantics"],
+        "stage_diagnostics": stage_diagnostics,
     }
+
+
+def _stage_diagnostics(
+    ordered_keys: List[tuple[str, str, str]],
+    expected_by_key: Dict[tuple[str, str, str], EvalExpectation],
+    expected: List[EvalExpectation],
+    actual: List[EvalPrediction],
+) -> Dict[str, Any]:
+    expectation_by_document = {
+        (key[0], key[2]): item
+        for key, item in expected_by_key.items()
+    }
+    candidate_rows = [_candidate_rows(item) for item in actual]
+    metadata_indexes = [index for index, rows in enumerate(candidate_rows) if rows is not None]
+    continuation_indexes = [
+        index for index, item in enumerate(expected) if item.relationship == "same_story"
+    ]
+    new_story_indexes = [
+        index for index, item in enumerate(expected) if item.relationship == "new_story"
+    ]
+    continuation_with_metadata = [
+        index for index in continuation_indexes if candidate_rows[index] is not None
+    ]
+    has_candidate_metadata = bool(metadata_indexes)
+
+    def candidate_rank(index: int) -> int | None:
+        rows = candidate_rows[index]
+        if rows is None:
+            return None
+        target_story = expected[index].canonical_story_id
+        arc_id = ordered_keys[index][0]
+        for rank, row in enumerate(rows, start=1):
+            for document_id in row.get("document_ids", []):
+                prior = expectation_by_document.get((arc_id, document_id))
+                if prior is not None and prior.canonical_story_id == target_story:
+                    return rank
+        return None
+
+    def correct_candidate_story_keys(index: int) -> set[str]:
+        rows = candidate_rows[index]
+        if rows is None:
+            return set()
+        target_story = expected[index].canonical_story_id
+        arc_id = ordered_keys[index][0]
+        return {
+            str(row.get("story_key", "") or "")
+            for row in rows
+            if str(row.get("story_key", "") or "")
+            and any(
+                (
+                    expectation_by_document.get((arc_id, document_id)) is not None
+                    and expectation_by_document[(arc_id, document_id)].canonical_story_id == target_story
+                )
+                for document_id in row.get("document_ids", [])
+            )
+        }
+
+    correct_candidate_ranks = {
+        index: candidate_rank(index)
+        for index in continuation_indexes
+    }
+    correct_candidate_keys = {
+        index: correct_candidate_story_keys(index)
+        for index in continuation_indexes
+    }
+    candidate_counts = [len(candidate_rows[index] or []) for index in metadata_indexes]
+    reciprocal_ranks = [
+        1.0 / rank
+        for rank in correct_candidate_ranks.values()
+        if isinstance(rank, int) and rank > 0
+    ]
+    candidate_hit_indexes = [
+        index for index, rank in correct_candidate_ranks.items() if rank is not None
+    ]
+    correct_relationship_indexes = [
+        index
+        for index, item in enumerate(expected)
+        if actual[index].relationship == item.relationship
+    ]
+    correctly_linked_continuation_indexes = [
+        index
+        for index in candidate_hit_indexes
+        if actual[index].relationship == "same_story"
+        and actual[index].predicted_story_id in correct_candidate_keys[index]
+    ]
+    supplied_story_keys = [
+        {
+            str(row.get("story_key", "") or "")
+            for row in (candidate_rows[index] or [])
+            if str(row.get("story_key", "") or "")
+        }
+        for index in range(len(actual))
+    ]
+
+    def identity_is_correct(index: int) -> bool:
+        if expected[index].relationship == "same_story":
+            return index in correctly_linked_continuation_indexes
+        return (
+            actual[index].relationship == expected[index].relationship
+            and actual[index].predicted_story_id not in supplied_story_keys[index]
+        )
+
+    correct_semantic_indexes = [
+        index
+        for index, item in enumerate(expected)
+        if identity_is_correct(index)
+        and actual[index].delta_type == item.delta_type
+        and actual[index].material == item.material
+        and actual[index].profile_relevance == item.profile_relevance
+    ]
+    oracle_ledger_indexes = [
+        index
+        for index, item in enumerate(actual)
+        if item.metadata.get("investigation_mode") == "oracle_ledger"
+    ]
+    oracle_ledger_continuations = [
+        index for index in oracle_ledger_indexes if expected[index].relationship == "same_story"
+    ]
+    oracle_ledger_current_facts = [
+        index
+        for index in oracle_ledger_indexes
+        if int(actual[index].metadata.get("oracle_current_fact_count", 0) or 0) > 0
+    ]
+
+    return {
+        "candidate_retrieval": {
+            "metadata_cases": len(metadata_indexes),
+            "metadata_missing_cases": len(actual) - len(metadata_indexes),
+            "metadata_coverage": _optional_rate(len(metadata_indexes), len(actual)),
+            "continuation_cases": len(continuation_indexes),
+            "continuation_cases_with_metadata": len(continuation_with_metadata),
+            "correct_candidate_cases": len(candidate_hit_indexes),
+            "recall_at_1": _optional_rate(
+                sum(1 for rank in correct_candidate_ranks.values() if rank == 1),
+                len(continuation_indexes) if has_candidate_metadata else 0,
+            ),
+            "recall_at_3": _optional_rate(
+                sum(1 for rank in correct_candidate_ranks.values() if rank is not None and rank <= 3),
+                len(continuation_indexes) if has_candidate_metadata else 0,
+            ),
+            "recall_at_limit": _optional_rate(
+                len(candidate_hit_indexes),
+                len(continuation_indexes) if has_candidate_metadata else 0,
+            ),
+            "mean_reciprocal_rank": (
+                round(sum(reciprocal_ranks) / len(continuation_indexes), 4)
+                if has_candidate_metadata and continuation_indexes
+                else None
+            ),
+            "mean_candidate_count": (
+                round(sum(candidate_counts) / len(candidate_counts), 4)
+                if candidate_counts
+                else None
+            ),
+            "p95_candidate_count": _percentile(sorted(candidate_counts), 0.95) if candidate_counts else None,
+            "new_story_no_candidate_rate": _optional_rate(
+                sum(
+                    1
+                    for index in new_story_indexes
+                    if candidate_rows[index] is not None and not candidate_rows[index]
+                ),
+                len(new_story_indexes) if has_candidate_metadata else 0,
+            ),
+        },
+        "identity": {
+            "cases_with_correct_candidate": len(candidate_hit_indexes),
+            "relationship_accuracy_given_correct_candidate": _optional_rate(
+                sum(
+                    1
+                    for index in candidate_hit_indexes
+                    if actual[index].relationship == expected[index].relationship
+                ),
+                len(candidate_hit_indexes),
+            ),
+            "same_story_recall_given_correct_candidate": _optional_rate(
+                sum(1 for index in candidate_hit_indexes if actual[index].relationship == "same_story"),
+                len(candidate_hit_indexes),
+            ),
+            "same_story_link_accuracy_given_correct_candidate": _optional_rate(
+                len(correctly_linked_continuation_indexes),
+                len(candidate_hit_indexes),
+            ),
+            "new_story_overmerge_rate": _optional_rate(
+                sum(1 for index in new_story_indexes if actual[index].relationship == "same_story"),
+                len(new_story_indexes),
+            ),
+        },
+        "delta": {
+            "cases_with_correct_relationship": len(correct_relationship_indexes),
+            "accuracy_given_correct_relationship": _optional_rate(
+                sum(
+                    1
+                    for index in correct_relationship_indexes
+                    if actual[index].delta_type == expected[index].delta_type
+                ),
+                len(correct_relationship_indexes),
+            ),
+            "continuation_cases_with_correct_identity": len(correctly_linked_continuation_indexes),
+            "continuation_accuracy_given_correct_identity": _optional_rate(
+                sum(
+                    1
+                    for index in correctly_linked_continuation_indexes
+                    if actual[index].delta_type == expected[index].delta_type
+                ),
+                len(correctly_linked_continuation_indexes),
+            ),
+        },
+        "policy": {
+            "cases_with_correct_semantics": len(correct_semantic_indexes),
+            "display_accuracy_given_correct_semantics": _optional_rate(
+                sum(
+                    1
+                    for index in correct_semantic_indexes
+                    if actual[index].display == expected[index].display
+                ),
+                len(correct_semantic_indexes),
+            ),
+            "selection_accuracy_given_correct_semantics": _optional_rate(
+                sum(
+                    1
+                    for index in correct_semantic_indexes
+                    if actual[index].selected == expected[index].should_select
+                ),
+                len(correct_semantic_indexes),
+            ),
+        },
+        "oracle_fact_packet": {
+            "cases": len(oracle_ledger_indexes),
+            "continuation_prior_fact_coverage": _optional_rate(
+                sum(
+                    1
+                    for index in oracle_ledger_continuations
+                    if int(actual[index].metadata.get("oracle_prior_fact_count", 0) or 0) > 0
+                ),
+                len(oracle_ledger_continuations),
+            ),
+            "current_fact_coverage": _optional_rate(
+                len(oracle_ledger_current_facts),
+                len(oracle_ledger_indexes),
+            ),
+        },
+    }
+
+
+def _candidate_rows(prediction: EvalPrediction) -> List[Dict[str, Any]] | None:
+    if "candidate_prior_stories" not in prediction.metadata:
+        return None
+    raw = prediction.metadata.get("candidate_prior_stories")
+    if not isinstance(raw, list):
+        return []
+    output: List[Dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        document_ids = item.get("document_ids", [])
+        if not isinstance(document_ids, list):
+            document_ids = []
+        output.append(
+            {
+                "story_key": str(item.get("story_key", "") or ""),
+                "document_ids": [str(value) for value in document_ids if str(value).strip()],
+            }
+        )
+    return output
 
 
 def _identity_metrics(
@@ -339,6 +670,12 @@ def _accuracy(expected: List[Any], actual: List[Any]) -> float:
 def _rate(numerator: int, denominator: int) -> float:
     if denominator <= 0:
         return 1.0
+    return round(float(numerator) / float(denominator), 4)
+
+
+def _optional_rate(numerator: int, denominator: int) -> float | None:
+    if denominator <= 0:
+        return None
     return round(float(numerator) / float(denominator), 4)
 
 

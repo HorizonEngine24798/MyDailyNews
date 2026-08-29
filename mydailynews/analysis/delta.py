@@ -872,7 +872,7 @@ def _compact_decision_baselines(
     prior_reports: List[PriorReport],
     articles: List[SelectedArticle],
 ) -> List[Dict[str, Any]]:
-    """Deduplicate the smallest source-free baseline needed for classification."""
+    """Deduplicate a bounded, source-backed baseline for classification."""
 
     filtered = _story_memory_for_articles(packet, articles)
     output: List[Dict[str, Any]] = []
@@ -897,6 +897,13 @@ def _compact_decision_baselines(
                     "last_change_type": str(baseline.get("last_change_type", "") or "")[:40],
                     "last_delta_summary": str(baseline.get("last_delta_summary", "") or "")[:180],
                     "knowns": _normalized_strings(baseline.get("knowns", []))[:3],
+                    "source_facts": _compact_source_facts(baseline.get("source_facts", [])),
+                    "candidate_score": baseline.get("candidate_score", 0.0),
+                    "candidate_signals": (
+                        dict(baseline.get("candidate_signals", {}))
+                        if isinstance(baseline.get("candidate_signals"), dict)
+                        else {}
+                    ),
                 }
             )
             if len(output) >= 12:
@@ -919,4 +926,31 @@ def _compact_decision_baselines(
             )
             if len(output) >= 12:
                 return output
+    return output
+
+
+def _compact_source_facts(value: Any) -> List[Dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    output: List[Dict[str, Any]] = []
+    for raw in value:
+        if not isinstance(raw, dict):
+            continue
+        text = " ".join(str(raw.get("text", "") or "").split()).strip()[:260]
+        source_id = str(raw.get("source_id", "") or "").strip()[:120]
+        if not text or not source_id:
+            continue
+        output.append(
+            {
+                "fact_id": str(raw.get("fact_id", "") or "")[:80],
+                "text": text,
+                "source_id": source_id,
+                "source": str(raw.get("source", "") or "")[:100],
+                "url": str(raw.get("url", "") or "")[:300],
+                "published_at": str(raw.get("published_at", "") or "")[:40],
+                "observed_at": str(raw.get("observed_at", "") or "")[:32],
+            }
+        )
+        if len(output) >= 4:
+            break
     return output
