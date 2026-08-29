@@ -1,0 +1,482 @@
+{
+  "schema_version": "change_monitor.eval.v1",
+  "name": "Personalized change monitoring v1",
+  "description": "Semi-synthetic multi-day stories for identity, material-change, display-policy, relevance, and source-faithfulness evaluation.",
+  "arcs": [
+    {
+      "id": "case-001",
+      "split": "development",
+      "tags": ["domain_shift", "invented_domain", "profile_niche", "paraphrase", "material_change"],
+      "profile": {
+        "role": "Elf from a faraway land",
+        "wants": ["toenail magic", "faraway fashion"],
+        "beats": {"toenail magic": 3.0},
+        "briefing_style": "Report only meaningful changes in magical fashion."
+      },
+      "fact_catalog": {
+        "elf_f1": "Moon-crystal toenail charms began appearing in Faraway Market.",
+        "elf_f2": "Twelve tailors demonstrated the style.",
+        "elf_f3": "The second article repeats the first report without a new event.",
+        "elf_f4": "The Royal Tailors Guild adopted toenail charms for the winter uniform.",
+        "elf_f5": "An unrelated eyebrow-sorcery exhibition opened."
+      },
+      "days": [
+        {
+          "date": "2026-01-01",
+          "documents": [
+            {"id": "elf-01", "source": "Faraway Fashion Ledger", "title": "Toenail magic becomes the new fashion in Faraway Market", "url": "https://fixture.test/elf/01", "snippet": "Moon-crystal charms appeared in a dozen tailor demonstrations.", "body": "Moon-crystal toenail charms began appearing in Faraway Market. Twelve tailors demonstrated the style; no guild has adopted it yet.", "published_at": "2026-01-01T08:00:00Z"}
+          ],
+          "expectations": [
+            {"document_id": "elf-01", "canonical_story_id": "elf-toenail-trend", "relationship": "new_story", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["elf_f1", "elf_f2"], "forbidden_fact_ids": ["elf_f4", "elf_f5"]}
+          ]
+        },
+        {
+          "date": "2026-01-02",
+          "documents": [
+            {"id": "elf-02", "source": "Enchanted Style Wire", "title": "Faraway Market's new fashion is toenail magic", "url": "https://fixture.test/elf/02", "snippet": "A wire rewrite describes moon-crystal toenail charms and twelve tailors.", "body": "Moon-crystal toenail charms are the new Faraway Market fashion, according to the same twelve demonstrations reported yesterday. No later action is described.", "published_at": "2026-01-02T07:30:00Z"}
+          ],
+          "expectations": [
+            {"document_id": "elf-02", "canonical_story_id": "elf-toenail-trend", "relationship": "same_story", "delta_type": "unchanged", "material": false, "display": "omit", "profile_relevance": "must_select", "should_select": false, "required_fact_ids": [], "forbidden_fact_ids": ["elf_f4", "elf_f5"]}
+          ]
+        },
+        {
+          "date": "2026-01-03",
+          "documents": [
+            {"id": "elf-03", "source": "Royal Guild Notice", "title": "Royal Tailors Guild adopts toenail charms for winter uniforms", "url": "https://fixture.test/elf/03", "snippet": "The voluntary trend becomes official guild dress.", "body": "The Royal Tailors Guild adopted moon-crystal toenail charms for its winter uniform, moving the style from market demonstrations into official dress.", "published_at": "2026-01-03T09:00:00Z"}
+          ],
+          "expectations": [
+            {"document_id": "elf-03", "canonical_story_id": "elf-toenail-trend", "relationship": "same_story", "delta_type": "status_change", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["elf_f4"], "forbidden_fact_ids": ["elf_f5"]}
+          ]
+        },
+        {
+          "date": "2026-01-04",
+          "documents": [
+            {"id": "elf-04", "source": "Faraway Arts", "title": "Eyebrow sorcery exhibition opens beside Faraway Market", "url": "https://fixture.test/elf/04", "snippet": "A separate beauty-magic exhibition opens.", "body": "An eyebrow-sorcery exhibition opened beside Faraway Market. It has no connection to the toenail-charms trend or the Royal Tailors Guild.", "published_at": "2026-01-04T11:00:00Z"}
+          ],
+          "expectations": [
+            {"document_id": "elf-04", "canonical_story_id": "elf-eyebrow-exhibition", "relationship": "new_story", "delta_type": "new", "material": true, "display": "omit", "profile_relevance": "irrelevant", "should_select": false, "required_fact_ids": [], "forbidden_fact_ids": ["elf_f4"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "case-002",
+      "split": "development",
+      "tags": ["numeric_identity", "same_actor_different_story", "stale_republish", "resolution"],
+      "profile": {"role": "Oriole device repair lead", "wants": ["Oriole battery faults", "Model 3", "Model 4"], "beats": {"Oriole devices": 2.0}},
+      "fact_catalog": {
+        "ori_f1": "Oriole Model 3 units can overheat while charging.",
+        "ori_f2": "Oriole Model 4 units have a separate swelling defect.",
+        "ori_f3": "A firmware repair was released only for Model 3.",
+        "ori_f4": "A later article republishes the old Model 3 warning."
+      },
+      "days": [
+        {"date": "2026-02-01", "documents": [
+          {"id": "ori-31", "source": "Device Safety Board", "title": "Oriole Model 3 battery can overheat during charging", "url": "https://fixture.test/oriole/31", "snippet": "The board warns owners of Model 3 devices.", "body": "The Device Safety Board says Oriole Model 3 batteries can overheat during charging. Model 4 is not part of this notice.", "published_at": "2026-02-01T08:00:00Z"},
+          {"id": "ori-41", "source": "Repair Journal", "title": "Oriole Model 4 battery swelling reports investigated", "url": "https://fixture.test/oriole/41", "snippet": "A different Oriole version has a swelling defect.", "body": "Repair centers reported battery swelling in Oriole Model 4 devices. The issue is distinct from the Model 3 charging warning.", "published_at": "2026-02-01T10:00:00Z"}
+        ], "expectations": [
+          {"document_id": "ori-31", "canonical_story_id": "oriole-model-3-overheat", "relationship": "new_story", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["ori_f1"], "forbidden_fact_ids": ["ori_f2"]},
+          {"document_id": "ori-41", "canonical_story_id": "oriole-model-4-swelling", "relationship": "new_story", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["ori_f2"], "forbidden_fact_ids": ["ori_f1", "ori_f3"]}
+        ]},
+        {"date": "2026-02-02", "documents": [
+          {"id": "ori-32", "source": "Oriole Support", "title": "Oriole releases Model 3 firmware fix for charging overheat", "url": "https://fixture.test/oriole/32", "snippet": "The manufacturer ships a repair for Model 3.", "body": "Oriole released firmware 3.8 to prevent Model 3 charging overheat. The release does not address Model 4 swelling.", "published_at": "2026-02-02T09:00:00Z"}
+        ], "expectations": [
+          {"document_id": "ori-32", "canonical_story_id": "oriole-model-3-overheat", "relationship": "same_story", "delta_type": "resolved", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["ori_f3"], "forbidden_fact_ids": ["ori_f2"]}
+        ]},
+        {"date": "2026-02-03", "documents": [
+          {"id": "ori-33", "source": "Old Device Digest", "title": "Oriole Model 3 battery can overheat during charging", "url": "https://fixture.test/oriole/33", "snippet": "The original warning is republished after the fix.", "body": "This is a verbatim republication of the February 1 Model 3 warning and omits the firmware repair.", "published_at": "2026-02-03T12:00:00Z"}
+        ], "expectations": [
+          {"document_id": "ori-33", "canonical_story_id": "oriole-model-3-overheat", "relationship": "same_story", "delta_type": "unchanged", "material": false, "display": "omit", "profile_relevance": "must_select", "should_select": false, "required_fact_ids": [], "forbidden_fact_ids": ["ori_f2"]}
+        ]}
+      ]
+    },
+    {
+      "id": "case-003",
+      "split": "development",
+      "tags": ["proposal_vs_enactment", "status_transition", "incremental_update", "stale_republish"],
+      "profile": {"role": "Harbor cafe owner", "wants": ["outdoor seating levy", "Harbor Council"], "beats": {"local regulation": 2.5}},
+      "fact_catalog": {
+        "law_f1": "A levy was proposed but not enacted.",
+        "law_f2": "A committee advanced the proposal without changing its rate.",
+        "law_f3": "The council enacted the levy for July 1.",
+        "law_f4": "An old proposal article was republished after enactment.",
+        "law_f5": "The levy remained only a proposal after the council enacted it."
+      },
+      "days": [
+        {"date": "2026-03-01", "documents": [{"id": "law-01", "source": "Harbor Gazette", "title": "Harbor Council proposes outdoor seating levy", "url": "https://fixture.test/law/01", "snippet": "A draft would charge cafes per outdoor table.", "body": "Council members proposed a levy on outdoor cafe tables. It remains a draft and has not been enacted.", "published_at": "2026-03-01T08:00:00Z"}], "expectations": [
+          {"document_id": "law-01", "canonical_story_id": "harbor-seating-levy", "relationship": "new_story", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["law_f1"], "forbidden_fact_ids": ["law_f3"]}
+        ]},
+        {"date": "2026-03-02", "documents": [{"id": "law-02", "source": "Council Minutes", "title": "Committee advances Harbor outdoor seating levy proposal", "url": "https://fixture.test/law/02", "snippet": "The same draft moves to a vote with no rate change.", "body": "A committee advanced the outdoor seating levy to a full vote. The proposed rate and effective date remain unsettled.", "published_at": "2026-03-02T09:00:00Z"}], "expectations": [
+          {"document_id": "law-02", "canonical_story_id": "harbor-seating-levy", "relationship": "same_story", "delta_type": "incremental", "material": false, "display": "continuing_bullet", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["law_f2"], "forbidden_fact_ids": ["law_f3"]}
+        ]},
+        {"date": "2026-03-03", "documents": [{"id": "law-03", "source": "Harbor Council", "title": "Harbor enacts outdoor seating levy starting July 1", "url": "https://fixture.test/law/03", "snippet": "The proposal becomes law.", "body": "The Harbor Council enacted the outdoor seating levy. Cafes will begin paying on July 1.", "published_at": "2026-03-03T18:00:00Z"}], "expectations": [
+          {"document_id": "law-03", "canonical_story_id": "harbor-seating-levy", "relationship": "same_story", "delta_type": "status_change", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["law_f3"], "forbidden_fact_ids": ["law_f5"]}
+        ]},
+        {"date": "2026-03-04", "documents": [{"id": "law-04", "source": "Cafe Blog", "title": "Harbor Council proposes outdoor seating levy", "url": "https://fixture.test/law/04", "snippet": "A cached article presents the levy as only proposed.", "body": "This cached March 1 article repeats that the levy was proposed and contains no reference to the later vote.", "published_at": "2026-03-04T07:00:00Z"}], "expectations": [
+          {"document_id": "law-04", "canonical_story_id": "harbor-seating-levy", "relationship": "same_story", "delta_type": "unchanged", "material": false, "display": "omit", "profile_relevance": "must_select", "should_select": false, "required_fact_ids": [], "forbidden_fact_ids": []}
+        ]}
+      ]
+    },
+    {
+      "id": "case-004",
+      "split": "development",
+      "tags": ["rumor", "correction", "source_quality", "resolution"],
+      "profile": {"role": "Juniper shareholder", "wants": ["Juniper acquisition", "Juniper board"], "beats": {"Juniper": 3.0}},
+      "fact_catalog": {
+        "rum_f1": "An anonymous blog alleged acquisition talks without evidence.",
+        "rum_f2": "Juniper's board denied that acquisition talks occurred.",
+        "rum_f3": "The alleged buyer announced a different partnership.",
+        "rum_f4": "No acquisition was announced.",
+        "rum_f5": "Juniper entered acquisition talks."
+      },
+      "days": [
+        {"date": "2026-04-01", "documents": [{"id": "rum-01", "source": "MarketWhisper Blog", "title": "Anonymous post claims Juniper is in acquisition talks", "url": "https://fixture.test/rumor/01", "snippet": "The claim has no named source or document.", "body": "An anonymous post alleged that Juniper entered acquisition talks. It supplied no named source, filing, or corroboration.", "published_at": "2026-04-01T06:00:00Z"}], "expectations": [
+          {"document_id": "rum-01", "canonical_story_id": "juniper-acquisition-rumor", "relationship": "new_story", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["rum_f1"], "forbidden_fact_ids": ["rum_f5"]}
+        ]},
+        {"date": "2026-04-02", "documents": [{"id": "rum-02", "source": "Juniper Filing", "title": "Juniper board denies acquisition talks reported by blog", "url": "https://fixture.test/rumor/02", "snippet": "A named primary source corrects the rumor.", "body": "Juniper's board said no acquisition talks occurred and called the anonymous report false. No acquisition has been announced.", "published_at": "2026-04-02T09:00:00Z"}], "expectations": [
+          {"document_id": "rum-02", "canonical_story_id": "juniper-acquisition-rumor", "relationship": "same_story", "delta_type": "correction", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["rum_f2", "rum_f4"], "forbidden_fact_ids": ["rum_f5"]}
+        ]},
+        {"date": "2026-04-03", "documents": [{"id": "rum-03", "source": "Birch Exchange", "title": "Alleged Juniper buyer signs unrelated logistics partnership", "url": "https://fixture.test/rumor/03", "snippet": "The supposed buyer announces a different deal.", "body": "The company named as Juniper's buyer announced a logistics partnership with another firm. It did not announce a Juniper acquisition.", "published_at": "2026-04-03T12:00:00Z"}], "expectations": [
+          {"document_id": "rum-03", "canonical_story_id": "juniper-acquisition-rumor", "relationship": "same_story", "delta_type": "resolved", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["rum_f3", "rum_f4"], "forbidden_fact_ids": ["rum_f5"]}
+        ]}
+      ]
+    },
+    {
+      "id": "case-005",
+      "split": "development",
+      "tags": ["same_actor_different_story", "overmerge_trap", "legal_resolution"],
+      "profile": {"role": "Acme legal operations lead", "wants": ["Acme litigation", "Acme tax audit"], "beats": {"Acme": 2.0}},
+      "fact_catalog": {
+        "acm_f1": "Acme was sued over a Cedar patent.",
+        "acm_f2": "Acme received a separate payroll-tax audit.",
+        "acm_f3": "The Cedar patent case settled.",
+        "acm_f4": "The tax audit remains open."
+      },
+      "days": [
+        {"date": "2026-05-01", "documents": [
+          {"id": "acm-01", "source": "Court Wire", "title": "Acme sued over Project Cedar patent", "url": "https://fixture.test/acme/01", "snippet": "A competitor files a patent case.", "body": "A competitor sued Acme over the Project Cedar patent. The complaint does not concern taxes.", "published_at": "2026-05-01T08:00:00Z"},
+          {"id": "acm-02", "source": "Revenue Bulletin", "title": "Acme receives payroll-tax audit notice", "url": "https://fixture.test/acme/02", "snippet": "The revenue service opens a separate audit.", "body": "The revenue service opened a payroll-tax audit of Acme. It is unrelated to the Project Cedar patent suit.", "published_at": "2026-05-01T09:00:00Z"}
+        ], "expectations": [
+          {"document_id": "acm-01", "canonical_story_id": "acme-cedar-patent", "relationship": "new_story", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["acm_f1"], "forbidden_fact_ids": ["acm_f2"]},
+          {"document_id": "acm-02", "canonical_story_id": "acme-payroll-audit", "relationship": "new_story", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["acm_f2"], "forbidden_fact_ids": ["acm_f1"]}
+        ]},
+        {"date": "2026-05-02", "documents": [{"id": "acm-03", "source": "Court Wire", "title": "Acme settles Project Cedar patent lawsuit", "url": "https://fixture.test/acme/03", "snippet": "The patent case ends; the tax audit does not.", "body": "Acme settled the Project Cedar patent lawsuit. The separate payroll-tax audit remains open.", "published_at": "2026-05-02T14:00:00Z"}], "expectations": [
+          {"document_id": "acm-03", "canonical_story_id": "acme-cedar-patent", "relationship": "same_story", "delta_type": "resolved", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["acm_f3", "acm_f4"], "forbidden_fact_ids": []}
+        ]}
+      ]
+    },
+    {
+      "id": "case-006",
+      "split": "development",
+      "tags": ["different_actor_same_phrase", "entity_identity", "material_change"],
+      "profile": {"role": "Lunar trade observer", "wants": ["Lunar elves", "Blue Lantern route"], "avoid": ["Sea Dwarf tourism"], "beats": {"Lunar trade": 2.5}},
+      "fact_catalog": {
+        "blu_f1": "Lunar elves launched a Blue Lantern freight route.",
+        "blu_f2": "Sea dwarves launched a different Blue Lantern tourism campaign.",
+        "blu_f3": "The Lunar route added a second moon port."
+      },
+      "days": [
+        {"date": "2026-06-01", "documents": [
+          {"id": "blu-01", "source": "Lunar Trade Post", "title": "Lunar elves launch Blue Lantern freight route", "url": "https://fixture.test/blue/01", "snippet": "A freight route links the first moon port.", "body": "Lunar elves launched the Blue Lantern freight route to Selene Port.", "published_at": "2026-06-01T08:00:00Z"},
+          {"id": "blu-02", "source": "Sea Dwarf Visitor", "title": "Sea dwarves launch Blue Lantern tourism campaign", "url": "https://fixture.test/blue/02", "snippet": "An unrelated tourism campaign uses the same phrase.", "body": "Sea dwarves launched a tourism campaign called Blue Lantern. It has no freight route or Lunar sponsor.", "published_at": "2026-06-01T10:00:00Z"}
+        ], "expectations": [
+          {"document_id": "blu-01", "canonical_story_id": "lunar-blue-lantern-route", "relationship": "new_story", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["blu_f1"], "forbidden_fact_ids": ["blu_f2"]},
+          {"document_id": "blu-02", "canonical_story_id": "sea-dwarf-blue-lantern", "relationship": "new_story", "delta_type": "new", "material": true, "display": "omit", "profile_relevance": "irrelevant", "should_select": false, "required_fact_ids": [], "forbidden_fact_ids": ["blu_f1"]}
+        ]},
+        {"date": "2026-06-02", "documents": [{"id": "blu-03", "source": "Lunar Trade Post", "title": "Blue Lantern freight route adds second Lunar moon port", "url": "https://fixture.test/blue/03", "snippet": "The Lunar route expands beyond Selene.", "body": "The Lunar elves' Blue Lantern freight route added Tranquility Port as its second moon stop.", "published_at": "2026-06-02T09:00:00Z"}], "expectations": [
+          {"document_id": "blu-03", "canonical_story_id": "lunar-blue-lantern-route", "relationship": "same_story", "delta_type": "material_update", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["blu_f3"], "forbidden_fact_ids": ["blu_f2"]}
+        ]}
+      ]
+    },
+    {
+      "id": "case-007",
+      "split": "development",
+      "tags": ["syndication", "exact_duplicate", "stale_republish", "status_transition"],
+      "profile": {"role": "North Valley water manager", "wants": ["North Gate floodgate", "river flow"], "beats": {"water operations": 2.0}},
+      "fact_catalog": {
+        "gat_f1": "North Gate opened to release river pressure.",
+        "gat_f2": "A syndicated copy added no fact.",
+        "gat_f3": "A stale copy was published after conditions changed.",
+        "gat_f4": "North Gate later closed after pressure normalized.",
+        "gat_f5": "North Gate remained open after pressure normalized on July 3."
+      },
+      "days": [
+        {"date": "2026-07-01", "documents": [
+          {"id": "gat-01", "source": "Water Authority", "title": "North Gate floodgate opens to release river pressure", "url": "https://fixture.test/gate/01", "snippet": "Operators open the gate at 08:00.", "body": "North Gate opened at 08:00 to release river pressure. Operators will review conditions tomorrow.", "published_at": "2026-07-01T08:05:00Z"},
+          {"id": "gat-02", "source": "Regional Wire", "title": "North Gate floodgate opens to release river pressure", "url": "https://fixture.test/gate/02", "snippet": "A syndicated copy of the authority notice.", "body": "North Gate opened at 08:00 to release river pressure. This is a syndicated copy with no additional event.", "published_at": "2026-07-01T08:30:00Z"}
+        ], "expectations": [
+          {"document_id": "gat-01", "canonical_story_id": "north-gate-operation", "relationship": "new_story", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["gat_f1"], "forbidden_fact_ids": ["gat_f4"]},
+          {"document_id": "gat-02", "canonical_story_id": "north-gate-operation", "relationship": "same_story", "delta_type": "unchanged", "material": false, "display": "omit", "profile_relevance": "must_select", "should_select": false, "required_fact_ids": [], "forbidden_fact_ids": ["gat_f4"]}
+        ]},
+        {"date": "2026-07-02", "documents": [{"id": "gat-03", "source": "Aggregator Cache", "title": "North Gate floodgate opens to release river pressure", "url": "https://fixture.test/gate/03", "snippet": "Yesterday's opening notice is timestamped today.", "body": "This cached copy repeats yesterday's 08:00 opening and adds no current operational status.", "published_at": "2026-07-02T06:00:00Z"}], "expectations": [
+          {"document_id": "gat-03", "canonical_story_id": "north-gate-operation", "relationship": "same_story", "delta_type": "unchanged", "material": false, "display": "omit", "profile_relevance": "must_select", "should_select": false, "required_fact_ids": [], "forbidden_fact_ids": ["gat_f4"]}
+        ]},
+        {"date": "2026-07-03", "documents": [{"id": "gat-04", "source": "Water Authority", "title": "North Gate floodgate closes as river pressure normalizes", "url": "https://fixture.test/gate/04", "snippet": "Operations return to normal.", "body": "North Gate closed after river pressure normalized. The emergency release operation has ended.", "published_at": "2026-07-03T15:00:00Z"}], "expectations": [
+          {"document_id": "gat-04", "canonical_story_id": "north-gate-operation", "relationship": "same_story", "delta_type": "resolved", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["gat_f4"], "forbidden_fact_ids": ["gat_f5"]}
+        ]}
+      ]
+    },
+    {
+      "id": "case-008",
+      "split": "development",
+      "tags": ["source_disagreement", "primary_source", "correction", "uncertainty"],
+      "profile": {"role": "East Bridge commuter", "wants": ["East Bridge reopening", "commute closure"], "beats": {"East Bridge": 3.0}},
+      "fact_catalog": {
+        "brg_f1": "A local outlet claimed the bridge reopened.",
+        "brg_f2": "The transport agency said the bridge remained closed.",
+        "brg_f3": "The official reopening was delayed until Monday.",
+        "brg_f4": "The bridge did not reopen on Friday.",
+        "brg_f5": "East Bridge reopened on Friday."
+      },
+      "days": [
+        {"date": "2026-08-01", "documents": [{"id": "brg-01", "source": "Town Flash", "title": "East Bridge reopens Friday, local outlet reports", "url": "https://fixture.test/bridge/01", "snippet": "The outlet cites an unnamed worker.", "body": "Town Flash claimed East Bridge reopened Friday, citing an unnamed worker. The transport agency had not confirmed it.", "published_at": "2026-08-01T07:00:00Z"}], "expectations": [
+          {"document_id": "brg-01", "canonical_story_id": "east-bridge-reopening", "relationship": "new_story", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["brg_f1"], "forbidden_fact_ids": ["brg_f4"]}
+        ]},
+        {"date": "2026-08-02", "documents": [{"id": "brg-02", "source": "Transport Agency", "title": "East Bridge remains closed; Friday reopening report is wrong", "url": "https://fixture.test/bridge/02", "snippet": "The responsible agency disputes the report.", "body": "The transport agency said East Bridge remained closed on Friday and called the local reopening report incorrect.", "published_at": "2026-08-02T08:00:00Z"}], "expectations": [
+          {"document_id": "brg-02", "canonical_story_id": "east-bridge-reopening", "relationship": "same_story", "delta_type": "correction", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["brg_f2", "brg_f4"], "forbidden_fact_ids": ["brg_f5"]}
+        ]},
+        {"date": "2026-08-03", "documents": [{"id": "brg-03", "source": "Transport Agency", "title": "East Bridge reopening delayed until Monday", "url": "https://fixture.test/bridge/03", "snippet": "The agency gives a new official date.", "body": "The transport agency delayed East Bridge's reopening until Monday while inspections continue.", "published_at": "2026-08-03T10:00:00Z"}], "expectations": [
+          {"document_id": "brg-03", "canonical_story_id": "east-bridge-reopening", "relationship": "same_story", "delta_type": "status_change", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["brg_f3"], "forbidden_fact_ids": ["brg_f5"]}
+        ]}
+      ]
+    },
+    {
+      "id": "case-009",
+      "split": "development",
+      "tags": ["headline_body_mismatch", "faithfulness", "recommendation_vs_approval", "status_transition"],
+      "profile": {"role": "Clinic procurement lead", "wants": ["Phoenix medicine decision", "medicine approval"], "beats": {"Phoenix medicine": 3.0}},
+      "fact_catalog": {
+        "med_f1": "An advisory committee recommended approval.",
+        "med_f2": "The regulator had not approved the medicine.",
+        "med_f3": "The regulator later rejected the application.",
+        "med_f4": "The medicine was approved."
+      },
+      "days": [
+        {"date": "2026-09-01", "documents": [{"id": "med-01", "source": "FastHealth", "title": "Phoenix medicine approved after committee vote", "url": "https://fixture.test/medicine/01", "snippet": "The headline overstates an advisory recommendation.", "body": "An advisory committee recommended that the regulator approve Phoenix medicine. The regulator has not issued a decision, so the medicine is not approved.", "published_at": "2026-09-01T08:00:00Z"}], "expectations": [
+          {"document_id": "med-01", "canonical_story_id": "phoenix-regulatory-decision", "relationship": "new_story", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["med_f1", "med_f2"], "forbidden_fact_ids": ["med_f4"]}
+        ]},
+        {"date": "2026-09-02", "documents": [{"id": "med-02", "source": "Medicines Regulator", "title": "Regulator rejects Phoenix medicine application", "url": "https://fixture.test/medicine/02", "snippet": "The final decision differs from the recommendation.", "body": "The regulator rejected the Phoenix medicine application after reviewing the advisory recommendation.", "published_at": "2026-09-02T16:00:00Z"}], "expectations": [
+          {"document_id": "med-02", "canonical_story_id": "phoenix-regulatory-decision", "relationship": "same_story", "delta_type": "status_change", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["med_f3"], "forbidden_fact_ids": ["med_f4"]}
+        ]}
+      ]
+    },
+    {
+      "id": "case-010",
+      "split": "development",
+      "tags": ["profile_ranking", "niche_vs_global", "avoid_preference", "duplicate"],
+      "profile": {"role": "Mushroom tax accountant", "wants": ["spore levy", "mushroom tax"], "avoid": ["celebrity hats"], "beats": {"spore levy": 3.0}},
+      "fact_catalog": {
+        "spo_f1": "A large meteor passed safely by the planet.",
+        "spo_f2": "The spore levy filing threshold fell from 500 to 100 caps.",
+        "spo_f3": "A celebrity wore a mushroom-shaped hat.",
+        "spo_f4": "A second levy story repeated the threshold change."
+      },
+      "days": [
+        {"date": "2026-10-01", "documents": [
+          {"id": "spo-01", "source": "Global Astronomy", "title": "Largest meteor this decade passes planet safely", "url": "https://fixture.test/spore/01", "snippet": "A globally prominent but personally irrelevant event.", "body": "The largest meteor observed this decade passed the planet safely and caused no damage.", "published_at": "2026-10-01T06:00:00Z"},
+          {"id": "spo-02", "source": "Fungal Revenue Office", "title": "Spore levy filing threshold cut from 500 to 100 caps", "url": "https://fixture.test/spore/02", "snippet": "A niche rule materially changes filing obligations.", "body": "The Fungal Revenue Office cut the spore levy filing threshold from 500 caps to 100 caps, effective next month.", "published_at": "2026-10-01T09:00:00Z"},
+          {"id": "spo-03", "source": "Celebrity Moss", "title": "Singer wears giant mushroom hat at gala", "url": "https://fixture.test/spore/03", "snippet": "Entertainment coverage uses a profile keyword but matches an avoid preference.", "body": "A singer wore a mushroom-shaped hat at a gala. The event has no tax or spore-levy consequence.", "published_at": "2026-10-01T11:00:00Z"}
+        ], "expectations": [
+          {"document_id": "spo-01", "canonical_story_id": "safe-meteor-pass", "relationship": "new_story", "delta_type": "new", "material": true, "display": "omit", "profile_relevance": "eligible", "should_select": false, "required_fact_ids": [], "forbidden_fact_ids": ["spo_f2"]},
+          {"document_id": "spo-02", "canonical_story_id": "spore-levy-threshold", "relationship": "new_story", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["spo_f2"], "forbidden_fact_ids": ["spo_f1", "spo_f3"]},
+          {"document_id": "spo-03", "canonical_story_id": "celebrity-mushroom-hat", "relationship": "new_story", "delta_type": "new", "material": true, "display": "omit", "profile_relevance": "irrelevant", "should_select": false, "required_fact_ids": [], "forbidden_fact_ids": ["spo_f2"]}
+        ]},
+        {"date": "2026-10-02", "documents": [{"id": "spo-04", "source": "Tax News Syndicate", "title": "Spore levy filing threshold cut from 500 to 100 caps", "url": "https://fixture.test/spore/04", "snippet": "A same-fact rewrite appears the next day.", "body": "The filing threshold will fall from 500 to 100 caps next month. No additional rule or date has changed.", "published_at": "2026-10-02T07:00:00Z"}], "expectations": [
+          {"document_id": "spo-04", "canonical_story_id": "spore-levy-threshold", "relationship": "same_story", "delta_type": "unchanged", "material": false, "display": "omit", "profile_relevance": "must_select", "should_select": false, "required_fact_ids": [], "forbidden_fact_ids": ["spo_f1", "spo_f3"]}
+        ]}
+      ]
+    },
+    {
+      "id": "case-011",
+      "split": "development",
+      "tags": ["keep_watch", "incremental_update", "material_change", "user_instruction"],
+      "profile": {"role": "Historian", "wants": ["Tidal Archive"], "beats": {"Tidal Archive": 3.0}, "custom_instructions": "Keep watch on the Tidal Archive, but reserve full reports for major access changes."},
+      "fact_catalog": {
+        "tid_f1": "A sealed Tidal Archive chamber was discovered.",
+        "tid_f2": "Cataloguing began, but public access did not change.",
+        "tid_f3": "The chamber opened to researchers.",
+        "tid_f4": "The chamber remained closed after November 3."
+      },
+      "days": [
+        {"date": "2026-11-01", "documents": [{"id": "tid-01", "source": "Museum Notice", "title": "Sealed chamber discovered beneath Tidal Archive", "url": "https://fixture.test/tidal/01", "snippet": "Archivists find an unknown chamber.", "body": "Archivists discovered a sealed chamber beneath the Tidal Archive. Its contents and access rules are unknown.", "published_at": "2026-11-01T08:00:00Z"}], "expectations": [
+          {"document_id": "tid-01", "canonical_story_id": "tidal-archive-chamber", "relationship": "new_story", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["tid_f1"], "forbidden_fact_ids": ["tid_f3"]}
+        ]},
+        {"date": "2026-11-02", "documents": [{"id": "tid-02", "source": "Museum Notice", "title": "Cataloguing begins in sealed Tidal Archive chamber", "url": "https://fixture.test/tidal/02", "snippet": "Routine cataloguing starts; access remains unchanged.", "body": "Museum staff began cataloguing the sealed chamber. It remains closed to researchers and the public.", "published_at": "2026-11-02T09:00:00Z"}], "expectations": [
+          {"document_id": "tid-02", "canonical_story_id": "tidal-archive-chamber", "relationship": "same_story", "delta_type": "incremental", "material": false, "display": "continuing_bullet", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["tid_f2"], "forbidden_fact_ids": ["tid_f3"]}
+        ]},
+        {"date": "2026-11-03", "documents": [{"id": "tid-03", "source": "Museum Notice", "title": "Tidal Archive chamber opens to accredited researchers", "url": "https://fixture.test/tidal/03", "snippet": "Access changes materially.", "body": "The Tidal Archive opened the chamber to accredited researchers after completing safety checks.", "published_at": "2026-11-03T12:00:00Z"}], "expectations": [
+          {"document_id": "tid-03", "canonical_story_id": "tidal-archive-chamber", "relationship": "same_story", "delta_type": "status_change", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["tid_f3"], "forbidden_fact_ids": ["tid_f4"]}
+        ]}
+      ]
+    },
+    {
+      "id": "case-012",
+      "split": "holdout",
+      "tags": ["unicode", "alias", "acronym_collision", "long_distractor", "overmerge_trap"],
+      "profile": {"role": "Želva transit planner", "wants": ["Želva Rail Authority", "ŽRA night line"], "avoid": ["rights gala"], "beats": {"Želva rail": 3.0}},
+      "fact_catalog": {
+        "zel_f1": "Želva Rail Authority announced a night line.",
+        "zel_f2": "ŽRA delayed the same night line for signal testing.",
+        "zel_f3": "ŽRA also abbreviates an unrelated Žen Artists Rights Assembly.",
+        "zel_f4": "The artists assembly held a gala."
+      },
+      "days": [
+        {"date": "2026-12-01", "documents": [{"id": "zel-01", "source": "Želva Rail Authority", "title": "Želva Rail Authority announces northern night line", "url": "https://fixture.test/zelva/01", "snippet": "The transit operator plans overnight service.", "body": "Želva Rail Authority announced a northern night line beginning December 10.", "published_at": "2026-12-01T08:00:00Z"}], "expectations": [
+          {"document_id": "zel-01", "canonical_story_id": "zelva-night-line", "relationship": "new_story", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["zel_f1"], "forbidden_fact_ids": ["zel_f4"]}
+        ]},
+        {"date": "2026-12-02", "documents": [{"id": "zel-02", "source": "ŽRA Operations", "title": "ŽRA delays northern night line for signal tests", "url": "https://fixture.test/zelva/02", "snippet": "The operator uses its acronym in the update.", "body": "ŽRA, the Želva Rail Authority, delayed its northern night line while signal tests continue. Background material about weather, station paint, ticket history, old timetables, and unrelated freight statistics does not alter the delay.", "published_at": "2026-12-02T09:00:00Z"}], "expectations": [
+          {"document_id": "zel-02", "canonical_story_id": "zelva-night-line", "relationship": "same_story", "delta_type": "status_change", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["zel_f2"], "forbidden_fact_ids": ["zel_f4"]}
+        ]},
+        {"date": "2026-12-03", "documents": [{"id": "zel-03", "source": "Arts Circular", "title": "ŽRA hosts annual rights gala for young painters", "url": "https://fixture.test/zelva/03", "snippet": "Here ŽRA means the Žen Artists Rights Assembly.", "body": "The Žen Artists Rights Assembly, also abbreviated ŽRA, held its annual rights gala for young painters. It is not the rail authority.", "published_at": "2026-12-03T18:00:00Z"}], "expectations": [
+          {"document_id": "zel-03", "canonical_story_id": "zen-artists-gala", "relationship": "new_story", "delta_type": "new", "material": true, "display": "omit", "profile_relevance": "irrelevant", "should_select": false, "required_fact_ids": [], "forbidden_fact_ids": ["zel_f1", "zel_f2"]}
+        ]}
+      ]
+    },
+    {
+      "id": "case-013",
+      "split": "holdout",
+      "tags": ["context_pressure", "distractors", "number_change", "faithfulness", "late_evidence"],
+      "profile": {"role": "Quartz cooperative treasurer", "wants": ["Quartz dividend", "member payout"], "beats": {"Quartz cooperative": 3.0}},
+      "fact_catalog": {
+        "qtz_f1": "A draft suggested a 40-crown dividend.",
+        "qtz_f2": "The approved dividend was 25 crowns.",
+        "qtz_f3": "The 40-crown figure was not approved.",
+        "qtz_f4": "Routine mine-production history is background only.",
+        "qtz_f5": "The approved dividend was 40 crowns."
+      },
+      "days": [
+        {"date": "2026-12-10", "documents": [{"id": "qtz-01", "source": "Quartz Cooperative Draft", "title": "Quartz board draft suggests 40-crown member dividend", "url": "https://fixture.test/quartz/01", "snippet": "A non-final paper proposes a payout.", "body": "A board working paper suggested a 40-crown member dividend. The figure is a draft and awaits a vote.", "published_at": "2026-12-10T08:00:00Z"}], "expectations": [
+          {"document_id": "qtz-01", "canonical_story_id": "quartz-member-dividend", "relationship": "new_story", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["qtz_f1"], "forbidden_fact_ids": ["qtz_f2"]}
+        ]},
+        {"date": "2026-12-11", "documents": [{"id": "qtz-02", "source": "Quartz Cooperative Minutes", "title": "Quartz cooperative approves 25-crown member dividend", "url": "https://fixture.test/quartz/02", "snippet": "The binding vote appears after extensive background.", "body": "The cooperative was founded in 1880. It operates seven mines, once used blue carts, changed its seal in 1920, publishes a quarterly almanac, and maintains a museum. Historical production rose and fell across many decades. After this background, the minutes record the binding decision: members approved a 25-crown dividend. The earlier 40-crown draft was not approved.", "published_at": "2026-12-11T20:00:00Z"}], "expectations": [
+          {"document_id": "qtz-02", "canonical_story_id": "quartz-member-dividend", "relationship": "same_story", "delta_type": "status_change", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["qtz_f2", "qtz_f3"], "forbidden_fact_ids": ["qtz_f5"]}
+        ]},
+        {"date": "2026-12-12", "documents": [{"id": "qtz-03", "source": "Mining Almanac", "title": "Quartz cooperative history: seven mines and blue carts", "url": "https://fixture.test/quartz/03", "snippet": "Background details are repackaged as a new feature.", "body": "A historical feature reviews the cooperative's seven mines, blue carts, seal, almanac, and museum. It reports no new dividend vote or payout change.", "published_at": "2026-12-12T07:00:00Z"}], "expectations": [
+          {"document_id": "qtz-03", "canonical_story_id": "quartz-history-feature", "relationship": "related_theme", "delta_type": "new", "material": false, "display": "omit", "profile_relevance": "eligible", "should_select": false, "required_fact_ids": [], "forbidden_fact_ids": ["qtz_f1", "qtz_f2"]}
+        ]}
+      ]
+    },
+    {
+      "id": "case-014",
+      "split": "development",
+      "tags": ["quiet_days", "unrelated_noise", "sparse_updates", "long_gap", "profile_niche", "stale_republish"],
+      "profile": {"role": "Coastal emergency planner", "wants": ["Lumen seawall sensor network", "verified surge alerts"], "avoid": ["sports", "celebrity", "restaurant menus"], "beats": {"Lumen seawall": 3.0}, "custom_instructions": "Report verified operational changes; ignore unrelated daily noise."},
+      "fact_catalog": {
+        "lum_f1": "The Lumen pilot sensor network was activated along the South Wall.",
+        "lum_f2": "The network issued its first verified surge alert on April 5.",
+        "lum_f3": "South Wall flood gates closed automatically after the verified alert.",
+        "lum_f4": "The April 5 alert was only a drill.",
+        "lum_f5": "The sensor network covered the entire city on April 1."
+      },
+      "days": [
+        {"date": "2026-04-01", "documents": [
+          {"id": "lum-01", "source": "Lumen Coastal Office", "title": "Lumen activates pilot seawall sensors along South Wall", "url": "https://fixture.test/lumen/01", "snippet": "A limited coastal monitoring pilot goes live.", "body": "The Lumen Coastal Office activated its pilot seawall sensor network along the South Wall. The pilot does not yet cover the rest of the city.", "published_at": "2026-04-01T06:30:00Z"},
+          {"id": "lum-n01", "source": "Copper Cup Review", "title": "Copper Cup cafe adds seven spring pastries", "url": "https://fixture.test/lumen/n01", "snippet": "A cafe publishes a seasonal menu.", "body": "Copper Cup cafe added seven spring pastries and changed its weekend opening time.", "published_at": "2026-04-01T07:10:00Z"},
+          {"id": "lum-n02", "source": "Hill Cricket Desk", "title": "Hill district cricket club wins preseason friendly", "url": "https://fixture.test/lumen/n02", "snippet": "A local club wins a friendly match.", "body": "Hill district cricket club won a preseason friendly by three wickets.", "published_at": "2026-04-01T09:00:00Z"},
+          {"id": "lum-n03", "source": "Theatre Lantern", "title": "Touring puppet comedy extends run by one week", "url": "https://fixture.test/lumen/n03", "snippet": "An entertainment run is extended.", "body": "A touring puppet comedy extended its theatre run by one week after strong ticket sales.", "published_at": "2026-04-01T12:00:00Z"}
+        ], "expectations": [
+          {"document_id": "lum-01", "canonical_story_id": "lumen-seawall-sensors", "relationship": "new_story", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["lum_f1"], "forbidden_fact_ids": ["lum_f2", "lum_f3", "lum_f5"]},
+          {"document_id": "lum-n01", "canonical_story_id": "copper-cup-spring-menu", "relationship": "new_story", "delta_type": "new", "material": false, "display": "omit", "profile_relevance": "irrelevant", "should_select": false, "required_fact_ids": [], "forbidden_fact_ids": ["lum_f1", "lum_f2"]},
+          {"document_id": "lum-n02", "canonical_story_id": "hill-cricket-friendly", "relationship": "new_story", "delta_type": "new", "material": false, "display": "omit", "profile_relevance": "irrelevant", "should_select": false, "required_fact_ids": [], "forbidden_fact_ids": ["lum_f1", "lum_f2"]},
+          {"document_id": "lum-n03", "canonical_story_id": "puppet-comedy-extension", "relationship": "new_story", "delta_type": "new", "material": false, "display": "omit", "profile_relevance": "irrelevant", "should_select": false, "required_fact_ids": [], "forbidden_fact_ids": ["lum_f1", "lum_f2"]}
+        ]},
+        {"date": "2026-04-02", "documents": [
+          {"id": "lum-n04", "source": "Glassworks Journal", "title": "Glass artists choose amber as festival colour", "url": "https://fixture.test/lumen/n04", "snippet": "A festival announces a colour theme.", "body": "The annual glass festival selected amber as this year's colour theme.", "published_at": "2026-04-02T05:40:00Z"},
+          {"id": "lum-n05", "source": "North Tram Blog", "title": "North tram seats receive new blue fabric", "url": "https://fixture.test/lumen/n05", "snippet": "Routine upholstery work begins.", "body": "Workers began replacing seat fabric on six North tram cars with a blue pattern.", "published_at": "2026-04-02T08:20:00Z"},
+          {"id": "lum-n06", "source": "Garden Circular", "title": "Botanical garden moves orchid lecture indoors", "url": "https://fixture.test/lumen/n06", "snippet": "A lecture changes rooms.", "body": "The botanical garden moved Saturday's orchid lecture indoors because of expected rain.", "published_at": "2026-04-02T10:15:00Z"},
+          {"id": "lum-n07", "source": "Chess Borough", "title": "School chess final ends in a draw", "url": "https://fixture.test/lumen/n07", "snippet": "Two schools share a trophy.", "body": "The borough school chess final ended in a draw and both schools shared the trophy.", "published_at": "2026-04-02T15:00:00Z"}
+        ], "expectations": [
+          {"document_id": "lum-n04", "canonical_story_id": "glass-festival-colour", "relationship": "new_story", "delta_type": "new", "material": false, "display": "omit", "profile_relevance": "irrelevant", "should_select": false, "required_fact_ids": [], "forbidden_fact_ids": ["lum_f1", "lum_f2"]},
+          {"document_id": "lum-n05", "canonical_story_id": "north-tram-upholstery", "relationship": "new_story", "delta_type": "new", "material": false, "display": "omit", "profile_relevance": "irrelevant", "should_select": false, "required_fact_ids": [], "forbidden_fact_ids": ["lum_f1", "lum_f2"]},
+          {"document_id": "lum-n06", "canonical_story_id": "orchid-lecture-room", "relationship": "new_story", "delta_type": "new", "material": false, "display": "omit", "profile_relevance": "irrelevant", "should_select": false, "required_fact_ids": [], "forbidden_fact_ids": ["lum_f1", "lum_f2"]},
+          {"document_id": "lum-n07", "canonical_story_id": "school-chess-draw", "relationship": "new_story", "delta_type": "new", "material": false, "display": "omit", "profile_relevance": "irrelevant", "should_select": false, "required_fact_ids": [], "forbidden_fact_ids": ["lum_f1", "lum_f2"]}
+        ]},
+        {"date": "2026-04-03", "documents": [], "expectations": []},
+        {"date": "2026-04-04", "documents": [
+          {"id": "lum-n08", "source": "Pottery Market", "title": "Sunday pottery market adds a second tea stall", "url": "https://fixture.test/lumen/n08", "snippet": "A market adds a vendor.", "body": "The Sunday pottery market added a second tea stall near its eastern entrance.", "published_at": "2026-04-04T06:10:00Z"},
+          {"id": "lum-n09", "source": "Canal Pets", "title": "Rescued canal cat adopted by bookshop", "url": "https://fixture.test/lumen/n09", "snippet": "A bookshop adopts a cat.", "body": "A bookshop adopted a cat rescued beside the old canal and named it Mica.", "published_at": "2026-04-04T09:30:00Z"},
+          {"id": "lum-n10", "source": "Choir Notes", "title": "Harbour choir releases rehearsal schedule", "url": "https://fixture.test/lumen/n10", "snippet": "A choir publishes routine dates.", "body": "The harbour choir released six rehearsal dates for its summer concert.", "published_at": "2026-04-04T11:45:00Z"},
+          {"id": "lum-n11", "source": "Table Games Weekly", "title": "Local board-game shop hosts miniature painting night", "url": "https://fixture.test/lumen/n11", "snippet": "A shop schedules a hobby event.", "body": "A local board-game shop scheduled a miniature painting night for Thursday.", "published_at": "2026-04-04T18:00:00Z"}
+        ], "expectations": [
+          {"document_id": "lum-n08", "canonical_story_id": "pottery-market-tea-stall", "relationship": "new_story", "delta_type": "new", "material": false, "display": "omit", "profile_relevance": "irrelevant", "should_select": false, "required_fact_ids": [], "forbidden_fact_ids": ["lum_f2", "lum_f3"]},
+          {"document_id": "lum-n09", "canonical_story_id": "canal-cat-adoption", "relationship": "new_story", "delta_type": "new", "material": false, "display": "omit", "profile_relevance": "irrelevant", "should_select": false, "required_fact_ids": [], "forbidden_fact_ids": ["lum_f2", "lum_f3"]},
+          {"document_id": "lum-n10", "canonical_story_id": "harbour-choir-schedule", "relationship": "new_story", "delta_type": "new", "material": false, "display": "omit", "profile_relevance": "irrelevant", "should_select": false, "required_fact_ids": [], "forbidden_fact_ids": ["lum_f2", "lum_f3"]},
+          {"document_id": "lum-n11", "canonical_story_id": "miniature-painting-night", "relationship": "new_story", "delta_type": "new", "material": false, "display": "omit", "profile_relevance": "irrelevant", "should_select": false, "required_fact_ids": [], "forbidden_fact_ids": ["lum_f2", "lum_f3"]}
+        ]},
+        {"date": "2026-04-05", "documents": [
+          {"id": "lum-02", "source": "Lumen Coastal Office", "title": "Lumen sensors issue first verified surge alert; South Wall gates close", "url": "https://fixture.test/lumen/02", "snippet": "The pilot moves from monitoring to an operational alert.", "body": "The Lumen seawall sensor network issued its first verified surge alert early Sunday. South Wall flood gates closed automatically; officials said the alert was not a drill.", "published_at": "2026-04-05T05:55:00Z"},
+          {"id": "lum-n12", "source": "Bakery Ledger", "title": "Rye bakery changes loyalty-card stamp colour", "url": "https://fixture.test/lumen/n12", "snippet": "A shop makes a cosmetic change.", "body": "The Rye bakery changed its loyalty-card stamp from green to purple.", "published_at": "2026-04-05T08:05:00Z"},
+          {"id": "lum-n13", "source": "Youth Orchestra", "title": "Youth orchestra selects autumn encore", "url": "https://fixture.test/lumen/n13", "snippet": "Musicians choose an encore.", "body": "The youth orchestra selected a short autumn encore after an audience poll.", "published_at": "2026-04-05T13:20:00Z"},
+          {"id": "lum-n14", "source": "Market Fashion", "title": "Silver shoelaces become weekend market fashion", "url": "https://fixture.test/lumen/n14", "snippet": "A fashion trend appears at a market.", "body": "Several weekend vendors reported higher sales of silver shoelaces.", "published_at": "2026-04-05T16:45:00Z"}
+        ], "expectations": [
+          {"document_id": "lum-02", "canonical_story_id": "lumen-seawall-sensors", "relationship": "same_story", "delta_type": "status_change", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["lum_f2", "lum_f3"], "forbidden_fact_ids": ["lum_f4"]},
+          {"document_id": "lum-n12", "canonical_story_id": "bakery-stamp-colour", "relationship": "new_story", "delta_type": "new", "material": false, "display": "omit", "profile_relevance": "irrelevant", "should_select": false, "required_fact_ids": [], "forbidden_fact_ids": ["lum_f2", "lum_f3"]},
+          {"document_id": "lum-n13", "canonical_story_id": "orchestra-autumn-encore", "relationship": "new_story", "delta_type": "new", "material": false, "display": "omit", "profile_relevance": "irrelevant", "should_select": false, "required_fact_ids": [], "forbidden_fact_ids": ["lum_f2", "lum_f3"]},
+          {"document_id": "lum-n14", "canonical_story_id": "silver-shoelace-fashion", "relationship": "new_story", "delta_type": "new", "material": false, "display": "omit", "profile_relevance": "irrelevant", "should_select": false, "required_fact_ids": [], "forbidden_fact_ids": ["lum_f2", "lum_f3"]}
+        ]},
+        {"date": "2026-04-06", "documents": [
+          {"id": "lum-03", "source": "Coastal News Rewrite", "title": "South Wall gates closed after Lumen network's first surge alert", "url": "https://fixture.test/lumen/03", "snippet": "A next-day rewrite repeats the verified alert and closure.", "body": "South Wall flood gates closed after the Lumen sensor network issued its first verified surge alert on Sunday. No second alert or new operational change is reported.", "published_at": "2026-04-06T06:15:00Z"},
+          {"id": "lum-n15", "source": "Library Desk", "title": "Library returns atlas display to upper floor", "url": "https://fixture.test/lumen/n15", "snippet": "A display moves upstairs.", "body": "The central library returned its atlas display to the upper floor after repainting.", "published_at": "2026-04-06T10:00:00Z"},
+          {"id": "lum-n16", "source": "Cycling Club", "title": "Cycling club orders twenty yellow water bottles", "url": "https://fixture.test/lumen/n16", "snippet": "A club orders supplies.", "body": "The neighbourhood cycling club ordered twenty yellow water bottles for members.", "published_at": "2026-04-06T14:10:00Z"}
+        ], "expectations": [
+          {"document_id": "lum-03", "canonical_story_id": "lumen-seawall-sensors", "relationship": "same_story", "delta_type": "unchanged", "material": false, "display": "omit", "profile_relevance": "must_select", "should_select": false, "required_fact_ids": [], "forbidden_fact_ids": ["lum_f4"]},
+          {"document_id": "lum-n15", "canonical_story_id": "atlas-display-move", "relationship": "new_story", "delta_type": "new", "material": false, "display": "omit", "profile_relevance": "irrelevant", "should_select": false, "required_fact_ids": [], "forbidden_fact_ids": ["lum_f2", "lum_f3"]},
+          {"document_id": "lum-n16", "canonical_story_id": "cycling-bottle-order", "relationship": "new_story", "delta_type": "new", "material": false, "display": "omit", "profile_relevance": "irrelevant", "should_select": false, "required_fact_ids": [], "forbidden_fact_ids": ["lum_f2", "lum_f3"]}
+        ]}
+      ]
+    },
+    {
+      "id": "case-015",
+      "split": "holdout",
+      "tags": ["quiet_days", "unrelated_noise", "sparse_updates", "long_gap", "status_transition", "stale_republish"],
+      "profile": {"role": "Nacre Library archivist", "wants": ["Nacre Library roof restoration", "roof access"], "avoid": ["sports", "food festivals"], "beats": {"Nacre Library": 3.0}, "custom_instructions": "Track material changes to the roof project across quiet periods."},
+      "fact_catalog": {
+        "nac_f1": "Nacre Library awarded the roof-restoration contract to Slateworks.",
+        "nac_f2": "Restoration work paused after engineers found structural cracks.",
+        "nac_f3": "The Slateworks contract remained in force while engineers reviewed the cracks.",
+        "nac_f4": "The restored roof reopened to the public on May 5."
+      },
+      "days": [
+        {"date": "2026-05-01", "documents": [
+          {"id": "nac-01", "source": "Nacre Library Notice", "title": "Nacre Library awards roof-restoration contract to Slateworks", "url": "https://fixture.test/nacre/01", "snippet": "The library selects a contractor.", "body": "Nacre Library awarded its roof-restoration contract to Slateworks. Initial inspections are scheduled for June.", "published_at": "2026-05-01T07:00:00Z"},
+          {"id": "nac-n01", "source": "River Food Calendar", "title": "River dumpling festival publishes vendor map", "url": "https://fixture.test/nacre/n01", "snippet": "A food festival publishes logistics.", "body": "The river dumpling festival published a map showing forty food vendors.", "published_at": "2026-05-01T09:15:00Z"},
+          {"id": "nac-n02", "source": "Amateur Football", "title": "East amateur football side unveils striped socks", "url": "https://fixture.test/nacre/n02", "snippet": "A team unveils kit details.", "body": "An amateur football side unveiled striped socks for its summer kit.", "published_at": "2026-05-01T13:00:00Z"}
+        ], "expectations": [
+          {"document_id": "nac-01", "canonical_story_id": "nacre-library-roof", "relationship": "new_story", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["nac_f1"], "forbidden_fact_ids": ["nac_f2", "nac_f4"]},
+          {"document_id": "nac-n01", "canonical_story_id": "river-dumpling-map", "relationship": "new_story", "delta_type": "new", "material": false, "display": "omit", "profile_relevance": "irrelevant", "should_select": false, "required_fact_ids": [], "forbidden_fact_ids": ["nac_f1", "nac_f2"]},
+          {"document_id": "nac-n02", "canonical_story_id": "amateur-striped-socks", "relationship": "new_story", "delta_type": "new", "material": false, "display": "omit", "profile_relevance": "irrelevant", "should_select": false, "required_fact_ids": [], "forbidden_fact_ids": ["nac_f1", "nac_f2"]}
+        ]},
+        {"date": "2026-05-02", "documents": [], "expectations": []},
+        {"date": "2026-05-03", "documents": [
+          {"id": "nac-n03", "source": "Clockmakers Guild", "title": "Clockmakers elect treasurer for annual fair", "url": "https://fixture.test/nacre/n03", "snippet": "A guild fills a routine post.", "body": "The clockmakers guild elected a treasurer for its annual fair committee.", "published_at": "2026-05-03T08:00:00Z"},
+          {"id": "nac-n04", "source": "Park Bulletin", "title": "West park fountain switches to summer hours", "url": "https://fixture.test/nacre/n04", "snippet": "A fountain changes operating hours.", "body": "The West park fountain switched to its usual summer operating hours.", "published_at": "2026-05-03T12:30:00Z"},
+          {"id": "nac-n05", "source": "Book Awards", "title": "Travel memoir wins regional cover-design prize", "url": "https://fixture.test/nacre/n05", "snippet": "A book receives a design award.", "body": "A travel memoir won a regional prize for its cover design.", "published_at": "2026-05-03T16:00:00Z"}
+        ], "expectations": [
+          {"document_id": "nac-n03", "canonical_story_id": "clockmakers-fair-treasurer", "relationship": "new_story", "delta_type": "new", "material": false, "display": "omit", "profile_relevance": "irrelevant", "should_select": false, "required_fact_ids": [], "forbidden_fact_ids": ["nac_f1", "nac_f2"]},
+          {"document_id": "nac-n04", "canonical_story_id": "park-fountain-hours", "relationship": "new_story", "delta_type": "new", "material": false, "display": "omit", "profile_relevance": "irrelevant", "should_select": false, "required_fact_ids": [], "forbidden_fact_ids": ["nac_f1", "nac_f2"]},
+          {"document_id": "nac-n05", "canonical_story_id": "memoir-cover-prize", "relationship": "new_story", "delta_type": "new", "material": false, "display": "omit", "profile_relevance": "irrelevant", "should_select": false, "required_fact_ids": [], "forbidden_fact_ids": ["nac_f1", "nac_f2"]}
+        ]},
+        {"date": "2026-05-04", "documents": [], "expectations": []},
+        {"date": "2026-05-05", "documents": [
+          {"id": "nac-02", "source": "Nacre Library Engineering Update", "title": "Nacre roof work pauses after engineers find structural cracks", "url": "https://fixture.test/nacre/02", "snippet": "The project changes from scheduled work to an engineering review.", "body": "Nacre Library paused roof-restoration work after engineers found structural cracks. The Slateworks contract remains in force while the engineering review continues; the roof has not reopened.", "published_at": "2026-05-05T06:45:00Z"},
+          {"id": "nac-n06", "source": "Harbour Bakery", "title": "Harbour bakery names a sourdough starter Pearl", "url": "https://fixture.test/nacre/n06", "snippet": "A bakery names its starter.", "body": "A harbour bakery named its eight-year-old sourdough starter Pearl.", "published_at": "2026-05-05T10:00:00Z"},
+          {"id": "nac-n07", "source": "Junior Athletics", "title": "Junior relay practice moves to Tuesday", "url": "https://fixture.test/nacre/n07", "snippet": "A practice session moves dates.", "body": "A junior athletics club moved relay practice from Monday to Tuesday.", "published_at": "2026-05-05T15:20:00Z"}
+        ], "expectations": [
+          {"document_id": "nac-02", "canonical_story_id": "nacre-library-roof", "relationship": "same_story", "delta_type": "status_change", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["nac_f2", "nac_f3"], "forbidden_fact_ids": ["nac_f4"]},
+          {"document_id": "nac-n06", "canonical_story_id": "bakery-starter-name", "relationship": "new_story", "delta_type": "new", "material": false, "display": "omit", "profile_relevance": "irrelevant", "should_select": false, "required_fact_ids": [], "forbidden_fact_ids": ["nac_f2", "nac_f3"]},
+          {"document_id": "nac-n07", "canonical_story_id": "junior-relay-practice", "relationship": "new_story", "delta_type": "new", "material": false, "display": "omit", "profile_relevance": "irrelevant", "should_select": false, "required_fact_ids": [], "forbidden_fact_ids": ["nac_f2", "nac_f3"]}
+        ]},
+        {"date": "2026-05-06", "documents": [], "expectations": []},
+        {"date": "2026-05-07", "documents": [
+          {"id": "nac-03", "source": "Regional Works Wire", "title": "Nacre Library roof restoration paused over structural cracks", "url": "https://fixture.test/nacre/03", "snippet": "A wire story repeats the pause and review.", "body": "Roof-restoration work at Nacre Library remains paused after structural cracks were found. Slateworks still holds the contract and no reopening date is reported.", "published_at": "2026-05-07T07:15:00Z"},
+          {"id": "nac-n08", "source": "Toy Collector", "title": "Tin-whistle figurine sells at neighbourhood auction", "url": "https://fixture.test/nacre/n08", "snippet": "A collectible is sold.", "body": "A tin-whistle figurine sold at a neighbourhood auction for eighty crowns.", "published_at": "2026-05-07T11:00:00Z"},
+          {"id": "nac-n09", "source": "Canal Cinema", "title": "Canal cinema restores red curtain in screen two", "url": "https://fixture.test/nacre/n09", "snippet": "A cinema repairs decor.", "body": "Canal cinema restored the red curtain in its second screening room.", "published_at": "2026-05-07T17:30:00Z"}
+        ], "expectations": [
+          {"document_id": "nac-03", "canonical_story_id": "nacre-library-roof", "relationship": "same_story", "delta_type": "unchanged", "material": false, "display": "omit", "profile_relevance": "must_select", "should_select": false, "required_fact_ids": [], "forbidden_fact_ids": ["nac_f4"]},
+          {"document_id": "nac-n08", "canonical_story_id": "tin-whistle-auction", "relationship": "new_story", "delta_type": "new", "material": false, "display": "omit", "profile_relevance": "irrelevant", "should_select": false, "required_fact_ids": [], "forbidden_fact_ids": ["nac_f2", "nac_f3"]},
+          {"document_id": "nac-n09", "canonical_story_id": "cinema-red-curtain", "relationship": "new_story", "delta_type": "new", "material": false, "display": "omit", "profile_relevance": "irrelevant", "should_select": false, "required_fact_ids": [], "forbidden_fact_ids": ["nac_f2", "nac_f3"]}
+        ]}
+      ]
+    }
+  ]
+}
