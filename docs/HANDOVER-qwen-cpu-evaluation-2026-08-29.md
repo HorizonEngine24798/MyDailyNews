@@ -1,6 +1,7 @@
 # Handover: Qwen CPU evaluation and next story-understanding work
 
 Date: 2026-08-29
+Last updated: 2026-08-30
 Repository: `C:\Users\daroi\Desktop\Project\MyDailyNews`
 
 ## Executive state
@@ -114,10 +115,11 @@ on `main`:
 | `d248db7` | Stage-conditioned model investigations and adversarial evaluator hardening |
 | `42e4a1d` | Source-backed story identity gate, heuristic retrieval, and provenance writeback |
 | `486f7a7` | Qwen investigation results, retrieval results, roadmap, and handover |
+| `8d2efa8` | Unified StoryStore, legacy migration, separated heuristic retrieval, and memory housekeeping |
 
-Those checkpoints are already on `origin/main`. The StoryStore consolidation
-described below is the current follow-up checkpoint; its final commit hash is
-recorded in the post-commit update to this handover.
+The first seven checkpoints are already on `origin/main`; `8d2efa8` is the
+tested StoryStore checkpoint prepared in this final follow-up and should be
+pushed together with this handover update.
 
 An older local-only Codex CLI comparison bridge remains deliberately outside
 these commits. Its tracked hooks appear as local modifications in
