@@ -72,6 +72,175 @@ models: the full contract can spend its output budget serializing structure
 before reaching the decision. Start with one `--arc`, then remove the filter
 for a full run. `--split development` and `--split holdout` are also available.
 
+## Final small-model capability investigation
+
+The existing corpus is sufficient for one final four-condition ablation; no new
+synthetic stories are required. Run every condition with the same model,
+context, token ceiling, batch width, and arc/split selection:
+
+```powershell
+foreach ($investigationMode in @(
+  "baseline",
+  "retrieved_top3",
+  "oracle_candidate",
+  "oracle_ledger"
+)) {
+  python tools/run_change_monitor_evals.py `
+    --adapter delta-model `
+    --config config.cpu-qwen1.7b-full.json `
+    --model-role summary `
+    --delta-output-mode decision_only `
+    --model-max-new-tokens 384 `
+    --delta-max-articles-per-batch 2 `
+    --investigation-mode $investigationMode `
+    --output "output/evaluations/qwen-final-$investigationMode"
+}
+```
+
+To add stage diagnostics to a historical local-delta report without another
+model run, replay only the broad candidate metadata from public documents:
+
+```powershell
+python tools/run_change_monitor_evals.py `
+  --adapter predictions `
+  --predictions path\to\historical-evaluation_report.json `
+  --replay-candidate-metadata `
+  --output output/evaluations/historical-rescored
+```
+
+This changes no saved decisions and writes a new report. It is valid only for
+this repository's historical broad-baseline adapter, not arbitrary external
+retrievers.
+
+The conditions isolate progressively more of the surrounding architecture:
+
+| Mode | Prior context supplied | Uses private gold? | Valid interpretation |
+|---|---|---:|---|
+| `baseline` | Up to eight accumulated baselines, reproducing the original evaluation | No | Existing combined retrieval/model behavior |
+| `retrieved_top3` | At most three lexical candidates above the configured score | No | Production-comparable candidate-shortlist experiment |
+| `oracle_candidate` | Exactly the correct prior story when one exists | Yes | Model ceiling after perfect candidate retrieval |
+| `oracle_ledger` | Correct prior story, previously required facts, and annotated current facts | Yes | Model ceiling with a compact fact-ledger packet |
+
+Oracle reports contain a prominent contamination warning and set
+`production_comparable=false`. They must never be used as release scores or
+quality gates. The model does not receive canonical IDs or expected decision
+labels, but private identity/fact labels are used to construct its context.
+
+All 26 continuation cases have previously annotated facts available to the
+ledger intervention. Eighteen also have explicit current required facts. For
+the remaining unchanged/incremental cases, the current source document remains
+the current evidence. This is enough to test conditional model capability, but
+not enough to claim complete fact-level extraction coverage.
+
+The report's conditional stage funnel answers four separate questions:
+
+- Did candidate retrieval include the correct story at ranks 1 and 3?
+- Given the correct candidate, did the model recognize the continuation?
+- Did the model actually return the supplied correct story key, rather than
+  merely emit a `same_story` label?
+- Given a correctly linked identity, did it classify the change correctly?
+- Given correct identity, change, materiality, and relevance, did policy choose
+  the correct display and selection behavior?
+
+### Completed Qwen3 1.7B results (2026-08-29)
+
+The final CPU-only ablation used Qwen3 1.7B Q4_K_M, a 2,048-token context,
+384 output tokens, two articles per extraction batch, one server slot, and no
+GPU. The historical baseline decisions were rescored with candidate metadata
+reconstructed from public documents; its runtime and throughput remain those
+of the original model run. The other three conditions were fresh runs. No
+saved report was overwritten.
+
+| Condition | Correct candidate in supplied packet | Relationship correct given candidate | Correct candidate key actually linked | Delta correct given linked identity | New-story overmerge | Runtime / output TPS |
+|---|---:|---:|---:|---:|---:|---:|
+| Broad baseline | 0.8846 (23/26) | 0.8696 | 0.6522 (15/23) | 0.2000 (3/15) | 0.5745 | 32m 27.5s / 5.04 |
+| Gold-blind `retrieved_top3` | 0.6154 (16/26) | 0.9375 | 0.8750 (14/16) | 0.1429 (2/14) | 0.7234 | 15m 44.9s / 9.09 |
+| Private-gold `oracle_candidate` | 1.0000 (26/26) | 0.9615 | 0.8077 (21/26) | 0.0952 (2/21) | 0.7872 | 16m 29.7s / 8.56 |
+| Private-gold `oracle_ledger` | 1.0000 (26/26) | 0.8077 | 0.5000 (13/26) | 0.0000 (0/13) | 0.7447 | 22m 17.8s / 6.87 |
+
+"Correct candidate in supplied packet" is recall at the condition's supplied
+limit. The broad baseline can contain more than three candidates; its recall
+at rank three was 0.8462. Relationship and link columns are conditioned on a
+correct candidate being present. Oracle values are contaminated diagnostic
+ceilings, and their overall pairwise identity score is not production-
+comparable because the intervention supplies an external opaque ledger key.
+
+The ablation isolates three independent failures:
+
+- The lexical top-three retriever found only 16 of 26 true continuations. It
+  safely supplied no candidate for every genuinely new story, but Qwen still
+  called 34 of 47 new stories `same_story`. Therefore `no candidate =>
+  new_story` must be an enforced invariant, not an instruction.
+- Perfect candidate retrieval did not solve semantic change. Even after Qwen
+  linked the right oracle candidate, only 2 of 21 continuation deltas were
+  correct. The model mostly collapsed `unchanged`, `status_change`,
+  `correction`, `incremental`, and `resolved` into generic `material_update`.
+- Supplying prior and annotated current fact text made delta accuracy worse,
+  not better: none of the 13 correctly linked ledger continuations had the
+  right delta. More context is therefore not the missing remedy for this
+  model/task combination.
+
+All 56 requests in each fresh condition returned valid JSON with no transport
+errors. The final run normally used about 55-60% total CPU and retained roughly
+3.6-4.1 GB available RAM. A transient system-wide spike triggered a four-
+logical-processor/idle-priority cap; the server was stopped after the run and
+available RAM recovered to about 9.6 GB.
+
+The saved-output rescoring also adversarially hardens the evaluator: missing
+candidate metadata now counts as a retrieval miss, unknown/future candidate
+documents are rejected, production candidate keys must match their referenced
+prior prediction, and "correct identity" requires returning the correct
+supplied key. A relationship label alone no longer advances the funnel.
+
+This four-condition run is the stopping point for Qwen investigation. After it,
+treat remaining weaknesses as an accepted model constraint and return to
+candidate retrieval, source-backed ledger state, relevance filtering, and
+deterministic policy architecture. Do not begin another prompt or context sweep
+unless an architectural change creates a specific regression question.
+
+### Production source-ledger retrieval diagnostic
+
+The lexical `retrieved_top3` result above is preserved as the historical Qwen
+ablation. Production now has a separate hybrid retriever backed by exact source
+facts and provenance. Measure that stage without a model call:
+
+```powershell
+.\.venv-cpu-test\Scripts\python.exe tools\run_story_retrieval_diagnostics.py
+```
+
+This diagnostic is deliberately gold-assisted: after every simulated day it
+uses private canonical identity to write the correct historical ledger key.
+The current day's retrieval still receives only title, snippet, body, and the
+accumulated source ledger. The result therefore isolates retrieval capability;
+it is not production-comparable end-to-end quality.
+
+At the default threshold `0.25` and limit three:
+
+| Measure | Result |
+|---|---:|
+| Documents | 74 |
+| Prior-day continuations eligible for retrieval | 25 |
+| Recall@1 / Recall@3 | 0.9600 / 0.9600 |
+| Mean reciprocal rank | 0.9600 |
+| Truly new stories receiving no candidate | 0.9787 (46/47) |
+| Related-theme items receiving a candidate | 1.0000 (1/1) |
+| Mean candidates per document | 0.3784 |
+
+The corpus has 26 `same_story` labels, but one is a second document first seen
+in the same daily batch. It is excluded from historical candidate recall and
+belongs to current-day story grouping. The sole prior-day miss is `rum-03`, an
+indirect relation in which the alleged buyer signs an unrelated partnership.
+Its expected story scores `0.2015`; catching it by lowering the global
+threshold would trade safe fragmentation for broader overmerge risk. Add an
+explicit actor/relation edge if that failure becomes important.
+
+For true new stories, a retrieved candidate is not itself an overmerge: the
+candidate gate may classify it as distinct. `elf-04` is the one such shortlist,
+because its source explicitly discusses the prior toenail-charms entities while
+denying a connection. The architecture gate prevents that plausible retrieval
+candidate from becoming a link unless the model returns the supplied key, and
+an invalid/ambiguous link remains visible.
+
 Optional CI gates support both quality floors and error ceilings:
 
 ```powershell
@@ -116,11 +285,18 @@ annotation tool can all be scored if they emit the same records. A generic eval
 framework can therefore orchestrate calls without owning the product-specific
 story and display metrics.
 
-The local-delta adapter is deliberately a stage evaluation: deterministic
-lexical recall proposes bounded prior stories, then the model decides identity,
+The local-delta adapter is deliberately a stage evaluation: its historical
+deterministic lexical recall proposes bounded prior stories, then the model decides identity,
 change, materiality, and disposition. Its identity score therefore measures the
 combined candidate-recall/model decision path, not unconstrained entity
 resolution. Use the prediction-file contract for a true full-pipeline run.
+
+The production memory path is newer than that adapter. It stores exact source
+sentences and provenance in `story_ledger.json`, proposes at most three hybrid
+candidates, keeps current identity provisional, and validates every model link
+through `candidate-gated.v1`. The retrieval diagnostic above tests that newer
+stage directly. A future full-pipeline adapter should use the production ledger
+instead of silently substituting the historical lexical retriever.
 
 ## Corpus v1
 
@@ -170,6 +346,10 @@ rotate part of it periodically.
 | Required-fact recall | The output omitted the actual source-backed delta. |
 | Forbidden/unsupported-claim rate | The output crossed its evidence boundary. |
 | Claim evaluation coverage | How much output has fact-level annotations; zero means faithfulness is unmeasured, not perfect. |
+| Candidate recall@1/@3 | Whether the correct accumulated story was available before the model decided identity. |
+| Relationship accuracy given candidate | Model identity judgment after candidate-retrieval failure is removed. |
+| Continuation delta accuracy given correct identity | Model change judgment after identity failure is removed. |
+| Display accuracy given correct semantics | Whether the policy layer still fails after upstream semantics are correct. |
 | p50/p95 latency | CPU feasibility and tail behavior. |
 
 The deterministic adapter intentionally reports no fact IDs, so its claim-level

@@ -23,7 +23,8 @@ Useful / keep-watch signals
 ## Existing foundations
 
 - Editable user profile and deterministic profile-aware candidate ranking.
-- Local coverage memory, story keys/families, story index, and recall packets.
+- Local coverage memory, story keys/families, legacy story index, source-backed
+  story ledger, and recall packets.
 - Recent-story penalties, material-update boosts, and story-family caps.
 - Prior-report context and a delta-extraction stage.
 - File-backed feedback, a GUI/API path, and learned topic/source preferences.
@@ -32,8 +33,9 @@ Useful / keep-watch signals
 ## Current gaps
 
 - A material update is still inferred too broadly by model output rather than
-  demonstrated as a comparison between old and new source-backed facts.
-- Story identity and recall are not yet a reliable fact-level state ledger.
+  demonstrated by deterministic comparison of old and new source-backed facts.
+- The new ledger records source evidence and retrieves candidate stories, but
+  it does not yet normalize facts into status/contradiction/resolution state.
 - The active local configuration has feedback disabled and no feedback events
   have been collected.
 - The GUI exposes four feedback actions, which is too much friction for daily
@@ -51,6 +53,32 @@ Useful / keep-watch signals
   real parser.
 - Done: local-model delta adapter with latency, token, retry, and throughput
   diagnostics.
+- Done: stage-conditioned evaluation metrics for candidate recall, identity
+  given a correct candidate, delta given correct identity, and display given
+  correct upstream semantics. The evaluator now supports one final four-mode
+  Qwen ablation: broad baseline, gold-blind top-three retrieval, oracle
+  candidate, and oracle fact-ledger context. Oracle scores are explicitly
+  marked private-gold capability ceilings.
+- Done: completed that final Qwen ablation. Gold-blind top-three retrieval found
+  16/26 continuations; a perfect candidate raised relationship recognition to
+  25/26, but Qwen actually linked 21/26 and classified only 2/21 linked deltas
+  correctly. With the private-gold fact packet it linked 13/26 and classified
+  0/13 deltas correctly. This closes the model/context investigation.
+- Done: production now keeps a provisional current-story key until delta
+  classification and enforces `candidate-gated.v1`: no candidate is always a
+  new, visible story; unknown or ambiguous model keys cannot merge or suppress;
+  only one of at most three supplied candidates can become the durable key.
+- Done: added a domain-general hybrid retriever using aliases, recurring entity
+  and event signals, numbers, source-body fact overlap, and numeric-conflict
+  penalties. The gold-assisted 74-document diagnostic retrieves 24/25
+  prior-day continuations at rank one and supplies no candidate for 46/47 true
+  new stories. The one same-day continuation is measured as grouping, not
+  historical retrieval.
+- Done: added `story_ledger.json` with exact bounded source facts, document IDs,
+  source names/URLs, publication and observation dates, user-visible flags,
+  aliases, retrieval signals, and last delta metadata. Bounded provenance now
+  survives into the small-model decision prompt and writeback marks only
+  rendered articles as user-visible.
 - Done: removed news-specific regex verb lists and model-angle whitelists from
   deterministic materiality decisions; lexical fallback now suppresses only a
   confirmed duplicate and otherwise fails open.
@@ -71,11 +99,20 @@ Useful / keep-watch signals
   The noise-heavy arcs had only 0.0968 display accuracy.
 - Next: add adjudicated real-source snapshots and claim-to-fact annotation so
   final-prose faithfulness can be measured rather than left unavailable.
-- Next: replace the story index with a source-backed fact/state ledger, then
-  implement the two-button Useful / Keep watching interaction against it.
+- Next: compare current source facts against last-user-visible ledger facts and
+  derive status changes, contradictions, resolutions, incremental changes, and
+  no-change decisions before display policy.
+- Next: implement the two-button Useful / Keep watching interaction against the
+  ledger after deterministic delta behavior is reliable.
 - Next: add a full-pipeline evaluation adapter (or a separate ranking contract)
   so profile selection is measured before delta classification; keep claim
   faithfulness unavailable until mapped source facts are emitted.
+- Boundary reached: stop model/context experiments and accept the weak model as
+  a design constraint. Resume architecture work on relevance filtering,
+  candidate retrieval, source-backed ledger state, fact-difference logic, and
+  deterministic display policy. Qwen may normalize bounded facts or write
+  source-grounded prose after those decisions; it must not own the state
+  transition.
 
 ## Product rule
 
@@ -128,16 +165,22 @@ product. Later, reading/click behavior can be a weak supplemental signal.
 
 ## Delivery order
 
-1. Build a labelled evaluation set and report its metrics before changing the
-   pipeline.
-2. Implement source-bounded story state and material-delta classification.
-3. Enforce the product rule: no material delta, no full repeated story.
-4. Replace the visible feedback controls with Useful and Keep watching; enable
+1. Done: build a labelled evaluation set, adversarial controls, and
+   stage-conditioned metrics.
+2. Done: make candidate retrieval an explicit production gate. Enforce
+   `no candidate => new story`, keep current identity provisional, and accept
+   only supplied candidate keys.
+3. In progress: source-bounded story state and hybrid entity/event/number/
+   alias/fact retrieval are done; deterministic old-fact/new-fact
+   classification remains.
+4. Next: enforce the product rule in deterministic policy: no demonstrated material
+   delta, no full repeated story.
+5. Replace the visible feedback controls with Useful and Keep watching; enable
    feedback in the active configuration.
-5. Add watched-story/entity effects to ranking and delta thresholds.
-6. Use the local model only to explain a structured, evidence-backed delta in a
-   short story card.
-7. Reserve frontier models for optional deep synthesis or periodic quality
+6. Add watched-story/entity effects to ranking and delta thresholds.
+7. Use the local model only to normalize a bounded fact packet or explain an
+   already validated, evidence-backed delta in a short story card.
+8. Reserve frontier models for optional deep synthesis or periodic quality
    review, not basic repeat suppression.
 
 ## CPU-model role

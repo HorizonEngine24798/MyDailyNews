@@ -5,8 +5,9 @@ Repository: `C:\Users\daroi\Desktop\Project\MyDailyNews`
 
 ## Executive state
 
-The expanded evaluation harness is working and all 235 tests pass. It now
-contains 15 story arcs, 74 dated documents, 50 simulated days, four completely
+The expanded evaluation harness and first production story-ledger slice are
+working and all 253 tests pass. The corpus still contains 15 story arcs, 74
+dated documents, 50 simulated days, four completely
 source-empty days, and 25 intentionally unrelated daily-noise documents around
 sparse tracked-story updates.
 
@@ -35,6 +36,55 @@ Do not interpret the high novelty score in isolation. The model over-predicted
 `material_update`, over-merged unrelated stories, and repeated most unchanged
 items. Claim-level faithfulness is still unmeasured.
 
+Follow-up evaluator work completed the final bounded capability protocol using
+the same corpus. Reports now separate candidate recall, relationship judgment,
+actual candidate-key linkage, delta given a correctly linked identity, and
+display given correct semantics. The two oracle modes are prominently marked
+as contaminated capability ceilings.
+
+| Condition | Candidate supplied | Relationship given candidate | Correct key linked | Delta given correct link | New-story overmerge |
+|---|---:|---:|---:|---:|---:|
+| Broad baseline | 0.8846 | 0.8696 | 0.6522 | 0.2000 | 0.5745 |
+| Gold-blind top three | 0.6154 | 0.9375 | 0.8750 | 0.1429 | 0.7234 |
+| Oracle candidate | 1.0000 | 0.9615 | 0.8077 | 0.0952 | 0.7872 |
+| Oracle candidate + fact packet | 1.0000 | 0.8077 | 0.5000 | 0.0000 | 0.7447 |
+
+The perfect candidate result is decisive: candidate availability is not the
+remaining Qwen bottleneck. The model recognized most supplied continuations,
+but frequently failed to return the supplied key and almost never identified
+the specific delta. The fact packet did not rescue it. It mostly mapped every
+continuation class to generic `material_update` and said `same_story` even when
+no candidate existed.
+
+The evaluator was hardened after adversarial review. Selectively missing
+candidate metadata now counts as a miss; unknown/current/future document
+references are rejected; production candidate keys must agree with the prior
+prediction they cite; and conditional identity requires an actual link to the
+correct supplied candidate. Saved predictions were rescored into new output
+directories, leaving every original report untouched. See
+[`docs/evaluation.md`](evaluation.md#completed-qwen3-17b-results-2026-08-29)
+for full results, runtimes, resource diagnostics, and commands.
+
+Original final-run artifacts are local under
+`output/evaluations/qwen_final_investigation_20260829/`; the hardened linked-
+identity rescores are under its `rescored-linked-identity-v2/` child. These paths
+are ignored by Git. The llama server was stopped and verified absent after the
+last run.
+
+The four-mode ablation is complete. Do not continue generic Qwen prompt,
+context, or quantization sweeps. Accept this model as a constraint and return
+to architecture work. A new model run is justified only by a narrowly stated
+regression question after an architectural change.
+
+The first architecture slice requested after that stopping point is now also
+complete. Production uses provisional current-story keys, retrieves at most
+three source-backed prior candidates, enforces candidate-bounded model links,
+and persists an inspectable fact ledger. The gold-assisted retrieval diagnostic
+recalled 24/25 prior-day continuations at rank one (0.9600), supplied no
+candidate for 46/47 truly new stories (0.9787), and retrieved the one labelled
+related-theme case. This diagnostic uses private canonical identity only for
+historical writeback; it isolates retrieval and is not an end-to-end score.
+
 ## Product promise being evaluated
 
 MyDailyNews should behave as a personalized change monitor:
@@ -62,8 +112,11 @@ on `main`:
 | `775ae77` | Lightweight-install TTS fallback when `soundfile` is unavailable |
 | `38a6bd7` | Guarded CPU diagnostics, replay tools, and local-asset ignore rules |
 
-This handover and the two supporting documents are in the following
-documentation commit; use `git log -1 --oneline` to obtain its hash.
+The original handover and supporting documents were committed previously. The
+final stage-conditioned evaluator, ablation results, candidate-gated identity,
+hybrid retrieval, source ledger, retrieval diagnostic, tests, and this updated
+handover are local worktree changes at the time of writing and have not been
+committed or pushed in this follow-up turn.
 
 An older local-only Codex CLI comparison bridge remains deliberately outside
 these commits. Its tracked hooks appear as local modifications in
@@ -84,7 +137,69 @@ git -c safe.directory=C:/Users/daroi/Desktop/Project/MyDailyNews status --short
 .\.venv-cpu-test\Scripts\python.exe -m unittest discover -s tests
 ```
 
-Expected test result at handover: `Ran 235 tests ... OK`.
+Expected test result at handover: `Ran 253 tests ... OK`.
+
+## Production story architecture completed
+
+The following is now in the normal memory-enabled brief path:
+
+1. Candidate retrieval no longer assigns a prior story key. Every current item
+   receives a collision-safe provisional key and keeps that key through
+   selection.
+2. The hybrid retriever uses title aliases, recurring entity tokens, event
+   tokens, numeric identity, source-body fact overlap, and numeric-conflict
+   penalties. It returns at most three candidates at the measured default
+   threshold of `0.25`.
+3. An unvalidated retrieval candidate may softly affect ranking through recent
+   coverage, but its penalty is capped at `-0.35` and it cannot trigger the old
+   hard recent-story suppression. The item reaches delta classification when
+   capacity permits.
+4. `candidate-gated.v1` validates every model decision. No candidate forces
+   `distinct_story/new/full_report`; an unknown or ambiguous prior key becomes
+   uncertain and remains visible; only an explicitly supplied prior key may be
+   linked. Missing model decisions are synthesized conservatively.
+5. `state/memory/story_ledger.json` stores exact bounded source facts with
+   source document ID, source name, URL, publication date, observation date,
+   and whether the fact was user-visible. It also stores aliases, retrieval
+   signals, source-document history, last-visible fact IDs, and the last delta
+   metadata.
+6. Delta context contains at most three retrieved baselines and at most four
+   cited facts per baseline. The compact `decision_only` prompt preserves that
+   provenance rather than reducing the baseline back to unsupported prose.
+7. After output, the ledger records all selected source observations while
+   marking only rendered articles as user-visible. The legacy story index is
+   still maintained as a migration/fallback source; it is not the authority
+   for model-created links.
+
+The new diagnostic command is:
+
+```powershell
+.\.venv-cpu-test\Scripts\python.exe tools\run_story_retrieval_diagnostics.py
+```
+
+Current result on all 74 documents:
+
+| Retrieval measure | Result |
+|---|---:|
+| Historical prior-day continuations | 25 |
+| Recall@1 / Recall@3 | 0.9600 / 0.9600 |
+| Mean reciprocal rank | 0.9600 |
+| Truly new stories with no candidate | 0.9787 (46/47) |
+| Related-theme candidate recall | 1.0000 (1/1) |
+| Mean candidates per document | 0.3784 |
+
+One historical continuation remains missed: `rum-03`, where a supposed buyer's
+unrelated logistics partnership indirectly resolves an acquisition rumor. Its
+best score is `0.2015`. Lowering the global threshold enough to catch this is a
+poor trade-off; recovering it requires an explicit actor/relation edge rather
+than broader lexical matching. The safe failure is a visible new item, not a
+silent merge or omission.
+
+This slice does not yet prove material change. The ledger stores source facts,
+but deterministic old-fact/new-fact comparison, contradiction/status handling,
+and final display derivation remain next. No new Qwen benchmark or production
+news run was performed for this architecture turn, so `story_ledger.json` will
+be populated by the next normal memory-enabled run.
 
 ## Evaluation corpus added
 
@@ -426,39 +541,32 @@ Remaining threats:
 
 ## Recommended next work, in order
 
-Do not run another 32-minute full Qwen benchmark before changing the story
-state and stage boundaries. The next order should be:
+Do not run another full Qwen benchmark until a story-state or stage-boundary
+change creates a specific regression hypothesis. The next order should be:
 
-1. Define a minimal source-backed story ledger. Store stable entities/event
-   scope, dated source facts, current status, last user-visible facts, source
-   IDs, and unresolved claims. Do not store only prior prose/headlines.
-2. Split the evaluation into explicit gates:
-   - profile relevance/ranking amid unrelated news;
-   - candidate story retrieval (recall@k);
-   - same-story versus distinct-story decision;
-   - old-fact versus new-fact delta;
-   - deterministic display policy.
-3. Add a full-pipeline adapter or a separate ranking adapter that runs the real
-   headline-selection stage. Measure must-select recall, irrelevant selection
-   rate, and top-k ranking before delta classification.
-4. Shortlist at most one to three plausible prior ledger entries before Qwen.
-   Do not ask the tiny model to choose among every story seen in an arc.
-5. Enforce invariants outside the model:
-   - no candidate baseline means `new_story`;
-   - `prior_story_key` must be one of the supplied candidates;
-   - an omitted repeat must link to a prior story and prove no new source fact;
-   - profile-irrelevant items should be removed before delta classification;
-   - display should be derived from relevance, validated identity, and delta,
-     not accepted directly from model prose.
-6. Extend cases with explicit old/new fact tables and have model/pipeline output
-   fact IDs or source-span references. Then faithfulness can be scored.
-7. Run fast smoke gates first: `case-014`, `case-015`, and the holdout split.
-   Only run all 74 documents when those pass minimum thresholds.
-8. Run a frontier model through the exact same public-input/prediction contract
-   to establish an upper-bound comparison. Keep a separate private recent-news
-   set for release decisions.
-9. After story/relevance behavior is reliable, connect `Useful` and
-   `Keep watching` to ledger state. Do not infer dislike from no interaction.
+1. Build deterministic source-fact differencing on top of the new ledger.
+   Extract bounded fact records or source spans, compare current evidence with
+   the last user-visible facts, and represent additions, contradictions,
+   numeric changes, status transitions, resolutions, and insufficient evidence.
+2. Derive display policy from validated relevance, identity, and fact delta.
+   A full repeated story must require a demonstrated material fact change;
+   otherwise emit a continuing watch line or omit it. Never let model prose
+   directly authorize suppression.
+3. Add a full-pipeline adapter or separate ranking adapter that runs real
+   headline selection amid the 25 unrelated documents. Measure must-select
+   recall, irrelevant selection rate, and top-k ranking before delta.
+4. Add bounded relation edges for indirect continuations such as `rum-03`, and
+   explicitly test current-day story grouping. Do not lower global retrieval
+   thresholds merely to catch one indirect relationship.
+5. Extend cases with explicit old/new source spans and require the pipeline to
+   emit fact IDs or citations. Only then enable claim-level faithfulness scores.
+6. Run fast smoke gates first (`case-014`, `case-015`, holdout), followed by the
+   74-document retrieval diagnostic and full suite. Run Qwen only for a narrow
+   post-architecture regression hypothesis.
+7. Add adjudicated real-source snapshots and a private rotating recent-news set.
+8. After relevance and deterministic delta policy are reliable, connect
+   `Useful` and `Keep watching` to ledger state. Do not infer dislike from no
+   interaction.
 
 The key design conclusion is that a tiny model can reliably serialize a narrow
 classification contract, but it should not own memory, candidate retrieval,
@@ -472,11 +580,17 @@ relevance, identity, delta proof, display policy, and prose simultaneously.
 - [`mydailynews/evaluation/schema.py`](../mydailynews/evaluation/schema.py): corpus and prediction contracts.
 - [`mydailynews/evaluation/scoring.py`](../mydailynews/evaluation/scoring.py): metrics, including quiet-day behavior.
 - [`mydailynews/evaluation/adapters.py`](../mydailynews/evaluation/adapters.py): heuristic, local model, oracle, and fault adapters.
+- [`mydailynews/evaluation/retrieval_diagnostics.py`](../mydailynews/evaluation/retrieval_diagnostics.py): gold-assisted isolation of production candidate retrieval.
+- [`mydailynews/memory/story_ledger.py`](../mydailynews/memory/story_ledger.py): source facts, retrieval signals, candidates, and durable writeback.
+- [`mydailynews/analysis/identity_gate.py`](../mydailynews/analysis/identity_gate.py): candidate-bounded identity invariant.
+- [`mydailynews/memory/context.py`](../mydailynews/memory/context.py): bounded source-backed candidate context.
 - [`mydailynews/analysis/delta.py`](../mydailynews/analysis/delta.py): full and decision-only delta execution.
 - [`mydailynews/ai/prompts.py`](../mydailynews/ai/prompts.py): compact decision prompt.
 - [`mydailynews/ai/schemas.py`](../mydailynews/ai/schemas.py): compact decision schema.
 - [`tools/run_change_monitor_evals.py`](../tools/run_change_monitor_evals.py): CLI and CPU-profile overrides.
+- [`tools/run_story_retrieval_diagnostics.py`](../tools/run_story_retrieval_diagnostics.py): reproducible 74-document retrieval diagnostic.
 - [`tests/test_evaluation_harness.py`](../tests/test_evaluation_harness.py): anti-leak, fault, compact-contract, and fallback tests.
+- [`tests/test_story_identity_architecture.py`](../tests/test_story_identity_architecture.py): identity-gate, provenance, hybrid-retrieval, and corpus regression tests.
 
 ## Copy/paste prompt for the next agentic chat
 
@@ -487,13 +601,16 @@ Read docs/HANDOVER-qwen-cpu-evaluation-2026-08-29.md completely, then read
 docs/evaluation.md and docs/personalized-change-monitoring-roadmap.md. Preserve
 the dirty worktree and do not reset, clean, or overwrite unrelated changes.
 
-Continue from the completed 74-document Qwen CPU benchmark. Do not rerun the
-full benchmark yet. First inspect the current story-memory/index/recall path and
-design the smallest source-backed story-ledger schema plus stage-separated eval
-contract described in the handover. Then implement the first bounded slice with
-tests: profile relevance/ranking over unrelated noise and candidate prior-story
-retrieval before delta classification. Keep the code domain-general (the elf /
-toenail-magic cases must work), keep faithfulness unavailable unless source
-facts are actually mapped, and run the existing test suite. Explain any
-architectural trade-off before making a materially broader change.
+Continue from the completed 74-document Qwen CPU benchmark, four-mode ablation,
+and first production story architecture slice. Do not run another generic
+model, prompt, context, or quantization experiment. Candidate-gated identity,
+hybrid top-three retrieval, and `story_ledger.json` source/provenance writeback
+are implemented; read their tests before changing them. Build the next bounded
+slice: deterministic old-fact/new-fact comparison and display policy based on
+validated identity plus cited source evidence. Preserve fail-open behavior,
+the elf/toenail-magic and numeric regressions, and the retrieval diagnostic
+floors (recall@3 >= 0.95; new-story no-candidate rate >= 0.97). Keep
+faithfulness unavailable unless emitted claims map to source facts/spans. Qwen
+is an accepted weak component and may explain a validated decision, but it must
+not own ledger identity, suppression, or state transition.
 ```
