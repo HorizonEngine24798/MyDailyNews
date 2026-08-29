@@ -3,12 +3,14 @@ from __future__ import annotations
 from typing import Any, Dict, List
 
 from mydailynews.analysis.delta import DeltaExtractor
+from mydailynews.analysis.identity_gate import enforce_candidate_identity_gate
 from mydailynews.analysis.evidence import EvidenceDistiller
 from mydailynews.pipeline.brief_stages import _report_phase
 from mydailynews.analysis.deterministic_delta import build_deterministic_delta_scaffold
 from mydailynews.memory.context import build_story_memory_context
 from mydailynews.memory.coverage import CoverageMemoryStore
 from mydailynews.memory.story_index import StoryIndexStore
+from mydailynews.memory.story_ledger import StoryLedgerStore
 from mydailynews.app.models import DeltaExtractionConfig, EvidenceDistillationConfig, PriorReport, SelectedArticle, TopicConfig
 from mydailynews.pipeline.stage_results import DeltaStageResult, EvidenceStageResult
 from mydailynews.story_grouping.models import StoryGroup
@@ -138,6 +140,7 @@ def _run_delta_stage(
     analysis_rollout_meta: Dict[str, Any],
     story_groups: List[StoryGroup] | None = None,
     story_index_store: StoryIndexStore | None = None,
+    story_ledger_store: StoryLedgerStore | None = None,
     coverage_store: CoverageMemoryStore | None = None,
     coverage_window_days: int = 10,
 ) -> DeltaStageResult:
@@ -147,6 +150,7 @@ def _run_delta_stage(
         selected=selected,
         story_groups=story_groups,
         story_index_store=story_index_store,
+        story_ledger_store=story_ledger_store,
         coverage_store=coverage_store,
         prior_reports=prior_reports,
         date=date,
@@ -248,6 +252,20 @@ def _run_delta_stage(
         )
     else:
         orchestrator.debug.set_metric(f"brief.{brief_name}.analysis.delta.scaffold_used", False)
+    delta_packet = enforce_candidate_identity_gate(delta_packet, story_memory)
+    identity_gate = delta_packet.get("identity_gate", {})
+    if isinstance(identity_gate, dict):
+        for key in (
+            "articles",
+            "accepted_links",
+            "forced_new_without_candidate",
+            "rejected_links",
+            "synthesized_decisions",
+        ):
+            orchestrator.debug.set_metric(
+                f"brief.{brief_name}.analysis.delta.identity_gate.{key}",
+                int(identity_gate.get(key, 0) or 0),
+            )
     orchestrator.debug.set_metric(
         f"brief.{brief_name}.analysis.delta.new_items",
         len(delta_packet.get("new", [])) if delta_packet else 0,

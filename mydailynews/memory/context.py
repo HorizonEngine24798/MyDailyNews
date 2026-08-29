@@ -6,6 +6,7 @@ from mydailynews.app.models import PriorReport, SelectedArticle
 from mydailynews.common.utils import datetime_to_iso
 from mydailynews.domain.candidate_annotations import candidate_memory_annotation
 from mydailynews.memory.coverage import CoverageMemoryStore
+from mydailynews.memory.story_ledger import StoryCandidateMatch, StoryLedgerStore, ledger_baseline_payload
 from mydailynews.memory.story_index import StoryIndexRecord, StoryIndexStore
 
 
@@ -17,6 +18,7 @@ def build_story_memory_context(
     coverage_store: CoverageMemoryStore | None,
     prior_reports: List[PriorReport],
     date: str,
+    story_ledger_store: StoryLedgerStore | None = None,
     coverage_window_days: int = 10,
     max_baselines_per_story: int = 3,
 ) -> Dict[str, Any]:
@@ -46,6 +48,7 @@ def build_story_memory_context(
             articles=articles,
             story_index_store=story_index_store,
             coverage_store=coverage_store,
+            story_ledger_store=story_ledger_store,
             prior_reports=prior_reports,
             date=date,
             coverage_window_days=coverage_window_days,
@@ -54,7 +57,7 @@ def build_story_memory_context(
         for key, group_title, articles in current_groups
     ]
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "as_of_date": str(date or ""),
         "coverage_window_days": max(0, int(coverage_window_days)),
         "stories": stories,
@@ -68,6 +71,7 @@ def _story_context(
     articles: List[SelectedArticle],
     story_index_store: StoryIndexStore | None,
     coverage_store: CoverageMemoryStore | None,
+    story_ledger_store: StoryLedgerStore | None,
     prior_reports: List[PriorReport],
     date: str,
     coverage_window_days: int,
@@ -76,7 +80,31 @@ def _story_context(
     representative = articles[0]
     annotation = candidate_memory_annotation(representative.candidate)
     baselines: List[Dict[str, Any]] = []
-    if story_index_store is not None:
+    if story_ledger_store is not None:
+        matches = _ledger_matches(
+            articles,
+            story_ledger_store=story_ledger_store,
+            story_index_store=story_index_store,
+            limit=max_baselines_per_story,
+        )
+        for match in matches:
+            coverage = (
+                coverage_store.recent_records(
+                    story_key=match.record.story_key,
+                    as_of_date=date,
+                    window_days=coverage_window_days,
+                    limit=4,
+                )
+                if coverage_store is not None
+                else []
+            )
+            baselines.append(
+                {
+                    **ledger_baseline_payload(match, max_facts=4),
+                    "recent_coverage": [_coverage_payload(item) for item in coverage],
+                }
+            )
+    elif story_index_store is not None:
         for lexical_confidence, record in story_index_store.candidate_baselines(
             representative.candidate,
             limit=max_baselines_per_story,
@@ -95,34 +123,29 @@ def _story_context(
                 {
                     **_record_payload(record),
                     "lexical_match_confidence": round(float(lexical_confidence), 4),
-                    "recent_coverage": [
-                        {
-                            "date": item.date,
-                            "brief_name": item.brief_name,
-                            "prominence": item.prominence,
-                            "title": item.title[:140],
-                            "article_ids": item.article_ids[:4],
-                        }
-                        for item in coverage
-                    ],
+                    "recent_coverage": [_coverage_payload(item) for item in coverage],
                 }
             )
 
-    current_family = annotation.story_family_key if annotation else ""
-    prior_baselines = _prior_report_baselines(
-        prior_reports,
-        {item["story_key"] for item in baselines},
-        current_key=key,
-        current_family=current_family,
-    )
-    if prior_baselines:
-        for baseline in prior_baselines:
-            if not any(item.get("story_key") == baseline.get("story_key") for item in baselines):
-                baselines.append(baseline)
-            elif baseline.get("last_delta_summary"):
-                for item in baselines:
-                    if item.get("story_key") == baseline.get("story_key") and not item.get("last_delta_summary"):
-                        item.update({key: value for key, value in baseline.items() if value})
+    # Prior-report rows are retained only for the legacy index path. In ledger
+    # mode every baseline is an explicitly retrieved source-backed candidate;
+    # allowing an unscored report row here would bypass the identity gate.
+    if story_ledger_store is None:
+        current_family = annotation.story_family_key if annotation else ""
+        prior_baselines = _prior_report_baselines(
+            prior_reports,
+            {item["story_key"] for item in baselines},
+            current_key=key,
+            current_family=current_family,
+        )
+        if prior_baselines:
+            for baseline in prior_baselines:
+                if not any(item.get("story_key") == baseline.get("story_key") for item in baselines):
+                    baselines.append(baseline)
+                elif baseline.get("last_delta_summary"):
+                    for item in baselines:
+                        if item.get("story_key") == baseline.get("story_key") and not item.get("last_delta_summary"):
+                            item.update({field: value for field, value in baseline.items() if value})
 
     return {
         "story_key": key,
@@ -132,6 +155,47 @@ def _story_context(
         "current_articles": [_article_payload(article) for article in articles[:8]],
         "current_memory": _annotation_payload(annotation),
         "prior_baselines": baselines[: max(0, int(max_baselines_per_story))],
+    }
+
+
+def _ledger_matches(
+    articles: List[SelectedArticle],
+    *,
+    story_ledger_store: StoryLedgerStore,
+    story_index_store: StoryIndexStore | None,
+    limit: int,
+) -> List[StoryCandidateMatch]:
+    fallback_records = story_index_store.records() if story_index_store is not None else []
+    by_story_key: Dict[str, StoryCandidateMatch] = {}
+    for article in articles:
+        matches = story_ledger_store.candidate_stories(
+            article.candidate,
+            source_text=article.article_text or article.candidate.snippet,
+            limit=limit,
+            fallback_records=fallback_records,
+        )
+        article.candidate.metadata["memory_prior_story_candidates"] = [
+            match.metadata() for match in matches
+        ]
+        for match in matches:
+            previous = by_story_key.get(match.record.story_key)
+            if previous is None or match.score > previous.score:
+                by_story_key[match.record.story_key] = match
+    output = sorted(
+        by_story_key.values(),
+        key=lambda match: (match.score, match.record.last_seen, match.record.story_key),
+        reverse=True,
+    )
+    return output[: max(0, min(3, int(limit)))]
+
+
+def _coverage_payload(item: Any) -> Dict[str, Any]:
+    return {
+        "date": item.date,
+        "brief_name": item.brief_name,
+        "prominence": item.prominence,
+        "title": item.title[:140],
+        "article_ids": item.article_ids[:4],
     }
 
 

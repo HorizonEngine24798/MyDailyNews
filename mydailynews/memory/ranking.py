@@ -6,8 +6,12 @@ from mydailynews.app.models import HeadlineDecision, MemoryAnnotation, MemoryCon
 from mydailynews.domain.candidate_annotations import candidate_memory_annotation, set_memory_annotation
 from mydailynews.memory.coverage import CoverageMemoryStore
 from mydailynews.memory.preference_learning import learned_preference_effect_from_candidate
+from mydailynews.memory.story_ledger import StoryLedgerStore, provisional_story_key
 from mydailynews.memory.story_index import MATCH_CONFIDENCE_THRESHOLD, StoryIndexStore
 from mydailynews.memory.story_keys import StoryIdentity, story_identity_for_candidate, token_overlap_confidence
+
+
+MAX_PROVISIONAL_COVERAGE_PENALTY = 0.35
 
 
 def annotate_candidates_with_memory(
@@ -18,6 +22,7 @@ def annotate_candidates_with_memory(
     coverage_store: CoverageMemoryStore | None,
     story_index_store: StoryIndexStore | None,
     date: str,
+    story_ledger_store: StoryLedgerStore | None = None,
 ) -> Dict[str, Any]:
     if not getattr(memory_config, "enabled", False):
         return {"enabled": False, "annotated": 0}
@@ -27,20 +32,53 @@ def annotate_candidates_with_memory(
     reduced_keys: set[str] = set()
     boosted_keys: set[str] = set()
     covered_keys: set[str] = set()
+    candidate_links = 0
+    occupied_story_keys = {
+        record.story_key
+        for record in story_ledger_store.records()
+    } if story_ledger_store is not None else set()
+    if story_index_store is not None:
+        occupied_story_keys.update(record.story_key for record in story_index_store.records())
 
     for candidate in candidates:
         decision = decisions.get(candidate.id)
-        base_identity = (
-            story_index_store.match_candidate(candidate)
-            if story_index_store is not None
-            else story_identity_for_candidate(candidate)
-        )
-        identity = _match_same_run_story(base_identity, run_identities)
+        coverage_story_key = ""
+        if story_ledger_store is not None:
+            base_identity = story_identity_for_candidate(candidate)
+            matches = story_ledger_store.candidate_stories(
+                candidate,
+                source_text=candidate.snippet,
+                fallback_records=(story_index_store.records() if story_index_store is not None else []),
+            )
+            candidate.metadata["memory_prior_story_candidates"] = [match.metadata() for match in matches]
+            candidate.metadata["memory_identity_state"] = "provisional"
+            if matches:
+                candidate_links += 1
+                coverage_story_key = matches[0].record.story_key
+            current_key = provisional_story_key(
+                candidate,
+                occupied_story_keys=[*occupied_story_keys, *(item.story_key for item in run_identities)],
+            )
+            identity = StoryIdentity(
+                story_key=current_key,
+                story_family_key=base_identity.story_family_key,
+                story_title=base_identity.story_title,
+                tokens=base_identity.tokens,
+                match_confidence=(matches[0].score if matches else base_identity.match_confidence),
+            )
+        else:
+            base_identity = (
+                story_index_store.match_candidate(candidate)
+                if story_index_store is not None
+                else story_identity_for_candidate(candidate)
+            )
+            identity = _match_same_run_story(base_identity, run_identities)
+            coverage_story_key = identity.story_key
         run_identities.append(identity)
 
         summary = (
             coverage_store.recent_summary(
-                story_key=identity.story_key,
+                story_key=coverage_story_key or identity.story_key,
                 as_of_date=date,
                 window_days=int(memory_config.coverage_window_days),
             )
@@ -59,7 +97,7 @@ def annotate_candidates_with_memory(
         recent_leads = int(getattr(summary, "recent_lead_count", 0) or 0)
         covered_yesterday = bool(getattr(summary, "covered_yesterday", False))
         if recent_count > 0:
-            covered_keys.add(identity.story_key)
+            covered_keys.add(coverage_story_key or identity.story_key)
             penalty = min(float(memory_config.recent_story_penalty) * recent_count, float(memory_config.recent_story_penalty) * 2.0)
             penalty += min(float(memory_config.recent_lead_penalty) * recent_leads, float(memory_config.recent_lead_penalty) * 2.0)
             if covered_yesterday and recent_leads <= 0:
@@ -67,7 +105,7 @@ def annotate_candidates_with_memory(
             boost = float(memory_config.material_update_boost) * materiality if materiality >= 0.7 else 0.0
             adjustment = max(-3.0, min(1.5, boost - penalty))
             if boost > 0.0:
-                boosted_keys.add(identity.story_key)
+                boosted_keys.add(coverage_story_key or identity.story_key)
                 today_policy = "material_update_ok"
                 reason = "Recently covered, but headline signals a material update."
             elif recent_leads > 0 or covered_yesterday:
@@ -76,8 +114,14 @@ def annotate_candidates_with_memory(
             else:
                 today_policy = "deprioritize_repeat"
                 reason = "Recently covered in the memory window."
+            if story_ledger_store is not None and adjustment < 0.0:
+                adjustment = max(adjustment, -MAX_PROVISIONAL_COVERAGE_PENALTY)
+                reason = (
+                    "A retrieved prior candidate was recently covered, but identity remains "
+                    "unvalidated until delta classification."
+                )
             if adjustment < 0.0:
-                reduced_keys.add(identity.story_key)
+                reduced_keys.add(coverage_story_key or identity.story_key)
 
         annotation = MemoryAnnotation(
             story_key=identity.story_key,
@@ -102,6 +146,7 @@ def annotate_candidates_with_memory(
         "recent_story_keys": len(covered_keys),
         "stories_reduced_for_recent_coverage": len(reduced_keys),
         "stories_boosted_for_material_update": len(boosted_keys),
+        "candidates_with_prior_story_candidates": candidate_links,
     }
 
 

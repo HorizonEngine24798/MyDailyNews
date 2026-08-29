@@ -89,6 +89,11 @@ def apply_delta_signals_to_selected(
 ) -> None:
     if not isinstance(delta_packet, dict) or not delta_packet:
         return
+    gate_packet = delta_packet.get("identity_gate", {})
+    identity_gate_active = (
+        isinstance(gate_packet, dict)
+        and str(gate_packet.get("policy_version", "") or "") == "candidate-gated.v1"
+    )
     by_article_id: Dict[str, tuple[str, float]] = {}
     decision_by_article = _unambiguous_story_decisions_by_article(delta_packet)
     for key, signal in DELTA_MATERIALITY_KEYS.items():
@@ -113,14 +118,29 @@ def apply_delta_signals_to_selected(
                 disposition = _effective_disposition(decision)
                 relationship = str(decision.get("relationship", "") or "").strip()
                 prior_story_key = str(decision.get("prior_story_key", "") or "").strip()
+                decision_story_key = str(decision.get("story_key", "") or "").strip()
+                row_gate = decision.get("identity_gate", {})
+                gate_outcome = str(row_gate.get("outcome", "") or "").strip() if isinstance(row_gate, dict) else ""
+                if identity_gate_active and gate_outcome:
+                    # The architecture gate has already replaced untrusted keys.
+                    # A rejected or new decision stays on its provisional current
+                    # key; only an accepted candidate link can reuse a prior key.
+                    resolved_story_key = decision_story_key or annotation.story_key
+                    article.candidate.metadata["memory_identity_state"] = (
+                        "linked" if gate_outcome == "accepted_candidate_link" else "new_or_unlinked"
+                    )
+                else:
+                    # Backward-compatible path for packets created outside the
+                    # production gated pipeline.
+                    resolved_story_key = (
+                        prior_story_key
+                        if relationship == "same_story" and prior_story_key
+                        else annotation.story_key
+                    )
                 set_memory_annotation(
                     article.candidate,
                     MemoryAnnotation(
-                        story_key=(
-                            prior_story_key
-                            if relationship == "same_story" and prior_story_key
-                            else annotation.story_key
-                        ),
+                        story_key=resolved_story_key,
                         story_family_key=annotation.story_family_key,
                         story_title=annotation.story_title,
                         match_confidence=annotation.match_confidence,

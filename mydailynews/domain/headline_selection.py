@@ -32,6 +32,7 @@ from mydailynews.memory.preference_learning import (
     write_learned_preference_effect,
 )
 from mydailynews.memory.ranking import annotate_candidates_with_memory
+from mydailynews.memory.story_ledger import StoryLedgerStore
 from mydailynews.memory.story_index import StoryIndexStore
 from mydailynews.domain.text_similarity import normalized_word_text, word_tokens
 from mydailynews.common.utils import utc_now
@@ -729,6 +730,7 @@ def select_articles(
     memory_config: MemoryConfig | None = None,
     coverage_store: CoverageMemoryStore | None = None,
     story_index_store: StoryIndexStore | None = None,
+    story_ledger_store: StoryLedgerStore | None = None,
     learned_preferences: LearnedPreferences | None = None,
     date: str = "",
 ) -> List[SelectedArticle]:
@@ -741,6 +743,7 @@ def select_articles(
             memory_config=memory_config,
             coverage_store=coverage_store,
             story_index_store=story_index_store,
+            story_ledger_store=story_ledger_store,
             date=date,
         )
     max_selected = filtering.max_selected_articles
@@ -854,6 +857,7 @@ def select_articles(
             memory_annotation is not None
             and memory_annotation.recent_coverage_count > 0
             and memory_annotation.today_policy != "material_update_ok"
+            and candidate.metadata.get("memory_identity_state") != "provisional"
         ):
             mark_skip(candidate, decision, "skipped_recent_coverage")
             return False

@@ -276,6 +276,7 @@ def _select_articles_stage(
     include_enrichment_context: bool,
     coverage_store=None,
     story_index_store=None,
+    story_ledger_store=None,
     learned_preferences=None,
 ) -> SelectionResult:
     warnings: List[str] = []
@@ -290,6 +291,7 @@ def _select_articles_stage(
             memory_config=getattr(orchestrator.config, "memory", None),
             coverage_store=coverage_store,
             story_index_store=story_index_store,
+            story_ledger_store=story_ledger_store,
             learned_preferences=learned_preferences,
             date=date,
         )
