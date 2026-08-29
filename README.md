@@ -77,6 +77,7 @@ Use [setup](docs/setup.md) for install, config, first run, GUI, Docker, TTS, and
 - [CLI](docs/cli.md): normal runs, standalone module runs, and common flags.
 - [Configuration](docs/configuration.md): config sections and runtime rules.
 - [Architecture](docs/architecture.md): runtime model and module flow.
+- [Evaluation](docs/evaluation.md): offline multi-day corpus, metrics, adapters, and quality gates.
 - [Docker](docs/docker.md): container usage.
 - [Hardware profiles](docs/hardware_profiles.md): model and context sizing.
 - [TTS audio](docs/tts.md): Kokoro setup and audio output.
