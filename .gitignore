@@ -11,3 +11,10 @@ state/
 .cache
 .codex_tmp*
 .pytest_tmp/
+
+# Local comparison backends and CPU benchmark assets.
+mydailynews/ai/codex_agent_client.py
+.venv-cpu-test/
+config.cpu-*.json
+models/
+tools/llama.cpp/
