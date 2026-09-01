@@ -18,3 +18,4 @@ mydailynews/ai/codex_agent_client.py
 config.cpu-*.json
 models/
 tools/llama.cpp/
+tools/vendor/

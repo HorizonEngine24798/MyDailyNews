@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Sequence
 
+from mydailynews.analysis.claim_delta import CLAIM_RELATIONS, ENTAILMENT_VALUES
 from mydailynews.app.models import MemoryAnnotation, NewsCandidate, SelectedArticle
 from mydailynews.common.utils import datetime_to_iso
 from mydailynews.domain.candidate_annotations import candidate_memory_annotation, set_memory_annotation
@@ -23,9 +24,13 @@ from mydailynews.memory.story_retrieval import (
 )
 
 
-STORY_STORE_SCHEMA_VERSION = 1
+STORY_STORE_SCHEMA_VERSION = 4
 MATCH_CONFIDENCE_THRESHOLD = 0.58
-MAX_FACTS_PER_STORY = 80
+# Source facts are an evidence cache, not a transcript archive.  The last
+# user-visible facts are always protected; the remaining slots retain the most
+# recent distinct evidence for retrieval and a bounded delta comparison.
+MAX_FACTS_PER_STORY = 32
+MAX_THREAD_EVENTS_PER_STORY = 24
 STORY_STATUSES = {"active", "stale"}
 LEGACY_STORY_FILES = ("story_index.json", "story_ledger.json")
 
@@ -42,6 +47,22 @@ class SourceFact:
     observed_at: str
     tokens: List[str] = field(default_factory=list)
     user_visible: bool = False
+
+
+@dataclass(frozen=True)
+class StoryThreadEvent:
+    event_id: str
+    observed_at: str
+    article_ids: List[str] = field(default_factory=list)
+    relationship: str = ""
+    change_type: str = ""
+    materiality: float = 0.0
+    disposition: str = ""
+    summary: str = ""
+    added_claims: List[str] = field(default_factory=list)
+    repeated_claims: List[str] = field(default_factory=list)
+    superseded_claims: List[str] = field(default_factory=list)
+    claim_relations: List[Dict[str, str]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -63,6 +84,7 @@ class StoryRecord:
     last_shown: str = ""
     source_document_ids: List[str] = field(default_factory=list)
     facts: List[SourceFact] = field(default_factory=list)
+    thread_events: List[StoryThreadEvent] = field(default_factory=list)
     last_user_visible_fact_ids: List[str] = field(default_factory=list)
     last_material_change_date: str = ""
     last_change_type: str = ""
@@ -218,12 +240,39 @@ class StoryStore:
                 )
             else:
                 visible_fact_ids = list(previous.last_user_visible_fact_ids) if previous else []
-            facts = _bounded_fact_history(facts_by_id.values(), protected_fact_ids=visible_fact_ids)
+            decision = decisions.get(str(article.candidate.id), {})
+            claim_delta = (
+                decision.get("claim_delta", {})
+                if isinstance(decision.get("claim_delta"), dict)
+                else {}
+            )
+            semantic_fact_ids = _merge_strings(
+                claim_delta.get("current_evidence_ids", []),
+                claim_delta.get("prior_evidence_ids", []),
+                claim_delta.get("superseded_prior_evidence_ids", []),
+                max_items=20,
+                max_chars=80,
+            )
+            protected_fact_ids = _merge_strings(
+                visible_fact_ids,
+                semantic_fact_ids,
+                max_items=32,
+                max_chars=80,
+            )
+            facts = _bounded_fact_history(
+                facts_by_id.values(),
+                protected_fact_ids=protected_fact_ids,
+            )
             retained_fact_ids = {fact.fact_id for fact in facts}
             visible_fact_ids = [fact_id for fact_id in visible_fact_ids if fact_id in retained_fact_ids]
 
-            decision = decisions.get(str(article.candidate.id), {})
             semantic = _semantic_baseline_fields(previous, decision, date)
+            thread_events = _updated_thread_events(
+                previous.thread_events if previous else [],
+                decision,
+                article_id=str(article.candidate.id or ""),
+                observed_at=str(date or ""),
+            )
             title = (
                 annotation.story_title
                 or (previous.title if previous else "")
@@ -273,6 +322,7 @@ class StoryStore:
                     max_chars=120,
                 ),
                 facts=facts,
+                thread_events=thread_events,
                 last_user_visible_fact_ids=visible_fact_ids[-12:],
                 last_materiality=_bounded_float(
                     decision.get("materiality"),
@@ -362,7 +412,10 @@ def source_facts_for_article(
         source_text=article.article_text or candidate.snippet,
     ):
         normalized = normalized_word_text(text)
-        digest = sha256(f"{candidate.id}\n{kind}\n{normalized}".encode("utf-8")).hexdigest()[:20]
+        # Use the normalized source claim rather than the article ID.  Wire
+        # rewrites and syndications otherwise consume a new durable slot each
+        # time despite adding no evidence to the story state.
+        digest = sha256(f"{kind}\n{normalized}".encode("utf-8")).hexdigest()[:20]
         output.append(
             SourceFact(
                 fact_id=f"fact:{digest}",
@@ -430,6 +483,22 @@ def story_baseline_payload(match: StoryCandidateMatch, *, max_facts: int = 6) ->
             }
             for fact in ordered_facts
         ],
+        "thread_events": [
+            {
+                "event_id": event.event_id,
+                "observed_at": event.observed_at,
+                "article_ids": list(event.article_ids),
+                "relationship": event.relationship,
+                "change_type": event.change_type,
+                "materiality": event.materiality,
+                "disposition": event.disposition,
+                "summary": event.summary,
+                "added_claims": list(event.added_claims),
+                "superseded_claims": list(event.superseded_claims),
+                "claim_relations": [dict(item) for item in event.claim_relations],
+            }
+            for event in record.thread_events[-4:]
+        ],
         "candidate_score": round(float(match.score), 4),
         "candidate_signals": match.metadata()["signals"],
         "candidate_reasons": list(match.reasons),
@@ -448,6 +517,18 @@ def story_record_from_payload(raw: Any) -> StoryRecord | None:
         if isinstance(raw_facts, list)
         else []
     )
+    raw_events = raw.get("thread_events", [])
+    thread_events = (
+        [event for item in raw_events for event in [_thread_event_from_payload(item)] if event is not None]
+        if isinstance(raw_events, list)
+        else []
+    )[-MAX_THREAD_EVENTS_PER_STORY:]
+    visible_fact_ids = _string_list(
+        raw.get("last_user_visible_fact_ids", []),
+        max_items=12,
+        max_chars=80,
+    )
+    facts = _bounded_fact_history(facts, protected_fact_ids=visible_fact_ids)
     title = str(raw.get("title", "") or "").strip()[:180]
     tokens = _token_list(raw.get("tokens", []), 24)
     aliases = _string_list(raw.get("aliases", []), max_items=16, max_chars=180)
@@ -482,11 +563,10 @@ def story_record_from_payload(raw: Any) -> StoryRecord | None:
         last_shown=str(raw.get("last_shown", "") or "").strip(),
         source_document_ids=_string_list(raw.get("source_document_ids", []), max_items=40, max_chars=120),
         facts=facts[-MAX_FACTS_PER_STORY:],
-        last_user_visible_fact_ids=_string_list(
-            raw.get("last_user_visible_fact_ids", []),
-            max_items=12,
-            max_chars=80,
-        ),
+        thread_events=thread_events,
+        last_user_visible_fact_ids=[
+            fact_id for fact_id in visible_fact_ids if fact_id in {fact.fact_id for fact in facts}
+        ],
         last_material_change_date=str(raw.get("last_material_change_date", "") or "").strip(),
         last_change_type=str(raw.get("last_change_type", "") or "").strip(),
         last_materiality=_bounded_float(raw.get("last_materiality"), 0.0),
@@ -522,6 +602,7 @@ def merge_story_records(
         max_chars=80,
     )
     facts = _bounded_fact_history(facts_by_id.values(), protected_fact_ids=visible_ids)
+    thread_events = _merge_thread_events(*(record.thread_events for record in records))
     active = any(record.status == "active" for record in records)
     override_tokens = _token_list(raw.get("tokens", []), 24)
     requested_status = str(raw.get("status", "active" if active else "stale") or "active").strip().lower()
@@ -557,6 +638,7 @@ def merge_story_records(
             max_chars=120,
         ),
         facts=facts,
+        thread_events=thread_events,
         last_user_visible_fact_ids=[fact_id for fact_id in visible_ids if fact_id in {fact.fact_id for fact in facts}],
     )
 
@@ -624,6 +706,73 @@ def _fact_from_payload(raw: Any) -> SourceFact | None:
         tokens=_token_list(raw.get("tokens", []), 36),
         user_visible=bool(raw.get("user_visible", False)),
     )
+
+
+def _thread_event_from_payload(raw: Any) -> StoryThreadEvent | None:
+    if not isinstance(raw, dict):
+        return None
+    event_id = str(raw.get("event_id", "") or "").strip()
+    observed_at = str(raw.get("observed_at", "") or "").strip()
+    if not event_id or not observed_at:
+        return None
+    return StoryThreadEvent(
+        event_id=event_id,
+        observed_at=observed_at,
+        article_ids=_string_list(raw.get("article_ids", []), max_items=8, max_chars=120),
+        relationship=str(raw.get("relationship", "") or "").strip(),
+        change_type=str(raw.get("change_type", "") or "").strip(),
+        materiality=_bounded_float(raw.get("materiality"), 0.0),
+        disposition=str(raw.get("disposition", "") or "").strip(),
+        summary=str(raw.get("summary", "") or "").strip()[:400],
+        added_claims=_string_list(raw.get("added_claims", []), max_items=6, max_chars=420),
+        repeated_claims=_string_list(raw.get("repeated_claims", []), max_items=6, max_chars=420),
+        superseded_claims=_string_list(raw.get("superseded_claims", []), max_items=4, max_chars=420),
+        claim_relations=_claim_relation_list(raw.get("claim_relations", [])),
+    )
+
+
+def _updated_thread_events(
+    previous: Sequence[StoryThreadEvent],
+    decision: Dict[str, Any] | None,
+    *,
+    article_id: str,
+    observed_at: str,
+) -> List[StoryThreadEvent]:
+    if not decision:
+        return list(previous[-MAX_THREAD_EVENTS_PER_STORY:])
+    relationship = str(decision.get("relationship", "") or "").strip()
+    change_type = str(decision.get("change_type", "") or "").strip()
+    summary = str(decision.get("summary", "") or decision.get("reason", "") or "").strip()[:400]
+    claim_delta = decision.get("claim_delta", {}) if isinstance(decision.get("claim_delta"), dict) else {}
+    digest = sha256(
+        f"{observed_at}\n{article_id}\n{relationship}\n{change_type}\n{normalized_word_text(summary)}".encode("utf-8")
+    ).hexdigest()[:20]
+    event = StoryThreadEvent(
+        event_id=f"event:{digest}",
+        observed_at=observed_at,
+        article_ids=[article_id] if article_id else [],
+        relationship=relationship,
+        change_type=change_type,
+        materiality=_bounded_float(decision.get("materiality"), 0.0),
+        disposition=str(decision.get("disposition", "") or "").strip(),
+        summary=summary,
+        added_claims=_string_list(claim_delta.get("added_claims", []), max_items=6, max_chars=420),
+        repeated_claims=_string_list(claim_delta.get("repeated_claims", []), max_items=6, max_chars=420),
+        superseded_claims=_string_list(claim_delta.get("superseded_claims", []), max_items=4, max_chars=420),
+        claim_relations=_claim_relation_list(claim_delta.get("claim_relations", [])),
+    )
+    return _merge_thread_events(previous, [event])
+
+
+def _merge_thread_events(*groups: Iterable[StoryThreadEvent]) -> List[StoryThreadEvent]:
+    by_id: Dict[str, StoryThreadEvent] = {}
+    for group in groups:
+        for event in group:
+            by_id[event.event_id] = event
+    return sorted(
+        by_id.values(),
+        key=lambda event: (event.observed_at, event.event_id),
+    )[-MAX_THREAD_EVENTS_PER_STORY:]
 
 
 def _candidate_record_confidence(base: StoryIdentity, record: StoryRecord) -> float:
@@ -778,7 +927,21 @@ def _bounded_fact_history(
     *,
     protected_fact_ids: Iterable[str],
 ) -> List[SourceFact]:
-    ordered = sorted(facts, key=lambda fact: (fact.observed_at, fact.source_id, fact.fact_id))
+    # Collapse exact repeated source claims even when they originated in old
+    # schema-v1 records whose IDs included the article ID.  Prefer a fact the
+    # user has already seen; otherwise retain the most recent provenance.
+    distinct: Dict[str, SourceFact] = {}
+    for fact in facts:
+        key = f"{fact.kind}\n{normalized_word_text(fact.text)}"
+        if not key.strip():
+            continue
+        existing = distinct.get(key)
+        if existing is None or (
+            (fact.user_visible, fact.observed_at, fact.source_id, fact.fact_id)
+            > (existing.user_visible, existing.observed_at, existing.source_id, existing.fact_id)
+        ):
+            distinct[key] = fact
+    ordered = sorted(distinct.values(), key=lambda fact: (fact.observed_at, fact.source_id, fact.fact_id))
     if len(ordered) <= MAX_FACTS_PER_STORY:
         return ordered
     protected = {str(value or "").strip() for value in protected_fact_ids}
@@ -830,6 +993,32 @@ def _merge_strings(
     return output[-max_items:]
 
 
+def _claim_relation_list(value: Any) -> List[Dict[str, str]]:
+    if not isinstance(value, list):
+        return []
+    output: List[Dict[str, str]] = []
+    for raw in value[:8]:
+        if not isinstance(raw, dict):
+            continue
+        current_id = str(raw.get("current_claim_id", "") or "").strip()[:80]
+        prior_id = str(raw.get("prior_claim_id", "") or "").strip()[:80]
+        relation = str(raw.get("relation", "uncertain") or "uncertain").strip()
+        forward = str(raw.get("current_entails_prior", "uncertain") or "uncertain").strip()
+        reverse = str(raw.get("prior_entails_current", "uncertain") or "uncertain").strip()
+        if not current_id or not prior_id:
+            continue
+        output.append(
+            {
+                "current_claim_id": current_id,
+                "prior_claim_id": prior_id,
+                "relation": relation if relation in CLAIM_RELATIONS else "uncertain",
+                "current_entails_prior": forward if forward in ENTAILMENT_VALUES else "uncertain",
+                "prior_entails_current": reverse if reverse in ENTAILMENT_VALUES else "uncertain",
+            }
+        )
+    return output
+
+
 def _string_list(value: Any, *, max_items: int, max_chars: int) -> List[str]:
     if isinstance(value, str):
         value = [value]
@@ -873,7 +1062,9 @@ __all__ = [
     "LEGACY_STORY_FILES",
     "MATCH_CONFIDENCE_THRESHOLD",
     "MAX_FACTS_PER_STORY",
+    "MAX_THREAD_EVENTS_PER_STORY",
     "SourceFact",
+    "StoryThreadEvent",
     "StoryCandidateMatch",
     "StoryRecord",
     "StoryStore",

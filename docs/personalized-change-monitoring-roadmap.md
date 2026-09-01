@@ -1,5 +1,10 @@
 # Personalized Change-Monitoring Roadmap
 
+> 2026-08-30 update: the first claim/state-thread implementation is complete.
+> StoryStore now persists bounded semantic events; source-backed state rules are
+> primary and the model is used only for uncertain transitions. See
+> `docs/claim-thread-architecture-2026-08-30.md` for evaluation results and limits.
+
 ## Product promise
 
 MyDailyNews is a personalized change-monitoring system, not a general news
@@ -77,7 +82,9 @@ Useful / keep-watch signals
 - Done: consolidated the overlapping story index and source ledger into
   `story_store.json`, the single durable record for identity, lifecycle,
   semantic state, aliases/retrieval signals, exact bounded source facts,
-  provenance, and user-visible fact IDs. Existing legacy files are merged on
+  provenance, and user-visible fact IDs. Raw source evidence is now compacted
+  to 32 distinct facts per story; exact syndicated rewrites collapse, while
+  user-visible evidence remains protected. Existing legacy files are merged on
   read and preserved as migration backups after the first canonical write.
   Retrieval remains separate in `story_retrieval.py`, so storage and matching
   can evolve independently.

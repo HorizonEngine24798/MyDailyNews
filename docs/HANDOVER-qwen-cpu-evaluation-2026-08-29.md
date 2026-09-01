@@ -1,5 +1,9 @@
 # Handover: Qwen CPU evaluation and next story-understanding work
 
+> Historical handover. For the current implementation, real-news blind
+> diagnostic, storage changes, and next work, read
+> [`HANDOVER-story-thread-semantic-evaluation-2026-08-30.md`](HANDOVER-story-thread-semantic-evaluation-2026-08-30.md).
+
 Date: 2026-08-29
 Last updated: 2026-08-30
 Repository: `C:\Users\daroi\Desktop\Project\MyDailyNews`

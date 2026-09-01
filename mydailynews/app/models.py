@@ -30,6 +30,11 @@ class AIConfig:
     server_shutdown_timeout_seconds: int = 15
     server_auto_stop: bool = False
     server_spec_default: bool = True
+    codex_executable: str = "codex"
+    codex_model: str = "codex-mini-latest"
+    codex_workdir: str = ""
+    codex_sandbox: str = "read-only"
+    codex_ephemeral: bool = True
 
     @property
     def effective_model_label(self) -> str:
@@ -72,6 +77,10 @@ class MemoryConfig:
     recall_prompt_enabled: bool = True
     save_recall_packets: bool = True
     feedback_enabled: bool = True
+    story_reranker_enabled: bool = False
+    story_reranker_model_path: str = ""
+    story_reranker_threshold: float = 0.5
+    story_reranker_hard_rejection: bool = False
 
 
 def default_general_filtering_config() -> FilteringConfig:

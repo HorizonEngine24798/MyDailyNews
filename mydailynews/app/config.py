@@ -270,10 +270,10 @@ def _optional_limit(value: Any, *, field_name: str) -> int | None:
 
 def _load_ai_backend(value: Any, section_name: str) -> str:
     backend = str(value or "llama_cpp_server").strip().lower()
-    if backend != "llama_cpp_server":
+    if backend not in {"llama_cpp_server", "codex_agent"}:
         raise ValueError(
             f"Unsupported {section_name}.backend '{backend}'. "
-            "Supported backend: llama_cpp_server"
+            "Supported backends: llama_cpp_server, codex_agent"
         )
     return backend
 
@@ -456,6 +456,15 @@ def _load_ai(ai_raw: Dict[str, Any], section_name: str = "ai") -> AIConfig:
             default=True,
             field_name=f"{section_name}.server_spec_default",
         ),
+        codex_executable=str(ai_raw.get("codex_executable", "codex") or "codex"),
+        codex_model=str(ai_raw.get("codex_model", "codex-mini-latest") or ""),
+        codex_workdir=str(ai_raw.get("codex_workdir", "") or ""),
+        codex_sandbox=str(ai_raw.get("codex_sandbox", "read-only") or "read-only"),
+        codex_ephemeral=parse_bool(
+            ai_raw.get("codex_ephemeral", True),
+            default=True,
+            field_name=f"{section_name}.codex_ephemeral",
+        ),
     )
     _validate_ai_runtime(config, section_name)
     return config
@@ -564,6 +573,24 @@ def _load_memory(raw: Dict[str, Any]) -> MemoryConfig:
         max_selected_per_story_family=max(
             0,
             int(memory_raw.get("max_selected_per_story_family", DEFAULT_MEMORY["max_selected_per_story_family"])),
+        ),
+        story_reranker_enabled=parse_bool(
+            memory_raw.get("story_reranker_enabled", DEFAULT_MEMORY["story_reranker_enabled"]),
+            default=DEFAULT_MEMORY["story_reranker_enabled"],
+            field_name="memory.story_reranker_enabled",
+        ),
+        story_reranker_model_path=str(
+            memory_raw.get("story_reranker_model_path", DEFAULT_MEMORY["story_reranker_model_path"])
+            or ""
+        ),
+        story_reranker_threshold=max(
+            0.0,
+            min(1.0, float(memory_raw.get("story_reranker_threshold", DEFAULT_MEMORY["story_reranker_threshold"]))),
+        ),
+        story_reranker_hard_rejection=parse_bool(
+            memory_raw.get("story_reranker_hard_rejection", DEFAULT_MEMORY["story_reranker_hard_rejection"]),
+            default=DEFAULT_MEMORY["story_reranker_hard_rejection"],
+            field_name="memory.story_reranker_hard_rejection",
         ),
         recall_prompt_enabled=parse_bool(
             memory_raw.get("recall_prompt_enabled", DEFAULT_MEMORY["recall_prompt_enabled"]),

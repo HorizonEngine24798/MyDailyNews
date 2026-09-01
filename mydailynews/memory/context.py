@@ -7,6 +7,7 @@ from mydailynews.common.utils import datetime_to_iso
 from mydailynews.domain.candidate_annotations import candidate_memory_annotation
 from mydailynews.memory.coverage import CoverageMemoryStore
 from mydailynews.memory.story_retrieval import StoryCandidateMatch
+from mydailynews.memory.story_reranker import StoryCandidateReranker, rerank_story_candidates
 from mydailynews.memory.story_store import StoryStore, story_baseline_payload
 
 
@@ -20,6 +21,9 @@ def build_story_memory_context(
     date: str,
     coverage_window_days: int = 10,
     max_baselines_per_story: int = 3,
+    candidate_reranker: StoryCandidateReranker | None = None,
+    reranker_acceptance_threshold: float = 0.5,
+    reranker_hard_rejection: bool = False,
 ) -> Dict[str, Any]:
     """Build the bounded story-memory view shared by analysis and briefing."""
     by_article_id = {article.candidate.id: article for article in selected}
@@ -51,6 +55,9 @@ def build_story_memory_context(
             date=date,
             coverage_window_days=coverage_window_days,
             max_baselines_per_story=max_baselines_per_story,
+            candidate_reranker=candidate_reranker,
+            reranker_acceptance_threshold=reranker_acceptance_threshold,
+            reranker_hard_rejection=reranker_hard_rejection,
         )
         for key, group_title, articles in current_groups
     ]
@@ -73,6 +80,9 @@ def _story_context(
     date: str,
     coverage_window_days: int,
     max_baselines_per_story: int,
+    candidate_reranker: StoryCandidateReranker | None,
+    reranker_acceptance_threshold: float,
+    reranker_hard_rejection: bool,
 ) -> Dict[str, Any]:
     representative = articles[0]
     annotation = candidate_memory_annotation(representative.candidate)
@@ -82,6 +92,9 @@ def _story_context(
             articles,
             story_store=story_store,
             limit=max_baselines_per_story,
+            reranker=candidate_reranker,
+            reranker_acceptance_threshold=reranker_acceptance_threshold,
+            reranker_hard_rejection=reranker_hard_rejection,
         )
         for match in matches:
             coverage = (
@@ -137,6 +150,9 @@ def _story_matches(
     *,
     story_store: StoryStore,
     limit: int,
+    reranker: StoryCandidateReranker | None = None,
+    reranker_acceptance_threshold: float = 0.5,
+    reranker_hard_rejection: bool = False,
 ) -> List[StoryCandidateMatch]:
     by_story_key: Dict[str, StoryCandidateMatch] = {}
     for article in articles:
@@ -144,6 +160,14 @@ def _story_matches(
             article.candidate,
             source_text=article.article_text or article.candidate.snippet,
             limit=limit,
+        )
+        matches = rerank_story_candidates(
+            article.candidate,
+            matches,
+            reranker,
+            source_text=article.article_text or article.candidate.snippet,
+            acceptance_threshold=reranker_acceptance_threshold,
+            reject_below_threshold=reranker_hard_rejection,
         )
         article.candidate.metadata["memory_prior_story_candidates"] = [
             match.metadata() for match in matches

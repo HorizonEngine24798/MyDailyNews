@@ -6,6 +6,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
+from mydailynews.analysis.claim_delta import CLAIM_RELATIONS, ENTAILMENT_VALUES
 from mydailynews.analysis.delta import _compact_decision_baselines
 from mydailynews.analysis.identity_gate import enforce_candidate_identity_gate
 from mydailynews.app.models import (
@@ -24,6 +25,7 @@ from mydailynews.memory.context import build_story_memory_context
 from mydailynews.memory.coverage import CoverageMemoryStore, CoverageRecord
 from mydailynews.memory.recall import apply_delta_signals_to_selected
 from mydailynews.memory.story_store import StoryStore
+from mydailynews.memory.story_reranker import rerank_story_candidates
 from mydailynews.evaluation.retrieval_diagnostics import evaluate_story_store_retrieval
 from mydailynews.evaluation.schema import load_corpus
 
@@ -374,6 +376,47 @@ class StoryStoreTests(unittest.TestCase):
             self.assertTrue(hidden_pass_fact.user_visible)
             self.assertIn(source_fact.fact_id, hidden_pass_record.last_user_visible_fact_ids)
 
+    def test_store_compacts_repeated_and_old_evidence_but_keeps_visible_baseline(self) -> None:
+        with TemporaryDirectory() as raw_dir:
+            store = StoryStore.from_state_dir(Path(raw_dir))
+            first = _candidate(
+                "repeat-1",
+                "Harbor bridge review begins",
+                "Inspectors began a review of the Harbor bridge on Monday.",
+            )
+            _annotate(first, "harbor-bridge-review")
+            store.update_selected(
+                selected=[_article(first)],
+                date="2026-01-01",
+                visible_article_ids=["repeat-1"],
+            )
+            visible_ids = store.records()[0].last_user_visible_fact_ids
+
+            # Syndicated copies of identical source claims must not create a
+            # new evidence history entry for each article ID.
+            repeat = _candidate(
+                "repeat-2",
+                "Harbor bridge review begins",
+                "Inspectors began a review of the Harbor bridge on Monday.",
+            )
+            _annotate(repeat, "harbor-bridge-review")
+            store.update_selected(selected=[_article(repeat)], date="2026-01-02")
+            self.assertEqual(len(store.records()[0].facts), 2)
+
+            for index in range(40):
+                candidate = _candidate(
+                    f"bridge-{index}",
+                    f"Harbor bridge review update {index}",
+                    f"Inspectors published Harbor bridge review update number {index}.",
+                )
+                _annotate(candidate, "harbor-bridge-review")
+                store.update_selected(selected=[_article(candidate)], date=f"2026-02-{(index % 27) + 1:02d}")
+
+            record = StoryStore.from_state_dir(Path(raw_dir)).records()[0]
+            self.assertLessEqual(len(record.facts), 32)
+            self.assertTrue(set(visible_ids).issubset({fact.fact_id for fact in record.facts}))
+            self.assertEqual(record.last_user_visible_fact_ids, visible_ids)
+
     def test_heuristic_retrieval_handles_invented_domain_and_changed_headline(self) -> None:
         with TemporaryDirectory() as raw_dir:
             store = StoryStore.from_state_dir(Path(raw_dir))
@@ -498,6 +541,116 @@ class StoryStoreTests(unittest.TestCase):
         self.assertGreaterEqual(payload["new_story_without_candidate_rate"], 0.97)
         self.assertEqual(payload["same_day_only_continuations_excluded"], 1)
         self.assertTrue(payload["uses_private_gold_for_historical_writeback"])
+
+    def test_reranker_can_only_reorder_or_reject_retrieved_candidates(self) -> None:
+        class RejectFirst:
+            def score(self, candidate, matches, *, source_text=""):
+                return [0.1, 0.9]
+
+        with TemporaryDirectory() as raw_dir:
+            store = StoryStore.from_state_dir(Path(raw_dir))
+            first = _candidate("first", "Aurora port strike begins", "Dock workers began a strike at Aurora port.")
+            second = _candidate("second", "Aurora port strike talks open", "Talks opened over the Aurora port strike.")
+            _annotate(first, "aurora-strike")
+            _annotate(second, "aurora-talks")
+            store.update_selected(selected=[_article(first), _article(second)], date="2026-03-01")
+            current = _candidate("current", "Aurora port talks resume", "Aurora port strike talks resumed today.")
+            matches = store.candidate_stories(current, source_text=current.snippet, min_score=0.0)
+            reranked = rerank_story_candidates(
+                current, matches[:2], RejectFirst(), source_text=current.snippet, reject_below_threshold=True,
+            )
+
+        self.assertEqual([item.record.story_key for item in reranked], [matches[1].record.story_key])
+        self.assertEqual(reranked[0].reranker_score, 0.9)
+
+    def test_story_store_persists_bounded_claim_thread_events(self) -> None:
+        with TemporaryDirectory() as raw_dir:
+            store = StoryStore.from_state_dir(Path(raw_dir))
+            for index in range(30):
+                candidate = _candidate(
+                    f"thread-{index}",
+                    f"Glass Orchard gate update {index}",
+                    f"The Glass Orchard gate entered operational state {index}.",
+                )
+                _annotate(candidate, "glass-orchard-thread")
+                packet = {"story_decisions": [{
+                    "article_ids": [candidate.id],
+                    "relationship": "same_story" if index else "distinct_story",
+                    "change_type": "status_change" if index else "new",
+                    "materiality": 0.9,
+                    "disposition": "full_report",
+                    "summary": f"Operational state {index} was source-confirmed.",
+                    "claim_delta": {
+                        "added_claims": [f"state {index}"],
+                        "repeated_claims": [],
+                        "superseded_claims": [f"state {index - 1}"] if index else [],
+                        "claim_relations": ([{
+                            "current_claim_id": f"fact:state-{index}",
+                            "prior_claim_id": f"fact:state-{index - 1}",
+                            "relation": "temporal_successor",
+                            "current_entails_prior": "no",
+                            "prior_entails_current": "no",
+                        }] if index else []),
+                    },
+                }]}
+                store.update_selected(
+                    selected=[_article(candidate)], date=f"2026-04-{index + 1:02d}", delta_packet=packet,
+                )
+            record = StoryStore.from_state_dir(Path(raw_dir)).records()[0]
+
+        self.assertEqual(len(record.thread_events), 24)
+        self.assertEqual(record.thread_events[-1].added_claims, ["state 29"])
+        self.assertEqual(record.thread_events[-1].claim_relations[0]["relation"], "temporal_successor")
+        self.assertNotIn("state 0", [claim for event in record.thread_events for claim in event.added_claims])
+
+    def test_story_store_round_trips_the_canonical_claim_relation_ontology(self) -> None:
+        with TemporaryDirectory() as raw_dir:
+            root = Path(raw_dir)
+            store = StoryStore.from_state_dir(root)
+            entailment_values = sorted(ENTAILMENT_VALUES)
+            for index, relation in enumerate(sorted(CLAIM_RELATIONS)):
+                candidate = _candidate(
+                    f"relation-{index}",
+                    f"Glass Orchard relation observation {index}",
+                    f"The Glass Orchard supplied source evidence for relation observation {index}.",
+                )
+                _annotate(candidate, "glass-orchard-relations")
+                packet = {"story_decisions": [{
+                    "article_ids": [candidate.id],
+                    "relationship": "same_story",
+                    "change_type": "incremental",
+                    "summary": f"Relation {index} was source-confirmed.",
+                    "claim_delta": {
+                        "claim_relations": [{
+                            "current_claim_id": f"fact:current-{index}",
+                            "prior_claim_id": f"fact:prior-{index}",
+                            "relation": relation,
+                            "current_entails_prior": entailment_values[index % len(entailment_values)],
+                            "prior_entails_current": entailment_values[(index + 1) % len(entailment_values)],
+                        }],
+                    },
+                }]}
+                store.update_selected(
+                    selected=[_article(candidate)],
+                    date=f"2026-05-{index + 1:02d}",
+                    delta_packet=packet,
+                )
+
+            reloaded = StoryStore.from_state_dir(root).records()[0]
+            persisted_relations = {
+                claim_relation["relation"]
+                for event in reloaded.thread_events
+                for claim_relation in event.claim_relations
+            }
+            persisted_entailment_values = {
+                claim_relation[field]
+                for event in reloaded.thread_events
+                for claim_relation in event.claim_relations
+                for field in ("current_entails_prior", "prior_entails_current")
+            }
+
+        self.assertEqual(persisted_relations, CLAIM_RELATIONS)
+        self.assertEqual(persisted_entailment_values, ENTAILMENT_VALUES)
 
 
 if __name__ == "__main__":

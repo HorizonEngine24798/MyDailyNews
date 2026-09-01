@@ -23,6 +23,7 @@ from mydailynews.analysis.shared import (
     story_thread_payloads,
     topics_payload,
 )
+from mydailynews.analysis.claim_delta import current_claim_evidence, prior_claim_evidence
 from mydailynews.common.cache import JSONCache
 from mydailynews.diagnostics.debug import DebugLogger
 from mydailynews.app.models import DeltaExtractionConfig, PriorReport, SelectedArticle, TopicConfig, UserMemory
@@ -586,12 +587,22 @@ class DeltaExtractor:
         current = []
         for article in articles:
             annotation = candidate_memory_annotation(article.candidate)
+            claims = current_claim_evidence(
+                article_id=str(article.candidate.id),
+                title=str(article.candidate.title or ""),
+                text=article.article_text or article.candidate.snippet,
+                source_name=str(article.candidate.source or ""),
+                source_url=str(article.candidate.url or ""),
+                published_at=datetime_to_iso(article.candidate.published_at),
+                observed_at=date,
+            )
             current.append(
                 {
                     "id": article.candidate.id,
                     "headline": article.candidate.title,
                     "source": article.candidate.source,
                     "excerpt": (article.article_text or article.candidate.snippet)[:excerpt_chars],
+                    "claims": _bounded_claim_payloads(claims, excerpt_chars),
                     "candidate_story_key": annotation.story_key if annotation is not None else "",
                 }
             )
@@ -638,7 +649,7 @@ class DeltaExtractor:
     ) -> str:
         budget = self._request_budget()
         fingerprint = {
-            "v": 9,
+            "v": 10,
             "stage": "delta_extraction",
             "backend": self.client.config.backend,
             "model": self.client.config.effective_model_label,
@@ -706,6 +717,14 @@ class DeltaExtractor:
     def _article_payload(article: SelectedArticle, excerpt_chars: int) -> Dict[str, Any]:
         topic = article.decision.topic or article.candidate.metadata.get("topic_name", "")
         annotation = candidate_memory_annotation(article.candidate)
+        claims = current_claim_evidence(
+            article_id=str(article.candidate.id),
+            title=str(article.candidate.title or ""),
+            text=article.article_text or article.candidate.snippet,
+            source_name=str(article.candidate.source or ""),
+            source_url=str(article.candidate.url or ""),
+            published_at=datetime_to_iso(article.candidate.published_at),
+        )
         return {
             "id": article.candidate.id,
             "topic": topic,
@@ -716,6 +735,7 @@ class DeltaExtractor:
             "score": article.decision.score,
             "article_text": (article.article_text or article.candidate.snippet)[:excerpt_chars],
             "snippet": (article.candidate.snippet or "")[:160],
+            "claims": _bounded_claim_payloads(claims, excerpt_chars),
             "story_threads": story_thread_payloads(article, max_items=2),
             "memory": {
                 "story_key": annotation.story_key,
@@ -813,6 +833,16 @@ def _normalize_story_decisions(value: Any) -> List[Dict[str, Any]]:
                 "knowns": _normalized_strings(raw.get("knowns", [])),
                 "unknowns": _normalized_strings(raw.get("unknowns", [])),
                 "watch_signals": _normalized_strings(raw.get("watch_signals", [])),
+                "current_evidence_ids": _normalized_strings(
+                    raw.get("current_evidence_ids", [])
+                )[:8],
+                "prior_evidence_ids": _normalized_strings(
+                    raw.get("prior_evidence_ids", [])
+                )[:8],
+                "superseded_prior_evidence_ids": _normalized_strings(
+                    raw.get("superseded_prior_evidence_ids", [])
+                )[:8],
+                "claim_relations": _normalize_claim_relations(raw.get("claim_relations", [])),
             }
         )
     return rows
@@ -848,6 +878,57 @@ def _normalized_strings(value: Any) -> List[str]:
         text = " ".join(str(item or "").split()).strip()
         if text and text not in output:
             output.append(text)
+    return output
+
+
+def _bounded_claim_payloads(claims: List[Any], max_chars: int) -> List[Dict[str, Any]]:
+    """Keep only complete source claims while preserving their stable IDs."""
+
+    budget = max(160, int(max_chars))
+    output: List[Dict[str, Any]] = []
+    used = 0
+    body_included = False
+    for claim in claims[:7]:
+        payload = claim.payload()
+        text_chars = len(str(payload.get("text", "") or ""))
+        is_body = str(payload.get("kind", "") or "") != "headline"
+        must_include = not output or (is_body and not body_included)
+        if not must_include and used + text_chars > budget:
+            break
+        output.append(payload)
+        used += text_chars
+        body_included = body_included or is_body
+    return output
+
+
+def _normalize_claim_relations(value: Any) -> List[Dict[str, str]]:
+    if not isinstance(value, list):
+        return []
+    allowed_relations = {
+        "equivalent", "supports", "adds_detail", "contradicts", "supersedes",
+        "temporal_successor", "context_only", "uncertain",
+    }
+    allowed_entailment = {"yes", "no", "uncertain"}
+    output: List[Dict[str, str]] = []
+    for raw in value[:12]:
+        if not isinstance(raw, dict):
+            continue
+        current_id = str(raw.get("current_claim_id", "") or "").strip()[:160]
+        prior_id = str(raw.get("prior_claim_id", "") or "").strip()[:160]
+        relation = str(raw.get("relation", "uncertain") or "uncertain").strip()
+        forward = str(raw.get("current_entails_prior", "uncertain") or "uncertain").strip()
+        reverse = str(raw.get("prior_entails_current", "uncertain") or "uncertain").strip()
+        if not current_id or not prior_id:
+            continue
+        output.append(
+            {
+                "current_claim_id": current_id,
+                "prior_claim_id": prior_id,
+                "relation": relation if relation in allowed_relations else "uncertain",
+                "current_entails_prior": forward if forward in allowed_entailment else "uncertain",
+                "prior_entails_current": reverse if reverse in allowed_entailment else "uncertain",
+            }
+        )
     return output
 
 
@@ -889,6 +970,7 @@ def _compact_decision_baselines(
             if not story_key or story_key in seen:
                 continue
             seen.add(story_key)
+            claims = prior_claim_evidence(baseline, max_claims=8)
             output.append(
                 {
                     "story_key": story_key,
@@ -896,8 +978,7 @@ def _compact_decision_baselines(
                     "last_seen": str(baseline.get("last_seen", "") or "")[:32],
                     "last_change_type": str(baseline.get("last_change_type", "") or "")[:40],
                     "last_delta_summary": str(baseline.get("last_delta_summary", "") or "")[:180],
-                    "knowns": _normalized_strings(baseline.get("knowns", []))[:3],
-                    "source_facts": _compact_source_facts(baseline.get("source_facts", [])),
+                    "source_facts": [claim.payload() for claim in claims],
                     "candidate_score": baseline.get("candidate_score", 0.0),
                     "candidate_signals": (
                         dict(baseline.get("candidate_signals", {}))
@@ -908,49 +989,4 @@ def _compact_decision_baselines(
             )
             if len(output) >= 12:
                 return output
-
-    for report in prior_reports:
-        for headline in report.major_headlines:
-            if not isinstance(headline, dict):
-                continue
-            story_key = str(headline.get("story_key", "") or "").strip()
-            if not story_key or story_key in seen:
-                continue
-            seen.add(story_key)
-            output.append(
-                {
-                    "story_key": story_key,
-                    "title": str(headline.get("headline", "") or "")[:180],
-                    "last_seen": report.date,
-                }
-            )
-            if len(output) >= 12:
-                return output
-    return output
-
-
-def _compact_source_facts(value: Any) -> List[Dict[str, Any]]:
-    if not isinstance(value, list):
-        return []
-    output: List[Dict[str, Any]] = []
-    for raw in value:
-        if not isinstance(raw, dict):
-            continue
-        text = " ".join(str(raw.get("text", "") or "").split()).strip()[:260]
-        source_id = str(raw.get("source_id", "") or "").strip()[:120]
-        if not text or not source_id:
-            continue
-        output.append(
-            {
-                "fact_id": str(raw.get("fact_id", "") or "")[:80],
-                "text": text,
-                "source_id": source_id,
-                "source": str(raw.get("source", "") or "")[:100],
-                "url": str(raw.get("url", "") or "")[:300],
-                "published_at": str(raw.get("published_at", "") or "")[:40],
-                "observed_at": str(raw.get("observed_at", "") or "")[:32],
-            }
-        )
-        if len(output) >= 4:
-            break
     return output

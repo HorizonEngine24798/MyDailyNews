@@ -303,6 +303,33 @@ EVIDENCE_DISTILLATION_JSON_SCHEMA = JSONSchemaSpec(
 )
 
 
+_DELTA_CLAIM_RELATION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "current_claim_id": {"type": "string"},
+        "prior_claim_id": {"type": "string"},
+        "relation": {
+            "type": "string",
+            "enum": [
+                "equivalent", "supports", "adds_detail", "contradicts",
+                "supersedes", "temporal_successor", "context_only", "uncertain",
+            ],
+        },
+        "current_entails_prior": {
+            "type": "string", "enum": ["yes", "no", "uncertain"],
+        },
+        "prior_entails_current": {
+            "type": "string", "enum": ["yes", "no", "uncertain"],
+        },
+    },
+    "required": [
+        "current_claim_id", "prior_claim_id", "relation",
+        "current_entails_prior", "prior_entails_current",
+    ],
+    "additionalProperties": False,
+}
+
+
 DELTA_EXTRACTION_JSON_SCHEMA = JSONSchemaSpec(
     name="delta_extraction",
     schema={
@@ -403,8 +430,26 @@ DELTA_EXTRACTION_JSON_SCHEMA = JSONSchemaSpec(
                         "knowns": {"type": "array", "items": {"type": "string"}},
                         "unknowns": {"type": "array", "items": {"type": "string"}},
                         "watch_signals": {"type": "array", "items": {"type": "string"}},
+                        "current_evidence_ids": {
+                            "type": "array", "items": {"type": "string"},
+                        },
+                        "prior_evidence_ids": {
+                            "type": "array", "items": {"type": "string"},
+                        },
+                        "superseded_prior_evidence_ids": {
+                            "type": "array", "items": {"type": "string"},
+                        },
+                        "claim_relations": {
+                            "type": "array", "items": _DELTA_CLAIM_RELATION_SCHEMA,
+                        },
                     },
-                    "required": ["story_key", "article_ids", "relationship", "change_type", "materiality", "confidence", "disposition", "summary", "bullet", "reason"],
+                    "required": [
+                        "story_key", "article_ids", "prior_story_key", "relationship",
+                        "change_type", "materiality", "confidence", "disposition",
+                        "summary", "bullet", "reason", "current_evidence_ids",
+                        "prior_evidence_ids", "superseded_prior_evidence_ids",
+                        "claim_relations",
+                    ],
                 },
             },
             "evidence_gaps": {
@@ -476,6 +521,18 @@ DELTA_DECISION_JSON_SCHEMA = JSONSchemaSpec(
                             "enum": ["full_report", "continuing_bullet", "omit", "uncertain"],
                         },
                         "summary": {"type": "string"},
+                        "current_evidence_ids": {
+                            "type": "array", "items": {"type": "string"},
+                        },
+                        "prior_evidence_ids": {
+                            "type": "array", "items": {"type": "string"},
+                        },
+                        "superseded_prior_evidence_ids": {
+                            "type": "array", "items": {"type": "string"},
+                        },
+                        "claim_relations": {
+                            "type": "array", "items": _DELTA_CLAIM_RELATION_SCHEMA,
+                        },
                     },
                     "required": [
                         "story_key",
@@ -487,6 +544,10 @@ DELTA_DECISION_JSON_SCHEMA = JSONSchemaSpec(
                         "confidence",
                         "disposition",
                         "summary",
+                        "current_evidence_ids",
+                        "prior_evidence_ids",
+                        "superseded_prior_evidence_ids",
+                        "claim_relations",
                     ],
                     "additionalProperties": False,
                 },

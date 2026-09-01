@@ -382,12 +382,16 @@ DELTA_EXTRACTION_SYSTEM = """You extract structured narrative deltas between pri
 Return exactly one valid JSON object.
 Do not use markdown fences.
 Do not invent facts. Only use supplied article/context/prior-report evidence.
+Compare complete propositions in context, including attribution, negation, quantity, and time.
+Never infer a transition label from the presence of an action word or phrase alone.
 If prior evidence is insufficient, state that directly in baseline_coverage_note and keep lists concise."""
 
 
 DELTA_DECISION_SYSTEM = """You classify story identity and source-backed change.
 Return exactly one valid JSON object matching the supplied schema.
 Do not invent facts, write markdown, or add editorial sections.
+Compare complete propositions in context, including attribution, negation, quantity, and time.
+Never infer a transition label from the presence of an action word or phrase alone.
 Use only current evidence and the bounded candidate baselines."""
 
 DELTA_EXTRACTION_USER = """Reader profile and style:
@@ -419,6 +423,13 @@ Work to perform:
 3. Keep entries evidence-grounded and link article ids. Never infer same-story identity from topic overlap alone. A same-story unchanged item should be omitted unless it is critical safety information; a non-material continuation should be a continuing bullet, not a full report.
 4. Use uncertain when the baseline is weak or evidence conflicts; do not suppress uncertain stories.
 5. Flag evidence gaps that limit confidence.
+6. For each decision, cite the minimal supplied current and prior claim IDs in current_evidence_ids
+   and prior_evidence_ids. A first observation has no prior IDs.
+7. Emit claim_relations edges for every cited current/prior comparison. For each edge classify the
+   relation as equivalent, supports, adds_detail, contradicts, supersedes, temporal_successor,
+   context_only, or uncertain, and assess entailment in both directions as yes, no, or uncertain.
+8. Put an ID in superseded_prior_evidence_ids only when the current evidence actually replaces that
+   exact prior proposition. Copy IDs exactly; never construct or guess them.
 
 Return one object matching the supplied JSON schema. Include every required
 top-level key, using empty arrays when a category has no items. Emit exactly
@@ -447,6 +458,13 @@ Classify every current article id (or evidence-cluster article id) exactly once.
   resolved, incremental, reframed, unchanged, or uncertain.
 - same_story + unchanged should be omitted. A non-material continuation should be a continuing_bullet.
 - Never omit an uncertain or materially changed story.
+- Cite the minimal supplied current and prior claim IDs in current_evidence_ids and
+  prior_evidence_ids. A first observation has no prior IDs.
+- Emit claim_relations for cited pairs. Each edge uses equivalent, supports, adds_detail,
+  contradicts, supersedes, temporal_successor, context_only, or uncertain, plus yes/no/uncertain
+  entailment in both directions.
+- Put an ID in superseded_prior_evidence_ids only when current evidence replaces that exact prior
+  proposition. Copy every ID exactly; never construct or guess IDs.
 - Keep summary to at most 12 words."""
 
 

@@ -6,7 +6,7 @@ from mydailynews.analysis.delta import DeltaExtractor
 from mydailynews.analysis.identity_gate import enforce_candidate_identity_gate
 from mydailynews.analysis.evidence import EvidenceDistiller
 from mydailynews.pipeline.brief_stages import _report_phase
-from mydailynews.analysis.deterministic_delta import build_deterministic_delta_scaffold
+from mydailynews.analysis.deterministic_delta import build_deterministic_delta_scaffold, merge_claim_delta_with_model
 from mydailynews.memory.context import build_story_memory_context
 from mydailynews.memory.coverage import CoverageMemoryStore
 from mydailynews.memory.story_store import StoryStore
@@ -144,6 +144,8 @@ def _run_delta_stage(
 ) -> DeltaStageResult:
     warnings: List[str] = []
     delta_packet: Dict[str, Any] = {}
+    candidate_reranker = _candidate_reranker(orchestrator, warnings)
+    memory_config = getattr(orchestrator.config, "memory", None)
     story_memory = build_story_memory_context(
         selected=selected,
         story_groups=story_groups,
@@ -152,6 +154,9 @@ def _run_delta_stage(
         prior_reports=prior_reports,
         date=date,
         coverage_window_days=coverage_window_days,
+        candidate_reranker=candidate_reranker,
+        reranker_acceptance_threshold=float(getattr(memory_config, "story_reranker_threshold", 0.5)),
+        reranker_hard_rejection=bool(getattr(memory_config, "story_reranker_hard_rejection", False)),
     )
     orchestrator.debug.set_metric(
         f"brief.{brief_name}.analysis.delta.story_memory_stories",
@@ -228,12 +233,16 @@ def _run_delta_stage(
         prior_reports,
         max_prior_reports=delta_config.max_prior_reports,
         story_memory=story_memory,
+        story_store=story_store,
     )
-    if deterministic_delta_packet and not delta_packet:
-        delta_packet = deterministic_delta_packet
+    if deterministic_delta_packet:
+        model_packet_available = bool(delta_packet)
+        delta_packet = merge_claim_delta_with_model(deterministic_delta_packet, delta_packet)
         scaffold_reason = "disabled"
-        if delta_config.enabled:
+        if delta_config.enabled and not model_packet_available:
             scaffold_reason = "fallback_after_empty_or_failed_delta"
+        elif delta_config.enabled:
+            scaffold_reason = "evidence_validated_semantic_inference"
         orchestrator.debug.log(
             "analysis.delta",
             "deterministic_scaffold",
@@ -272,3 +281,28 @@ def _run_delta_stage(
         len(delta_packet.get("evidence_gaps", [])) if delta_packet else 0,
     )
     return DeltaStageResult(delta_packet=delta_packet, warnings=warnings)
+
+
+def _candidate_reranker(orchestrator, warnings: List[str]):
+    """Lazily enable the configured local reranker once per pipeline run."""
+
+    memory_config = getattr(orchestrator.config, "memory", None)
+    if not bool(getattr(memory_config, "story_reranker_enabled", False)):
+        return None
+    cached = getattr(orchestrator, "_story_candidate_reranker", None)
+    if cached is not None:
+        return cached
+    model_path = str(getattr(memory_config, "story_reranker_model_path", "") or "").strip()
+    if not model_path:
+        warnings.append("story reranker enabled but memory.story_reranker_model_path is empty; using heuristic retrieval.")
+        return None
+    from pathlib import Path
+
+    if not Path(model_path).exists():
+        warnings.append(f"story reranker model path does not exist ({model_path}); using heuristic retrieval.")
+        return None
+    from mydailynews.ai.qwen_story_reranker import QwenStoryReranker
+
+    cached = QwenStoryReranker(model_path)
+    setattr(orchestrator, "_story_candidate_reranker", cached)
+    return cached
