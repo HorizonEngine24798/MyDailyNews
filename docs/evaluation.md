@@ -1,5 +1,8 @@
 # Evaluation framework
 
+For the current story-quality conclusion and the 2026-09-05 Qwen/Gemma
+comparison, see [Story quality: findings and next steps](story-quality.md).
+
 ## What this evaluates
 
 The evaluator measures the product promise: retrieve profile-relevant source
