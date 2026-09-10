@@ -209,6 +209,28 @@ class AutoconfigTests(unittest.TestCase):
         path.write_text(json.dumps(recommended, ensure_ascii=False, indent=2), encoding="utf-8")
         load_config(path)
 
+    def test_recommended_config_removes_retired_ai_backend_options(self) -> None:
+        catalog = self._catalog()
+        source = self._example_config()
+        retired = {
+            "enable_thinking": False,
+            "codex_executable": "codex",
+            "codex_model": "codex-mini-latest",
+            "codex_workdir": ".",
+            "codex_sandbox": "read-only",
+            "codex_ephemeral": True,
+        }
+        source["ai_summary"].update(retired)
+        source["ai_final"].update(retired)
+        tier = next(item for item in catalog["tiers"] if item["id"] == "nvidia_8gb")
+        model = autoconfig.model_for_tier(catalog, tier)
+
+        recommended = autoconfig.build_recommended_config(source, tier, model)
+
+        for section_name in ("ai_summary", "ai_final"):
+            self.assertTrue(retired.keys().isdisjoint(recommended[section_name]))
+            self.assertEqual(recommended[section_name]["backend"], "llama_cpp_server")
+
     def test_recommended_config_writes_current_memory_section(self) -> None:
         catalog = self._catalog()
         source = self._example_config()

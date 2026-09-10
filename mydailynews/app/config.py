@@ -38,7 +38,6 @@ DEFAULT_MAX_INPUT_TOKENS = 12000
 DEFAULT_MAX_NEW_TOKENS = 2048
 DEFAULT_TEMPERATURE = 0.2
 DEFAULT_TOP_P = 0.9
-DEFAULT_ENABLE_THINKING = False
 
 
 def _defaults(config_obj: Any) -> Dict[str, Any]:
@@ -258,11 +257,8 @@ def _optional_limit(value: Any, *, field_name: str) -> int | None:
 
 def _load_ai_backend(value: Any, section_name: str) -> str:
     backend = str(value or "llama_cpp_server").strip().lower()
-    if backend not in {"llama_cpp_server", "codex_agent"}:
-        raise ValueError(
-            f"Unsupported {section_name}.backend '{backend}'. "
-            "Supported backends: llama_cpp_server, codex_agent"
-        )
+    if backend != "llama_cpp_server":
+        raise ValueError(f"Unsupported {section_name}.backend '{backend}'. Supported backend: llama_cpp_server")
     return backend
 
 
@@ -351,11 +347,6 @@ def _load_ai(ai_raw: Dict[str, Any], section_name: str = "ai") -> AIConfig:
         response_format=str(ai_raw.get("response_format", "auto")),
         request_timeout_seconds=int(ai_raw.get("request_timeout_seconds", 300)),
         token_estimation_chars_per_token=float(ai_raw.get("token_estimation_chars_per_token", 4.0)),
-        enable_thinking=parse_bool(
-            ai_raw.get("enable_thinking", DEFAULT_ENABLE_THINKING),
-            default=DEFAULT_ENABLE_THINKING,
-            field_name=f"{section_name}.enable_thinking",
-        ),
         manage_server=parse_bool(ai_raw.get("manage_server", False), default=False, field_name=f"{section_name}.manage_server"),
         server_executable=str(ai_raw.get("server_executable", "")),
         server_model_path=str(ai_raw.get("server_model_path", ai_raw.get("gguf_model_path", ""))),
@@ -368,15 +359,6 @@ def _load_ai(ai_raw: Dict[str, Any], section_name: str = "ai") -> AIConfig:
             ai_raw.get("server_spec_default", True),
             default=True,
             field_name=f"{section_name}.server_spec_default",
-        ),
-        codex_executable=str(ai_raw.get("codex_executable", "codex") or "codex"),
-        codex_model=str(ai_raw.get("codex_model", "codex-mini-latest") or ""),
-        codex_workdir=str(ai_raw.get("codex_workdir", "") or ""),
-        codex_sandbox=str(ai_raw.get("codex_sandbox", "read-only") or "read-only"),
-        codex_ephemeral=parse_bool(
-            ai_raw.get("codex_ephemeral", True),
-            default=True,
-            field_name=f"{section_name}.codex_ephemeral",
         ),
     )
     _validate_ai_runtime(config, section_name)

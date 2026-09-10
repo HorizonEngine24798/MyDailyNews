@@ -12,8 +12,7 @@ state/
 .codex_tmp*
 .pytest_tmp/
 
-# Local comparison backends and CPU benchmark assets.
-mydailynews/ai/codex_agent_client.py
+# Local CPU benchmark assets.
 .venv-cpu-test/
 config.cpu-*.json
 models/
