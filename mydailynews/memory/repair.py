@@ -4,14 +4,21 @@ from dataclasses import asdict, is_dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
-import os
 from pathlib import Path
 import shutil
 from typing import Any, Dict, Iterable, List, Sequence
 
-from mydailynews.memory.coverage import CoverageMemoryStore
-from mydailynews.memory.feedback import FEEDBACK_ACTIONS, FeedbackStore
+from mydailynews.common.storage import MEMORY_DATABASE_NAME, backup_database, open_database, set_metadata
+from mydailynews.memory.coverage import (
+    CoverageMemoryStore,
+    CoverageRecord,
+    _coverage_row,
+    _merge_coverage_records,
+    _record_from_payload,
+)
+from mydailynews.memory.feedback import FEEDBACK_ACTIONS, FeedbackEvent, FeedbackStore, _event_from_payload
 from mydailynews.memory.story_store import (
+    STORY_STORE_SCHEMA_VERSION,
     StoryStore,
     merge_story_records,
     story_record_from_payload,
@@ -20,10 +27,10 @@ from mydailynews.memory.story_store import (
 
 MEMORY_REPAIR_BACKUP_DIR = "backups"
 REPAIRABLE_MEMORY_FILES = {
-    "story_store": "story_store.json",
-    "coverage": "coverage_log.jsonl",
-    "coverage_archive": "coverage_log.archive.jsonl",
-    "feedback": "feedback_events.jsonl",
+    "story_store": "memory.sqlite3",
+    "coverage": "memory.sqlite3",
+    "coverage_archive": "memory.sqlite3",
+    "feedback": "memory.sqlite3",
 }
 
 
@@ -47,14 +54,16 @@ def delete_story_record(
     if not key:
         raise ValueError("story_key is required.")
 
-    records = _read_story_records(state)
-    kept = [record for record in records if record["story_key"] != key]
-    removed = len(records) - len(kept)
-    if removed <= 0:
-        raise ValueError(f"Story key not found: {key}")
+    _ensure_memory_migrated(state)
+    with open_database(state / MEMORY_DATABASE_NAME, immediate=True) as database:
+        records = _read_story_records(state, database=database)
+        kept = [record for record in records if record["story_key"] != key]
+        removed = len(records) - len(kept)
+        if removed <= 0:
+            raise ValueError(f"Story key not found: {key}")
 
-    backup = _create_backup(state, _story_backup_files(state), reason="story_delete")
-    _write_story_records(state, kept)
+        backup = _create_backup(state, _story_backup_files(state), reason="story_delete")
+        _write_story_records(state, kept, database=database)
     return {
         "operation": "story_delete",
         "story_key": key,
@@ -75,28 +84,42 @@ def repair_coverage_rows(
     normalized_action = _clean(action, 40).lower()
     if normalized_action not in {"delete", "archive"}:
         raise ValueError("Coverage repair action must be delete or archive.")
-    records = _read_coverage_records(state)
-    selected, kept = _split_rows_by_ids(
-        records,
-        row_ids=row_ids,
-        row_id_func=coverage_row_id,
-        label="coverage",
-    )
+    _ensure_memory_migrated(state)
+    with open_database(state / MEMORY_DATABASE_NAME, immediate=True) as database:
+        records = _read_coverage_records(state, database=database)
+        selected, kept = _split_rows_by_ids(
+            records,
+            row_ids=row_ids,
+            row_id_func=coverage_row_id,
+            label="coverage",
+        )
 
-    files = [REPAIRABLE_MEMORY_FILES["coverage"]]
-    if normalized_action == "archive":
-        files.append(REPAIRABLE_MEMORY_FILES["coverage_archive"])
-    backup = _create_backup(state, files, reason=f"coverage_{normalized_action}")
-    _write_jsonl_payloads(state / REPAIRABLE_MEMORY_FILES["coverage"], kept)
+        files = [REPAIRABLE_MEMORY_FILES["coverage"]]
+        if normalized_action == "archive":
+            files.append(REPAIRABLE_MEMORY_FILES["coverage_archive"])
+        backup = _create_backup(state, files, reason=f"coverage_{normalized_action}")
+        _write_coverage_records(state, kept, database=database)
 
-    archived = 0
-    if normalized_action == "archive":
-        archive_path = state / REPAIRABLE_MEMORY_FILES["coverage_archive"]
-        existing_archive = _read_jsonl_payloads(archive_path)
-        archived_at = _now_iso()
-        archived_rows = [{**row["row"], "archived_at": archived_at} for row in selected]
-        _write_jsonl_payloads(archive_path, existing_archive + archived_rows)
-        archived = len(archived_rows)
+        archived = 0
+        if normalized_action == "archive":
+            archived_at = _now_iso()
+            archived_records = [
+                record
+                for row in selected
+                for record in [_coverage_record_from_dict(row["row"])]
+                if record is not None
+            ]
+            database.executemany(
+                "INSERT INTO coverage_archive(archived_at, payload) VALUES (?, ?)",
+                [
+                    (
+                        archived_at,
+                        json.dumps(asdict(record), ensure_ascii=False, separators=(",", ":")),
+                    )
+                    for record in archived_records
+                ],
+            )
+            archived = len(archived_records)
 
     return {
         "operation": f"coverage_{normalized_action}",
@@ -119,34 +142,40 @@ def repair_feedback_events(
     normalized_action = _clean(action, 40).lower()
     if normalized_action not in {"delete", "edit"}:
         raise ValueError("Feedback repair action must be delete or edit.")
-    events = _read_feedback_events(state)
-    selected, kept = _split_rows_by_ids(
-        events,
-        row_ids=row_ids,
-        row_id_func=feedback_row_id,
-        label="feedback",
-    )
+    _ensure_memory_migrated(state)
+    with open_database(state / MEMORY_DATABASE_NAME, immediate=True) as database:
+        events = _read_feedback_events(state, database=database)
+        selected, kept = _split_rows_by_ids(
+            events,
+            row_ids=row_ids,
+            row_id_func=feedback_row_id,
+            label="feedback",
+        )
 
-    edited = 0
-    if normalized_action == "delete":
-        output = kept
-    else:
-        if len(selected) != 1:
-            raise ValueError("Feedback edit requires exactly one row id.")
-        if not isinstance(event_patch, dict):
-            raise ValueError("Feedback edit requires an event object.")
-        selected_row = selected[0]
-        selected_id = feedback_row_id(selected_row["_row_index"], selected_row["row"])
-        updated = _normalize_feedback_event({**selected_row["row"], **event_patch})
-        output = []
-        for index, event in enumerate(events):
-            if feedback_row_id(index, event) == selected_id:
-                output.append(updated)
-                edited += 1
-            else:
-                output.append(event)
-    backup = _create_backup(state, [REPAIRABLE_MEMORY_FILES["feedback"]], reason=f"feedback_{normalized_action}")
-    _write_jsonl_payloads(state / REPAIRABLE_MEMORY_FILES["feedback"], output)
+        edited = 0
+        if normalized_action == "delete":
+            output = kept
+        else:
+            if len(selected) != 1:
+                raise ValueError("Feedback edit requires exactly one row id.")
+            if not isinstance(event_patch, dict):
+                raise ValueError("Feedback edit requires an event object.")
+            selected_row = selected[0]
+            selected_id = feedback_row_id(selected_row["_row_index"], selected_row["row"])
+            updated = _normalize_feedback_event({**selected_row["row"], **event_patch})
+            output = []
+            for index, event in enumerate(events):
+                if feedback_row_id(index, event) == selected_id:
+                    output.append(updated)
+                    edited += 1
+                else:
+                    output.append(event)
+        backup = _create_backup(
+            state,
+            [REPAIRABLE_MEMORY_FILES["feedback"]],
+            reason=f"feedback_{normalized_action}",
+        )
+        _write_feedback_events(state, output, database=database)
 
     return {
         "operation": f"feedback_{normalized_action}",
@@ -169,6 +198,7 @@ def merge_stories(
     if len(source_keys) < 2:
         raise ValueError("Story merge requires at least two source story keys.")
 
+    _ensure_memory_migrated(state)
     story_records = _read_story_records(state)
     by_key = {record["story_key"]: record for record in story_records}
     missing = [key for key in source_keys if key not in by_key]
@@ -210,9 +240,17 @@ def merge_stories(
         ],
         reason="story_merge",
     )
-    _write_story_records(state, merged_records)
-    _write_jsonl_payloads(state / REPAIRABLE_MEMORY_FILES["coverage"], rewritten_coverage)
-    _write_jsonl_payloads(state / REPAIRABLE_MEMORY_FILES["feedback"], rewritten_feedback)
+    with open_database(state / MEMORY_DATABASE_NAME, immediate=True) as database:
+        _assert_memory_unchanged(
+            state,
+            database,
+            stories=story_records,
+            coverage=coverage_records,
+            feedback=feedback_events,
+        )
+        _write_story_records(state, merged_records, database=database)
+        _write_coverage_records(state, rewritten_coverage, database=database)
+        _write_feedback_events(state, rewritten_feedback, database=database)
     return {
         "operation": "story_merge",
         "source_story_keys": source_keys,
@@ -239,6 +277,7 @@ def split_story(
     source_key = _clean(source_story_key, 160)
     if not source_key:
         raise ValueError("source_story_key is required.")
+    _ensure_memory_migrated(state)
     story_records = _read_story_records(state)
     by_key = {record["story_key"]: record for record in story_records}
     source = by_key.get(source_key)
@@ -318,9 +357,17 @@ def split_story(
         ],
         reason="story_split",
     )
-    _write_story_records(state, updated_stories)
-    _write_jsonl_payloads(state / REPAIRABLE_MEMORY_FILES["coverage"], rewritten_coverage)
-    _write_jsonl_payloads(state / REPAIRABLE_MEMORY_FILES["feedback"], rewritten_feedback)
+    with open_database(state / MEMORY_DATABASE_NAME, immediate=True) as database:
+        _assert_memory_unchanged(
+            state,
+            database,
+            stories=story_records,
+            coverage=coverage_records,
+            feedback=feedback_events,
+        )
+        _write_story_records(state, updated_stories, database=database)
+        _write_coverage_records(state, rewritten_coverage, database=database)
+        _write_feedback_events(state, rewritten_feedback, database=database)
     return {
         "operation": "story_split",
         "source_story_key": source_key,
@@ -337,7 +384,7 @@ def _require_confirm(confirm: bool) -> None:
 
 
 def _story_backup_files(state_dir: Path) -> List[str]:
-    candidates = ["story_store.json", "story_index.json", "story_ledger.json"]
+    candidates = ["memory.sqlite3", "story_store.json", "story_index.json", "story_ledger.json"]
     existing = [name for name in candidates if (state_dir / name).exists()]
     return existing or [REPAIRABLE_MEMORY_FILES["story_store"]]
 
@@ -360,18 +407,51 @@ def _row_payload(row: Any) -> Dict[str, Any]:
     return payload
 
 
-def _read_story_records(state_dir: Path) -> List[Dict[str, Any]]:
-    return [asdict(record) for record in StoryStore.from_state_dir(state_dir).records()]
+def _ensure_memory_migrated(state_dir: Path) -> None:
+    StoryStore.from_state_dir(state_dir).records()
+    CoverageMemoryStore.from_state_dir(state_dir).read_records()
+    FeedbackStore.from_state_dir(state_dir).read_events()
 
 
-def _write_story_records(state_dir: Path, records: Sequence[Dict[str, Any]]) -> None:
+def _read_story_records(state_dir: Path, *, database: Any | None = None) -> List[Dict[str, Any]]:
+    if database is None:
+        return [asdict(record) for record in StoryStore.from_state_dir(state_dir).records()]
+    output: List[Dict[str, Any]] = []
+    for row in database.execute("SELECT payload FROM stories ORDER BY story_key").fetchall():
+        record = story_record_from_payload(_json_object(row["payload"]))
+        if record is None:
+            raise ValueError("SQLite story table contains an invalid payload.")
+        output.append(asdict(record))
+    return output
+
+
+def _write_story_records(
+    state_dir: Path,
+    records: Sequence[Dict[str, Any]],
+    *,
+    database: Any | None = None,
+) -> None:
     _validate_unique_story_keys(records)
     normalized = [story_record_from_payload(record) for record in records]
     if any(record is None for record in normalized):
         raise ValueError("Story records require valid story payloads.")
-    StoryStore.from_state_dir(state_dir).replace_records(
-        [record for record in normalized if record is not None]
+    output = [record for record in normalized if record is not None]
+    if database is None:
+        StoryStore.from_state_dir(state_dir).replace_records(output)
+        return
+    database.execute("DELETE FROM stories")
+    database.executemany(
+        "INSERT INTO stories(story_key, payload) VALUES (?, ?)",
+        [
+            (
+                record.story_key,
+                json.dumps(asdict(record), ensure_ascii=False, separators=(",", ":")),
+            )
+            for record in output
+        ],
     )
+    set_metadata(database, "migration.story_store.v1")
+    set_metadata(database, "schema.story_store", str(STORY_STORE_SCHEMA_VERSION))
 
 
 def _normalize_story_record(raw: Dict[str, Any]) -> Dict[str, Any]:
@@ -381,12 +461,105 @@ def _normalize_story_record(raw: Dict[str, Any]) -> Dict[str, Any]:
     return asdict(record)
 
 
-def _read_coverage_records(state_dir: Path) -> List[Dict[str, Any]]:
-    return [asdict(record) for record in CoverageMemoryStore.from_state_dir(state_dir).read_records()]
+def _read_coverage_records(state_dir: Path, *, database: Any | None = None) -> List[Dict[str, Any]]:
+    if database is None:
+        return [asdict(record) for record in CoverageMemoryStore.from_state_dir(state_dir).read_records()]
+    output: List[Dict[str, Any]] = []
+    rows = database.execute(
+        "SELECT payload FROM coverage ORDER BY date, brief_name, story_key"
+    ).fetchall()
+    for row in rows:
+        record = _record_from_payload(_json_object(row["payload"]))
+        if record is None:
+            raise ValueError("SQLite coverage table contains an invalid payload.")
+        output.append(asdict(record))
+    return output
 
 
-def _read_feedback_events(state_dir: Path) -> List[Dict[str, Any]]:
-    return [asdict(event) for event in FeedbackStore.from_state_dir(state_dir).read_events()]
+def _write_coverage_records(
+    state_dir: Path,
+    records: Sequence[Dict[str, Any]],
+    *,
+    database: Any | None = None,
+) -> None:
+    normalized = [_coverage_record_from_dict(record) for record in records]
+    if any(record is None for record in normalized):
+        raise ValueError("Coverage records require date, brief_name, and story_key.")
+    output = _merge_coverage_records(record for record in normalized if record is not None)
+    if database is None:
+        CoverageMemoryStore.from_state_dir(state_dir).replace_records(output)
+        return
+    database.execute("DELETE FROM coverage")
+    database.executemany(
+        "INSERT INTO coverage(date, brief_name, story_key, payload) VALUES (?, ?, ?, ?)",
+        [_coverage_row(record) for record in output],
+    )
+    set_metadata(database, "migration.coverage.v1")
+
+
+def _coverage_record_from_dict(raw: Dict[str, Any]) -> CoverageRecord | None:
+    return _record_from_payload(raw)
+
+
+def _read_feedback_events(state_dir: Path, *, database: Any | None = None) -> List[Dict[str, Any]]:
+    if database is None:
+        return [asdict(event) for event in FeedbackStore.from_state_dir(state_dir).read_events()]
+    output: List[Dict[str, Any]] = []
+    for row in database.execute("SELECT payload FROM feedback ORDER BY id").fetchall():
+        event = _event_from_payload(_json_object(row["payload"]))
+        if event is None:
+            raise ValueError("SQLite feedback table contains an invalid payload.")
+        output.append(asdict(event))
+    return output
+
+
+def _write_feedback_events(
+    state_dir: Path,
+    events: Sequence[Dict[str, Any]],
+    *,
+    database: Any | None = None,
+) -> None:
+    normalized = [_normalize_feedback_event(event) for event in events]
+    output = [
+        event
+        for raw in normalized
+        for event in [_feedback_event_from_dict(raw)]
+        if event is not None
+    ]
+    if database is None:
+        FeedbackStore.from_state_dir(state_dir).replace_events(output)
+        return
+    database.execute("DELETE FROM feedback")
+    database.executemany(
+        "INSERT INTO feedback(payload) VALUES (?)",
+        [
+            (json.dumps(asdict(event), ensure_ascii=False, separators=(",", ":")),)
+            for event in output
+        ],
+    )
+    set_metadata(database, "migration.feedback.v1")
+
+
+def _assert_memory_unchanged(
+    state_dir: Path,
+    database: Any,
+    *,
+    stories: Sequence[Dict[str, Any]],
+    coverage: Sequence[Dict[str, Any]],
+    feedback: Sequence[Dict[str, Any]],
+) -> None:
+    current = (
+        _read_story_records(state_dir, database=database),
+        _read_coverage_records(state_dir, database=database),
+        _read_feedback_events(state_dir, database=database),
+    )
+    expected = (list(stories), list(coverage), list(feedback))
+    if current != expected:
+        raise RuntimeError("Memory changed during repair preparation; retry the repair operation.")
+
+
+def _feedback_event_from_dict(raw: Dict[str, Any]) -> FeedbackEvent | None:
+    return _event_from_payload(raw)
 
 
 def _normalize_feedback_event(raw: Dict[str, Any]) -> Dict[str, Any]:
@@ -494,27 +667,6 @@ def _validate_unique_story_keys(records: Sequence[Dict[str, Any]]) -> None:
         raise ValueError(f"Duplicate story key(s): {', '.join(sorted(duplicates))}")
 
 
-def _read_jsonl_payloads(path: Path) -> List[Dict[str, Any]]:
-    if not path.exists():
-        return []
-    rows: List[Dict[str, Any]] = []
-    for line in path.read_text(encoding="utf-8-sig").splitlines():
-        if not line.strip():
-            continue
-        try:
-            value = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(value, dict):
-            rows.append(value)
-    return rows
-
-
-def _write_jsonl_payloads(path: Path, rows: Sequence[Dict[str, Any]]) -> None:
-    lines = [json.dumps(dict(row), ensure_ascii=False, separators=(",", ":")) for row in rows]
-    _write_text_atomic(path, ("\n".join(lines) + "\n") if lines else "")
-
-
 def _create_backup(state_dir: Path, filenames: Sequence[str], *, reason: str) -> Dict[str, Any]:
     created_at = _now_iso()
     stamp = created_at.replace(":", "").replace("-", "").replace("+0000", "Z").replace(".", "")
@@ -526,13 +678,16 @@ def _create_backup(state_dir: Path, filenames: Sequence[str], *, reason: str) ->
         backup_dir = backup_root / f"{stamp}-{suffix}"
     backup_dir.mkdir(parents=True, exist_ok=False)
     copied: List[str] = []
-    for filename in filenames:
+    for filename in dict.fromkeys(filenames):
         source = state_dir / filename
         if not source.exists():
             continue
         target = backup_dir / filename
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, target)
+        if source.suffix.lower() in {".db", ".sqlite", ".sqlite3"}:
+            backup_database(source, target)
+        else:
+            shutil.copy2(source, target)
         copied.append(filename)
     manifest = {
         "schema_version": 1,
@@ -548,18 +703,14 @@ def _create_backup(state_dir: Path, filenames: Sequence[str], *, reason: str) ->
     }
 
 
-def _write_text_atomic(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temp_path = path.with_name(f"{path.name}.tmp")
-    temp_path.write_text(text, encoding="utf-8")
+def _json_object(value: Any) -> Dict[str, Any]:
     try:
-        os.replace(temp_path, path)
-    except PermissionError:
-        path.write_text(text, encoding="utf-8")
-        try:
-            temp_path.unlink()
-        except (FileNotFoundError, PermissionError):
-            pass
+        payload = json.loads(str(value))
+    except (json.JSONDecodeError, TypeError, ValueError) as exc:
+        raise ValueError("SQLite memory table contains invalid JSON.") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("SQLite memory table payload must be an object.")
+    return payload
 
 
 def _clean(value: Any, max_chars: int) -> str:

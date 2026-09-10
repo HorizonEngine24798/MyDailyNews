@@ -10,6 +10,13 @@ from typing import Any, Dict, Iterable, List, Sequence
 from mydailynews.analysis.claim_delta import CLAIM_RELATIONS, ENTAILMENT_VALUES
 from mydailynews.app.models import MemoryAnnotation, NewsCandidate, SelectedArticle
 from mydailynews.common.utils import datetime_to_iso
+from mydailynews.common.storage import (
+    MEMORY_DATABASE_NAME,
+    claim_migration,
+    metadata_value,
+    open_database,
+    set_metadata,
+)
 from mydailynews.domain.candidate_annotations import candidate_memory_annotation, set_memory_annotation
 from mydailynews.domain.text_similarity import compare_token_sets, normalized_word_text, word_tokens
 from mydailynews.memory.story_keys import STOPWORDS, StoryIdentity, slugify_text, story_identity_for_candidate
@@ -98,12 +105,11 @@ class StoryRecord:
 
 
 class StoryStore:
-    """Single file-backed source of truth for durable story memory.
+    """SQLite-backed source of truth for durable story memory.
 
-    `story_store.json` supersedes both legacy story files. If the canonical
-    file does not exist, legacy index and ledger rows are merged in memory and
-    the next normal write persists the unified representation. Legacy files
-    remain untouched as migration backups and are ignored after that write.
+    Existing JSON stores are imported once and left untouched as migration
+    backups. ``path`` remains the legacy path for caller compatibility;
+    ``database_path`` is the live store.
     """
 
     def __init__(
@@ -112,8 +118,14 @@ class StoryStore:
         *,
         legacy_index_path: Path | str | None = None,
         legacy_ledger_path: Path | str | None = None,
+        database_path: Path | str | None = None,
     ) -> None:
         self.path = Path(path)
+        is_database_path = self.path.suffix.lower() in {".db", ".sqlite", ".sqlite3"}
+        self.database_path = Path(database_path) if database_path is not None else (
+            self.path if is_database_path else self.path.with_suffix(".sqlite3")
+        )
+        self._legacy_store_path = None if self.database_path == self.path else self.path
         self.legacy_index_path = Path(legacy_index_path) if legacy_index_path is not None else None
         self.legacy_ledger_path = Path(legacy_ledger_path) if legacy_ledger_path is not None else None
         self._records: List[StoryRecord] | None = None
@@ -125,14 +137,21 @@ class StoryStore:
             root / "story_store.json",
             legacy_index_path=root / "story_index.json",
             legacy_ledger_path=root / "story_ledger.json",
+            database_path=root / MEMORY_DATABASE_NAME,
         )
 
     @property
     def using_legacy_migration(self) -> bool:
-        return not self.path.exists() and any(
+        legacy_exists = any(
             path is not None and path.exists()
-            for path in (self.legacy_index_path, self.legacy_ledger_path)
+            for path in (self._legacy_store_path, self.legacy_index_path, self.legacy_ledger_path)
         )
+        if not legacy_exists:
+            return False
+        if not self.database_path.exists():
+            return True
+        with open_database(self.database_path) as database:
+            return metadata_value(database, "migration.story_store.v1") is None
 
     def records(self) -> List[StoryRecord]:
         if self._records is None:
@@ -187,6 +206,7 @@ class StoryStore:
         delta_packet: Dict[str, Any] | None = None,
         stale_after_days: int = 7,
         retention_days: int = 30,
+        database: Any | None = None,
     ) -> List[StoryRecord]:
         visible_ids = {
             str(value or "").strip()
@@ -338,7 +358,7 @@ class StoryStore:
             retention_days=retention_days,
             prune=True,
         )
-        return self.replace_records(records)
+        return self.replace_records(records, database=database)
 
     def refresh_lifecycle(
         self,
@@ -357,45 +377,96 @@ class StoryStore:
         )
         return self.replace_records(records)
 
-    def replace_records(self, records: Iterable[StoryRecord]) -> List[StoryRecord]:
+    def replace_records(
+        self,
+        records: Iterable[StoryRecord],
+        *,
+        database: Any | None = None,
+    ) -> List[StoryRecord]:
         output = sorted(list(records), key=lambda record: record.story_key)
         keys = [record.story_key for record in output]
         if any(not key for key in keys):
             raise ValueError("Story records require story_key.")
         if len(keys) != len(set(keys)):
             raise ValueError("Story records require unique story keys.")
-        self._records = output
-        self._write_records(output)
+        if database is None:
+            self._records = output
+        self._write_records(output, database=database)
         return list(output)
 
     def _read_records(self) -> List[StoryRecord]:
-        if self.path.exists():
-            return _read_story_file(self.path)
+        self._import_legacy_once()
+        with open_database(self.database_path) as database:
+            return self._read_records_from_database(database)
 
-        index_records = (
-            _read_story_file(self.legacy_index_path)
-            if self.legacy_index_path is not None and self.legacy_index_path.exists()
-            else []
-        )
-        ledger_records = (
-            _read_story_file(self.legacy_ledger_path)
-            if self.legacy_ledger_path is not None and self.legacy_ledger_path.exists()
-            else []
-        )
-        return _merge_legacy_records(index_records, ledger_records)
+    @staticmethod
+    def _read_records_from_database(database: Any) -> List[StoryRecord]:
+        output: List[StoryRecord] = []
+        rows = database.execute("SELECT story_key, payload FROM stories ORDER BY story_key").fetchall()
+        for row in rows:
+            record = story_record_from_payload(_json_object(row["payload"]))
+            if record is None or record.story_key != str(row["story_key"]):
+                raise ValueError(f"SQLite stories row has an invalid payload: {row['story_key']}")
+            output.append(record)
+        return output
 
-    def _write_records(self, records: Sequence[StoryRecord]) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {
-            "schema_version": STORY_STORE_SCHEMA_VERSION,
-            "stories": [asdict(record) for record in records],
-        }
-        temporary_path = self.path.with_name(f".{self.path.name}.tmp")
-        temporary_path.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
+    def _write_records(
+        self,
+        records: Sequence[StoryRecord],
+        *,
+        database: Any | None = None,
+    ) -> None:
+        if database is None:
+            with open_database(self.database_path) as opened:
+                self._write_records(records, database=opened)
+            return
+        database.execute("DELETE FROM stories")
+        database.executemany(
+            "INSERT INTO stories(story_key, payload) VALUES (?, ?)",
+            [
+                (
+                    record.story_key,
+                    json.dumps(asdict(record), ensure_ascii=False, separators=(",", ":")),
+                )
+                for record in records
+            ],
         )
-        temporary_path.replace(self.path)
+        set_metadata(database, "migration.story_store.v1")
+        set_metadata(database, "schema.story_store", str(STORY_STORE_SCHEMA_VERSION))
+
+    def _import_legacy_once(self) -> None:
+        with open_database(self.database_path) as database:
+            if not claim_migration(database, "migration.story_store.v1"):
+                return
+            existing = database.execute("SELECT 1 FROM stories LIMIT 1").fetchone()
+            records: Sequence[StoryRecord] = []
+            if existing is None:
+                if self._legacy_store_path is not None and self._legacy_store_path.exists():
+                    records = _read_story_file(self._legacy_store_path)
+                else:
+                    index_records = (
+                        _read_story_file(self.legacy_index_path)
+                        if self.legacy_index_path is not None and self.legacy_index_path.exists()
+                        else []
+                    )
+                    ledger_records = (
+                        _read_story_file(self.legacy_ledger_path)
+                        if self.legacy_ledger_path is not None and self.legacy_ledger_path.exists()
+                        else []
+                    )
+                    records = _merge_legacy_records(index_records, ledger_records)
+                database.executemany(
+                    "INSERT OR IGNORE INTO stories(story_key, payload) VALUES (?, ?)",
+                    [
+                        (
+                            record.story_key,
+                            json.dumps(asdict(record), ensure_ascii=False, separators=(",", ":")),
+                        )
+                        for record in records
+                    ],
+                )
+            set_metadata(database, "migration.story_store.v1")
+            set_metadata(database, "schema.story_store", str(STORY_STORE_SCHEMA_VERSION))
 
 
 def source_facts_for_article(
@@ -646,12 +717,30 @@ def merge_story_records(
 def _read_story_file(path: Path) -> List[StoryRecord]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (json.JSONDecodeError, OSError):
-        return []
-    rows = payload.get("stories", []) if isinstance(payload, dict) else []
+    except OSError as exc:
+        raise RuntimeError(f"Could not read legacy story memory file: {path}") from exc
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Legacy story memory file is not valid JSON: {path}") from exc
+    if not isinstance(payload, dict):
+        raise ValueError(f"Legacy story memory file must contain an object: {path}")
+    rows = payload.get("stories", [])
     if not isinstance(rows, list):
-        return []
-    return [record for row in rows for record in [story_record_from_payload(row)] if record is not None]
+        raise ValueError(f"Legacy story memory file must contain a stories list: {path}")
+    records: List[StoryRecord] = []
+    for index, row in enumerate(rows, start=1):
+        record = story_record_from_payload(row) if isinstance(row, dict) else None
+        if record is None:
+            raise ValueError(f"Legacy story memory file has an invalid story at row {index}: {path}")
+        records.append(record)
+    return records
+
+
+def _json_object(value: Any) -> Dict[str, Any]:
+    try:
+        payload = json.loads(str(value))
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
 
 
 def _merge_legacy_records(

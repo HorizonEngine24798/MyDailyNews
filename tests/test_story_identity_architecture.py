@@ -270,7 +270,7 @@ class StoryStoreTests(unittest.TestCase):
             self.assertEqual(record.facts[0].source_url, "https://fixture.test/elf-01")
 
             store.replace_records(records)
-            self.assertTrue((root / "story_store.json").exists())
+            self.assertTrue((root / "memory.sqlite3").exists())
             self.assertTrue((root / "story_index.json").exists())
             self.assertTrue((root / "story_ledger.json").exists())
             self.assertFalse(StoryStore.from_state_dir(root).using_legacy_migration)

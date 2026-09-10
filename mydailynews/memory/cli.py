@@ -8,6 +8,7 @@ import shutil
 from typing import Any, Dict
 
 from mydailynews.app.models import AppConfig
+from mydailynews.common.storage import MEMORY_DATABASE_NAME
 from mydailynews.memory.config import memory_state_dir
 from mydailynews.memory.coverage import CoverageMemoryStore
 from mydailynews.memory.feedback import FeedbackStore
@@ -84,7 +85,7 @@ def export_memory(config: AppConfig, *, state_dir: Path) -> Dict[str, Any]:
     feedback_store = FeedbackStore.from_state_dir(state_dir)
     learned_store = LearnedPreferencesStore.from_state_dir(state_dir)
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "state_dir": str(state_dir),
         "config": {
             "coverage_window_days": config.memory.coverage_window_days,
@@ -95,7 +96,8 @@ def export_memory(config: AppConfig, *, state_dir: Path) -> Dict[str, Any]:
         },
         "coverage_records": [asdict(record) for record in coverage_store.read_records()],
         "story_store": [asdict(record) for record in story_store.records()],
-        "story_store_path": str(story_store.path),
+        "memory_database_path": str(story_store.database_path),
+        "story_store_path": str(story_store.database_path),
         "story_store_uses_legacy_migration": story_store.using_legacy_migration,
         "feedback_events": [asdict(event) for event in feedback_store.read_events()],
         "learned_preferences": asdict(learned_store.read()),
@@ -104,7 +106,12 @@ def export_memory(config: AppConfig, *, state_dir: Path) -> Dict[str, Any]:
 
 def reset_memory(state_dir: Path) -> None:
     targets = (
+        Path(state_dir) / MEMORY_DATABASE_NAME,
+        Path(state_dir) / f"{MEMORY_DATABASE_NAME}-journal",
+        Path(state_dir) / f"{MEMORY_DATABASE_NAME}-wal",
+        Path(state_dir) / f"{MEMORY_DATABASE_NAME}-shm",
         Path(state_dir) / "coverage_log.jsonl",
+        Path(state_dir) / "coverage_log.archive.jsonl",
         Path(state_dir) / "story_store.json",
         *(Path(state_dir) / name for name in LEGACY_STORY_FILES),
         Path(state_dir) / "feedback_events.jsonl",
@@ -139,6 +146,7 @@ def _memory_summary(config: AppConfig, state_dir: Path) -> Dict[str, Any]:
         "story_store_active": sum(1 for record in stories if record.status == "active"),
         "story_store_stale": sum(1 for record in stories if record.status == "stale"),
         "story_store_uses_legacy_migration": story_store.using_legacy_migration,
+        "memory_database_path": str(story_store.database_path),
         "feedback_events": len(feedback_events),
         "feedback_counts": feedback_store.counts_by_action(),
         "learned_preferences_path": str(learned_path),

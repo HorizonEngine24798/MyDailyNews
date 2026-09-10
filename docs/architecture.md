@@ -108,7 +108,7 @@ LLM call groups: headline scoring is batched, story grouping and enrichment plan
 
 AI roles: `summary_ai_client` scores and plans; the configurable analysis client runs evidence/delta; `final_ai_client` writes final and narrative briefs.
 
-Storage roles: `.cache/mydailynews/` stores network/article/enrichment fetches, `.cache/mydailynews/synth` stores reusable AI responses, `state/memory/` stores durable coverage/preferences, and `output/` stores reports, handoffs, and diagnostics.
+Storage roles: `.cache/mydailynews/cache.sqlite3` stores network, article, enrichment, and reusable AI cache entries; `state/memory/memory.sqlite3` stores durable story, coverage, and feedback data; `state/memory/learned_preferences.json` remains human-editable; and `output/` stores reports, handoffs, and diagnostics.
 
 ## Module Flow
 
@@ -131,8 +131,8 @@ Modules:
 ## State Boundaries
 
 - `output/`: generated Markdown, JSON, WAV, and diagnostics.
-- `state/memory/`: durable coverage, story, feedback, learned-preference, recall, and backup files.
-- `.cache/mydailynews/`: discovery, article text, enrichment retrieval, and AI synthesis caches.
+- `state/memory/`: `memory.sqlite3` plus learned preferences, recall artifacts, and backups.
+- `.cache/mydailynews/`: `cache.sqlite3` for discovery, article text, enrichment retrieval, and AI synthesis values.
 
 Deleting `output/` removes generated reports. Deleting `state/memory/` resets local memory. Deleting `.cache/mydailynews/` only forces refetching or regeneration.
 
