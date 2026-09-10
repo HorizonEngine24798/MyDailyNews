@@ -32,6 +32,17 @@ class LightweightAnalyticsTests(unittest.TestCase):
         self.assertEqual(payload["ai"]["totals"]["duration_ms"], 125)
         self.assertEqual(stream.getvalue(), "")
 
+    def test_enabled_events_are_emitted_without_custom_classification_or_throttling(self) -> None:
+        stream = StringIO()
+        debug = DebugLogger(True, stream=stream)
+
+        debug.log("custom.stage", "progress", count=1)
+        debug.log("custom.stage", "progress", count=2)
+
+        lines = stream.getvalue().splitlines()
+        self.assertEqual(len(lines), 2)
+        self.assertIn("[debug] custom.stage | progress", lines[0])
+        self.assertIn('"count": 2', lines[1])
 
 if __name__ == "__main__":
     unittest.main()
