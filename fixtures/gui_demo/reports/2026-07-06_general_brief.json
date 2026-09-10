@@ -677,7 +677,6 @@
         "skipped_source_cap": 6
       }
     },
-    "composite_ranking_enabled": false,
     "memory": {
       "enabled": true,
       "recall_prompt_enabled": true,
@@ -741,7 +740,6 @@
         "selection_summary": {
           "story_count": 127,
           "stories_reduced_for_recent_coverage": 4,
-          "stories_boosted_for_material_update": 0,
           "stories_skipped_by_story_cap": 0,
           "stories_skipped_by_story_family_cap": 0,
           "learned_preference_adjusted_candidates": 0,
@@ -753,7 +751,6 @@
       },
       "story_count": 127,
       "stories_reduced_for_recent_coverage": 4,
-      "stories_boosted_for_material_update": 0,
       "stories_skipped_by_story_cap": 0,
       "stories_skipped_by_story_family_cap": 0,
       "learned_preference_adjusted_candidates": 0,

@@ -33,7 +33,6 @@ _LINK_KEYS = {
 }
 _NOISY_METADATA_KEYS = {
     "candidate_count",
-    "composite_ranking_enabled",
     "memory",
     "model",
     "prior_reports_count",

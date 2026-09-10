@@ -318,7 +318,7 @@ def coverage_records_for_selected(
                 title=annotation.story_title or article.candidate.title,
                 prominence=prominence,
                 article_ids=[article.candidate.id],
-                angle=annotation.change_type or article.decision.angle_type,
+                angle=annotation.change_type,
                 rank_score=round(rank_score, 4),
             )
         )
