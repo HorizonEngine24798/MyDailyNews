@@ -24,6 +24,7 @@ from mydailynews.common.utils import canonical_article_url, compact_json, normal
 from mydailynews.common.warnings import extend_warnings
 from mydailynews.domain.article_identity import article_aliases_for_candidate
 from mydailynews.domain.text_similarity import normalized_word_text, word_tokens
+from mydailynews.pipeline.brief_specs import DEFAULT_BRIEF_NAMES
 from mydailynews.perspectives.sources import load_source_registry, match_source_by_domain, source_domain_map
 from mydailynews.retrieval.article import ArticleRetriever
 from mydailynews.retrieval.ddg import DuckDuckGoSearchRetriever
@@ -33,7 +34,7 @@ from mydailynews.retrieval.registry_rss import RegistryRssRetriever
 
 
 PERSPECTIVES_REPORT_SCHEMA_VERSION = "claim_led_perspectives_report.v4"
-STRUCTURED_BRIEF_NAMES = ("general", "detailed")
+STRUCTURED_BRIEF_NAMES = DEFAULT_BRIEF_NAMES
 MAX_CANONICAL_QUERIES = 5
 MAX_PLANNER_STORIES_PER_CALL = 4
 MAX_ANCHOR_QUERIES = 3

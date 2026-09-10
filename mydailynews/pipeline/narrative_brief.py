@@ -17,9 +17,10 @@ from mydailynews.common.warnings import extend_warnings
 from mydailynews.domain.text_similarity import normalized_word_text
 from mydailynews.memory.config import memory_enabled
 from mydailynews.memory.recall import combined_recall_packet_for_narrative
+from mydailynews.pipeline.brief_specs import DEFAULT_BRIEF_NAMES
 
 
-NARRATIVE_SOURCE_BRIEF_NAMES = ("general", "detailed")
+NARRATIVE_SOURCE_BRIEF_NAMES = DEFAULT_BRIEF_NAMES
 
 
 def run_narrative_brief(
