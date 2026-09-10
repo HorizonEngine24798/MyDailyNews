@@ -127,15 +127,9 @@ class CliReporter:
         if not self.enabled or not bool(getattr(debug, "enabled", False)):
             return
         analytics_path = debug.write_analytics_artifact(output_dir)
-        lines = debug.analytics_summary_lines()
         paths = self._path_list(artifact_paths)
-        if not lines and not analytics_path and not paths:
+        if not analytics_path and not paths:
             return
-
-        self._print("")
-        self._print("Debug summary")
-        for line in lines:
-            self._print(f"- {line}")
 
         self._print("")
         self._print("Debug artifacts")
