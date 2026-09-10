@@ -2,11 +2,9 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from mydailynews.analysis.delta import DeltaExtractor
-from mydailynews.analysis.identity_gate import enforce_candidate_identity_gate
+from mydailynews.analysis.story_delta import StoryDeltaAnalyzer
 from mydailynews.analysis.evidence import EvidenceDistiller
 from mydailynews.pipeline.brief_stages import _report_phase
-from mydailynews.analysis.deterministic_delta import build_deterministic_delta_scaffold, merge_claim_delta_with_model
 from mydailynews.memory.context import build_story_memory_context
 from mydailynews.memory.coverage import CoverageMemoryStore
 from mydailynews.memory.story_store import StoryStore
@@ -115,11 +113,9 @@ def _run_delta_stage(
     *,
     brief_name: str,
     selected: List[SelectedArticle],
-    topics: List[TopicConfig],
     prior_reports: List[PriorReport],
     brief_goal: str,
     date: str,
-    evidence_packet: Dict[str, Any],
     evidence_config: EvidenceDistillationConfig,
     delta_config: DeltaExtractionConfig,
     story_groups: List[StoryGroup] | None = None,
@@ -129,6 +125,11 @@ def _run_delta_stage(
 ) -> DeltaStageResult:
     warnings: List[str] = []
     delta_packet: Dict[str, Any] = {}
+    orchestrator.debug.set_metric(f"brief.{brief_name}.analysis.delta.enabled", bool(delta_config.enabled))
+    if not delta_config.enabled:
+        orchestrator.debug.set_metric(f"brief.{brief_name}.analysis.delta.skipped_reason.disabled", 1)
+        return DeltaStageResult(delta_packet={}, warnings=[])
+
     memory_config = getattr(orchestrator.config, "memory", None)
     story_memory = build_story_memory_context(
         selected=selected,
@@ -144,111 +145,58 @@ def _run_delta_stage(
         f"brief.{brief_name}.analysis.delta.story_memory_stories",
         len(story_memory.get("stories", [])),
     )
-    orchestrator.debug.set_metric(f"brief.{brief_name}.analysis.delta.enabled", bool(delta_config.enabled))
-    if delta_config.enabled:
-        _report_phase(orchestrator, f"Running {brief_name} delta analysis...")
-        delta_client = (
-            orchestrator.summary_ai_client
-            if delta_config.model_role == "summary"
-            else orchestrator.final_ai_client
-        )
-        if delta_client is orchestrator.final_ai_client and orchestrator.summary_ai_client is not orchestrator.final_ai_client:
-            # Keep only one model resident when possible before running optional delta extraction.
-            orchestrator.summary_ai_client.unload()
-        if (
-            delta_client is orchestrator.summary_ai_client
-            and orchestrator.summary_ai_client is not orchestrator.final_ai_client
-            and evidence_config.enabled
-            and evidence_config.model_role == "final"
-        ):
-            # Distillation on final may have loaded the writer model; unload before scorer role.
-            orchestrator.final_ai_client.unload()
-        delta_extractor = DeltaExtractor(
-            delta_client,
-            delta_config,
-            debug=orchestrator.debug,
-            cache=orchestrator.synth_cache,
-            cache_ttl_seconds=delta_config.cache_ttl_seconds,
-        )
-        with orchestrator.debug.span(f"brief.{brief_name}.delta_extraction"):
-            try:
-                delta_packet = delta_extractor.extract(
-                    selected,
-                    orchestrator.config.user_memory,
-                    topics,
-                    prior_reports,
-                    brief_goal,
-                    date,
-                    evidence_packet=evidence_packet,
-                    story_memory=story_memory,
-                    brief_name=brief_name,
-                )
-            except Exception as exc:
-                warning = (
-                    f"{brief_name}: delta extraction failed ({type(exc).__name__}): {exc}; "
-                    "continuing without delta packet."
-                )
-                warnings.append(warning)
-                orchestrator.debug.log(
-                    "analysis.delta",
-                    "failed",
-                    brief=brief_name,
-                    error=type(exc).__name__,
-                )
-                delta_packet = {}
-        extend_warnings(warnings, delta_extractor.warnings)
-        delta_pressure_warnings = prompt_pressure_warning_count(delta_extractor.warnings)
-        orchestrator.debug.set_metric(
-            f"brief.{brief_name}.analysis.delta.prompt_pressure_warnings",
-            int(delta_pressure_warnings),
-        )
-    else:
-        orchestrator.debug.set_metric(f"brief.{brief_name}.analysis.delta.skipped_reason.disabled", 1)
-
-    deterministic_delta_packet = build_deterministic_delta_scaffold(
-        selected,
-        prior_reports,
-        max_prior_reports=delta_config.max_prior_reports,
-        story_memory=story_memory,
-        story_store=story_store,
+    _report_phase(orchestrator, f"Running {brief_name} delta analysis...")
+    delta_client = (
+        orchestrator.summary_ai_client
+        if delta_config.model_role == "summary"
+        else orchestrator.final_ai_client
     )
-    if deterministic_delta_packet:
-        model_packet_available = bool(delta_packet)
-        delta_packet = merge_claim_delta_with_model(deterministic_delta_packet, delta_packet)
-        scaffold_reason = "disabled"
-        if delta_config.enabled and not model_packet_available:
-            scaffold_reason = "fallback_after_empty_or_failed_delta"
-        elif delta_config.enabled:
-            scaffold_reason = "evidence_validated_semantic_inference"
-        orchestrator.debug.log(
-            "analysis.delta",
-            "deterministic_scaffold",
-            brief=brief_name,
-            reason=scaffold_reason,
-            new=len(delta_packet.get("new", [])),
-            unchanged=len(delta_packet.get("unchanged_but_important", [])),
-        )
-        orchestrator.debug.set_metric(f"brief.{brief_name}.analysis.delta.scaffold_used", True)
-        orchestrator.debug.set_metric(
-            f"brief.{brief_name}.analysis.delta.scaffold_reason.{scaffold_reason}",
-            1,
-        )
-    else:
-        orchestrator.debug.set_metric(f"brief.{brief_name}.analysis.delta.scaffold_used", False)
-    delta_packet = enforce_candidate_identity_gate(delta_packet, story_memory)
-    identity_gate = delta_packet.get("identity_gate", {})
-    if isinstance(identity_gate, dict):
-        for key in (
-            "articles",
-            "accepted_links",
-            "forced_new_without_candidate",
-            "rejected_links",
-            "synthesized_decisions",
-        ):
-            orchestrator.debug.set_metric(
-                f"brief.{brief_name}.analysis.delta.identity_gate.{key}",
-                int(identity_gate.get(key, 0) or 0),
+    if delta_client is orchestrator.final_ai_client and orchestrator.summary_ai_client is not orchestrator.final_ai_client:
+        # Keep only one model resident when possible before running optional delta extraction.
+        orchestrator.summary_ai_client.unload()
+    if (
+        delta_client is orchestrator.summary_ai_client
+        and orchestrator.summary_ai_client is not orchestrator.final_ai_client
+        and evidence_config.enabled
+        and evidence_config.model_role == "final"
+    ):
+        # Distillation on final may have loaded the writer model; unload before scorer role.
+        orchestrator.final_ai_client.unload()
+    delta_extractor = StoryDeltaAnalyzer(
+        delta_client,
+        delta_config,
+        debug=orchestrator.debug,
+        cache=orchestrator.synth_cache,
+        cache_ttl_seconds=delta_config.cache_ttl_seconds,
+    )
+    with orchestrator.debug.span(f"brief.{brief_name}.delta_extraction"):
+        try:
+            delta_packet = delta_extractor.extract(
+                selected,
+                orchestrator.config.user_memory,
+                brief_goal,
+                story_memory,
+                brief_name=brief_name,
             )
+        except Exception as exc:
+            warning = (
+                f"{brief_name}: delta extraction failed ({type(exc).__name__}): {exc}; "
+                "continuing without delta packet."
+            )
+            warnings.append(warning)
+            orchestrator.debug.log(
+                "analysis.delta",
+                "failed",
+                brief=brief_name,
+                error=type(exc).__name__,
+            )
+            delta_packet = {}
+    extend_warnings(warnings, delta_extractor.warnings)
+    delta_pressure_warnings = prompt_pressure_warning_count(delta_extractor.warnings)
+    orchestrator.debug.set_metric(
+        f"brief.{brief_name}.analysis.delta.prompt_pressure_warnings",
+        int(delta_pressure_warnings),
+    )
     orchestrator.debug.set_metric(
         f"brief.{brief_name}.analysis.delta.new_items",
         len(delta_packet.get("new", [])) if delta_packet else 0,

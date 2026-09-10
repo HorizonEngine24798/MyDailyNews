@@ -293,15 +293,20 @@ def coverage_records_for_selected(
     selected: List[SelectedArticle],
 ) -> List[CoverageRecord]:
     records: List[CoverageRecord] = []
+    lead_assigned = False
     for article in selected:
         annotation = candidate_memory_annotation(article.candidate)
         if annotation is None or not annotation.story_key:
             continue
         if annotation.today_policy == "omit":
             continue
-        prominence = "lead" if not records else "body"
-        if prominence != "lead" and annotation.today_policy.startswith("capsule"):
+        if annotation.today_policy.startswith("capsule"):
             prominence = "capsule"
+        elif not lead_assigned:
+            prominence = "lead"
+            lead_assigned = True
+        else:
+            prominence = "body"
         rank_score = float(article.selection_rank_score or article.decision.selection_rank_score or 0.0)
         records.append(
             CoverageRecord(

@@ -4,7 +4,15 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import unittest
 
-from mydailynews.app.models import AppConfig, EnrichmentConfig, EvidenceDistillationConfig, HeadlineDecision, NewsCandidate, SelectedArticle
+from mydailynews.app.models import (
+    AppConfig,
+    DeltaExtractionConfig,
+    EnrichmentConfig,
+    EvidenceDistillationConfig,
+    HeadlineDecision,
+    NewsCandidate,
+    SelectedArticle,
+)
 from mydailynews.diagnostics.debug import DebugLogger
 from mydailynews.pipeline.brief_stages import _story_grouping_stage
 from mydailynews.pipeline.stage_results import StoryGroupingStageResult
@@ -211,6 +219,36 @@ class StoryGroupingStageResultTests(unittest.TestCase):
         self.assertEqual(len(ai.calls), 1)
         self.assertEqual(result.artifact["status"], "ok")
         self.assertEqual([group.story_id for group in result.story_groups], ["story-001"])
+
+    def test_stage_runs_when_only_delta_enabled(self) -> None:
+        selected = [
+            _selected("a", "Bridge closure continues"),
+            _selected("b", "Engineers inspect closed bridge"),
+        ]
+        ai = FakeAIClient(
+            [{
+                "story_groups": [{
+                    "story_id": "story-001",
+                    "story_title": "Bridge closure",
+                    "article_ids": ["a", "b"],
+                    "research_questions": [],
+                }]
+            }]
+        )
+        config = AppConfig(enrichment=EnrichmentConfig(enabled=False))
+
+        result = _story_grouping_stage(
+            FakeOrchestrator(config, ai),
+            brief_name="general",
+            selected=selected,
+            include_enrichment_context=False,
+            evidence_config=EvidenceDistillationConfig(enabled=False),
+            delta_config=DeltaExtractionConfig(enabled=True),
+        )
+
+        self.assertEqual(len(ai.calls), 1)
+        self.assertEqual(result.artifact["status"], "ok")
+        self.assertEqual(result.story_groups[0].article_ids, ["a", "b"])
 
     def test_shared_normalizer_cleans_common_group_shape(self) -> None:
         selected = [

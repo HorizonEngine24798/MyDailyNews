@@ -273,21 +273,6 @@ def _normalize_analysis_model_role(value: Any, field_name: str) -> str:
     return role
 
 
-def _normalize_delta_input_source(value: Any) -> str:
-    mode = str(value or "evidence_or_articles").strip().lower()
-    allowed = {"evidence_or_articles", "evidence_only", "articles_only"}
-    if mode not in allowed:
-        raise ValueError("analysis.delta_extraction.input_source must be one of: evidence_or_articles, evidence_only, articles_only")
-    return mode
-
-
-def _normalize_delta_output_mode(value: Any) -> str:
-    mode = str(value or "full").strip().lower()
-    if mode not in {"full", "decision_only"}:
-        raise ValueError("analysis.delta_extraction.output_mode must be one of: full, decision_only")
-    return mode
-
-
 def _normalize_enrichment_mode(value: Any) -> str:
     mode = str(value or DEFAULT_ENRICHMENT["mode"]).strip().lower()
     allowed = {"story_llm", "disabled"}

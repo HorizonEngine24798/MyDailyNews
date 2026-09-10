@@ -9,13 +9,6 @@ from mydailynews.domain.candidate_annotations import candidate_memory_annotation
 from mydailynews.memory.ranking import memory_selection_summary
 
 
-DELTA_MATERIALITY_KEYS = {
-    "new": ("new", 0.95),
-    "escalated": ("escalated", 0.9),
-    "reframed": ("reframed", 0.85),
-    "weakened": ("weakened", 0.75),
-}
-
 MIN_CONFIDENCE_FOR_OMISSION = 0.7
 
 
@@ -31,11 +24,14 @@ def partition_selected_for_brief(
     """
 
     decisions = _unambiguous_story_decisions_by_article(delta_packet)
+    editor_validated = bool(
+        isinstance(delta_packet, dict) and delta_packet.get("story_delta_version") == "story-cards.v1"
+    )
     included: List[SelectedArticle] = []
     omitted: List[SelectedArticle] = []
     for article in selected:
         decision = decisions.get(str(article.candidate.id))
-        if _effective_disposition(decision) == "omit":
+        if _effective_disposition(decision, editor_validated=editor_validated) == "omit":
             omitted.append(article)
         else:
             included.append(article)
@@ -87,110 +83,43 @@ def apply_delta_signals_to_selected(
     selected: List[SelectedArticle],
     delta_packet: Dict[str, Any] | None,
 ) -> None:
-    if not isinstance(delta_packet, dict) or not delta_packet:
+    if not isinstance(delta_packet, dict) or delta_packet.get("story_delta_version") != "story-cards.v1":
         return
-    gate_packet = delta_packet.get("identity_gate", {})
-    identity_gate_active = (
-        isinstance(gate_packet, dict)
-        and str(gate_packet.get("policy_version", "") or "") == "candidate-gated.v1"
-    )
-    by_article_id: Dict[str, tuple[str, float]] = {}
     decision_by_article = _unambiguous_story_decisions_by_article(delta_packet)
-    for key, signal in DELTA_MATERIALITY_KEYS.items():
-        change_type, materiality = signal
-        for item in delta_packet.get(key, []):
-            if not isinstance(item, dict):
-                continue
-            article_ids = item.get("article_ids", [])
-            if not isinstance(article_ids, list):
-                continue
-            for article_id in article_ids:
-                text_id = str(article_id or "").strip()
-                if text_id and text_id not in by_article_id:
-                    by_article_id[text_id] = (change_type, materiality)
     for article in selected:
         decision = decision_by_article.get(article.candidate.id)
-        if decision is not None:
-            annotation = candidate_memory_annotation(article.candidate)
-            if annotation is not None:
-                change_type = str(decision.get("change_type", "") or "").strip()
-                materiality = _bounded_float(decision.get("materiality"), annotation.materiality)
-                disposition = _effective_disposition(decision)
-                relationship = str(decision.get("relationship", "") or "").strip()
-                prior_story_key = str(decision.get("prior_story_key", "") or "").strip()
-                decision_story_key = str(decision.get("story_key", "") or "").strip()
-                row_gate = decision.get("identity_gate", {})
-                gate_outcome = str(row_gate.get("outcome", "") or "").strip() if isinstance(row_gate, dict) else ""
-                if identity_gate_active and gate_outcome:
-                    # The architecture gate has already replaced untrusted keys.
-                    # A rejected or new decision stays on its provisional current
-                    # key; only an accepted candidate link can reuse a prior key.
-                    resolved_story_key = decision_story_key or annotation.story_key
-                    article.candidate.metadata["memory_identity_state"] = (
-                        "linked" if gate_outcome == "accepted_candidate_link" else "new_or_unlinked"
-                    )
-                else:
-                    # Backward-compatible path for packets created outside the
-                    # production gated pipeline.
-                    resolved_story_key = (
-                        prior_story_key
-                        if relationship == "same_story" and prior_story_key
-                        else annotation.story_key
-                    )
-                set_memory_annotation(
-                    article.candidate,
-                    MemoryAnnotation(
-                        story_key=resolved_story_key,
-                        story_family_key=annotation.story_family_key,
-                        story_title=annotation.story_title,
-                        match_confidence=annotation.match_confidence,
-                        recent_coverage_count=annotation.recent_coverage_count,
-                        recent_lead_count=annotation.recent_lead_count,
-                        covered_yesterday=annotation.covered_yesterday,
-                        change_type=change_type or annotation.change_type,
-                        materiality=max(float(annotation.materiality), materiality),
-                        score_adjustment=annotation.score_adjustment,
-                        today_policy=(
-                            "capsule_unless_material_update"
-                            if disposition == "continuing_bullet"
-                            else "omit"
-                            if disposition == "omit"
-                            else annotation.today_policy
-                        ),
-                        reason=str(decision.get("reason", "") or annotation.reason).strip(),
-                    ),
-                )
-            continue
-        signal = by_article_id.get(article.candidate.id)
-        if signal is None:
-            continue
         annotation = candidate_memory_annotation(article.candidate)
-        if annotation is None:
+        if decision is None or annotation is None:
             continue
-        change_type, materiality = signal
+        change_type = str(decision.get("change_type", "") or "").strip()
+        materiality = _bounded_float(decision.get("materiality"), annotation.materiality)
+        disposition = _effective_disposition(decision, editor_validated=True)
+        relationship = str(decision.get("relationship", "") or "").strip()
+        resolved_story_key = str(decision.get("story_key", "") or "").strip() or annotation.story_key
+        article.candidate.metadata["memory_identity_state"] = (
+            "linked" if relationship == "same_story" else "new_or_unlinked"
+        )
         set_memory_annotation(
             article.candidate,
             MemoryAnnotation(
-                story_key=annotation.story_key,
+                story_key=resolved_story_key,
                 story_family_key=annotation.story_family_key,
                 story_title=annotation.story_title,
                 match_confidence=annotation.match_confidence,
                 recent_coverage_count=annotation.recent_coverage_count,
                 recent_lead_count=annotation.recent_lead_count,
                 covered_yesterday=annotation.covered_yesterday,
-                change_type=change_type,
+                change_type=change_type or annotation.change_type,
                 materiality=max(float(annotation.materiality), materiality),
                 score_adjustment=annotation.score_adjustment,
                 today_policy=(
-                    "material_update_ok"
-                    if annotation.recent_coverage_count > 0 and materiality >= 0.8
-                    else annotation.today_policy
+                    "capsule"
+                    if disposition == "continuing_bullet"
+                    else "omit"
+                    if disposition == "omit"
+                    else "normal"
                 ),
-                reason=(
-                    "Delta analysis marks this as a material update."
-                    if annotation.recent_coverage_count > 0 and materiality >= 0.8
-                    else annotation.reason
-                ),
+                reason=str(decision.get("reason", "") or annotation.reason).strip(),
             ),
         )
 
@@ -240,12 +169,18 @@ def _unambiguous_story_decisions_by_article(
     return output
 
 
-def _effective_disposition(decision: Dict[str, Any] | None) -> str:
+def _effective_disposition(
+    decision: Dict[str, Any] | None,
+    *,
+    editor_validated: bool = False,
+) -> str:
     if not isinstance(decision, dict):
         return "full_report"
     disposition = str(decision.get("disposition", "") or "").strip()
     if disposition != "omit":
         return "continuing_bullet" if disposition == "continuing_bullet" else "full_report"
+    if editor_validated:
+        return "omit" if decision.get("editor_safe_to_defer") is True else "full_report"
     relationship = str(decision.get("relationship", "") or "").strip()
     change_type = str(decision.get("change_type", "") or "").strip()
     confidence = _bounded_float(decision.get("confidence"), 0.0)

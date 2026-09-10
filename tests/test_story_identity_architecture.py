@@ -4,13 +4,13 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 import unittest
 
-from mydailynews.analysis.claim_delta import CLAIM_RELATIONS, ENTAILMENT_VALUES
-from mydailynews.analysis.delta import _compact_decision_baselines
-from mydailynews.analysis.identity_gate import enforce_candidate_identity_gate
+from mydailynews.analysis.story_delta import StoryDeltaAnalyzer
 from mydailynews.app.models import (
     FilteringConfig,
+    DeltaExtractionConfig,
     HeadlineDecision,
     MemoryAnnotation,
     MemoryConfig,
@@ -21,10 +21,15 @@ from mydailynews.app.models import (
 )
 from mydailynews.domain.candidate_annotations import candidate_memory_annotation, set_memory_annotation
 from mydailynews.domain.headline_selection import select_articles
-from mydailynews.memory.context import build_story_memory_context
+from mydailynews.memory.context import _story_matches, build_story_memory_context
 from mydailynews.memory.coverage import CoverageMemoryStore, CoverageRecord
-from mydailynews.memory.recall import apply_delta_signals_to_selected
-from mydailynews.memory.story_store import StoryStore
+from mydailynews.memory.recall import partition_selected_for_brief
+from mydailynews.memory.story_store import (
+    StoryStore,
+    source_facts_for_article,
+    story_baseline_payload,
+)
+from mydailynews.memory.story_retrieval import StoryCandidateMatch
 from mydailynews.evaluation.retrieval_diagnostics import evaluate_story_store_retrieval
 from mydailynews.evaluation.schema import load_corpus
 
@@ -66,130 +71,6 @@ def _annotate(candidate: NewsCandidate, story_key: str) -> None:
             match_confidence=1.0,
         ),
     )
-
-
-def _story_memory(*, candidates: list[str]) -> dict:
-    return {
-        "stories": [
-            {
-                "story_key": "current-provisional",
-                "current_title": "Current observation",
-                "current_article_ids": ["current"],
-                "prior_baselines": [
-                    {"story_key": story_key, "title": story_key}
-                    for story_key in candidates
-                ],
-            }
-        ]
-    }
-
-
-class CandidateIdentityGateTests(unittest.TestCase):
-    def test_no_candidate_always_becomes_new_even_when_model_claims_same_story(self) -> None:
-        packet = enforce_candidate_identity_gate(
-            {
-                "story_decisions": [
-                    {
-                        "article_ids": ["current"],
-                        "relationship": "same_story",
-                        "prior_story_key": "invented-by-model",
-                        "change_type": "unchanged",
-                        "disposition": "omit",
-                        "confidence": 0.99,
-                    }
-                ]
-            },
-            _story_memory(candidates=[]),
-        )
-
-        decision = packet["story_decisions"][0]
-        self.assertEqual(decision["story_key"], "current-provisional")
-        self.assertEqual(decision["relationship"], "distinct_story")
-        self.assertEqual(decision["change_type"], "new")
-        self.assertEqual(decision["disposition"], "full_report")
-        self.assertEqual(decision["prior_story_key"], "")
-        self.assertEqual(packet["identity_gate"]["forced_new_without_candidate"], 1)
-
-    def test_model_cannot_link_to_key_outside_candidate_set(self) -> None:
-        packet = enforce_candidate_identity_gate(
-            {
-                "story_decisions": [
-                    {
-                        "article_ids": ["current"],
-                        "relationship": "same_story",
-                        "prior_story_key": "not-supplied",
-                        "change_type": "unchanged",
-                        "disposition": "omit",
-                        "confidence": 0.95,
-                    }
-                ]
-            },
-            _story_memory(candidates=["allowed-prior"]),
-        )
-
-        decision = packet["story_decisions"][0]
-        self.assertEqual(decision["story_key"], "current-provisional")
-        self.assertEqual(decision["relationship"], "uncertain")
-        self.assertEqual(decision["disposition"], "full_report")
-        self.assertEqual(packet["identity_gate"]["rejected_links"], 1)
-
-    def test_only_an_allowed_candidate_link_reuses_prior_story_key(self) -> None:
-        candidate = _candidate("current", "Current observation", "A source-backed current fact is reported.")
-        _annotate(candidate, "current-provisional")
-        selected = [_article(candidate)]
-        packet = enforce_candidate_identity_gate(
-            {
-                "story_decisions": [
-                    {
-                        "article_ids": ["current"],
-                        "relationship": "same_story",
-                        "prior_story_key": "allowed-prior",
-                        "change_type": "status_change",
-                        "materiality": 0.9,
-                        "disposition": "full_report",
-                        "confidence": 0.82,
-                    }
-                ]
-            },
-            _story_memory(candidates=["allowed-prior", "other-prior"]),
-        )
-
-        apply_delta_signals_to_selected(selected=selected, delta_packet=packet)
-
-        self.assertEqual(candidate_memory_annotation(candidate).story_key, "allowed-prior")
-        self.assertEqual(packet["identity_gate"]["accepted_links"], 1)
-
-    def test_missing_model_decision_is_synthesized_and_remains_visible(self) -> None:
-        packet = enforce_candidate_identity_gate({}, _story_memory(candidates=[]))
-
-        self.assertEqual(len(packet["story_decisions"]), 1)
-        self.assertEqual(packet["story_decisions"][0]["disposition"], "full_report")
-        self.assertEqual(packet["identity_gate"]["synthesized_decisions"], 1)
-
-    def test_distinct_decision_reconciles_contradictory_editorial_lists(self) -> None:
-        packet = enforce_candidate_identity_gate(
-            {
-                "story_decisions": [
-                    {
-                        "article_ids": ["current"],
-                        "relationship": "distinct_story",
-                        "change_type": "unchanged",
-                        "disposition": "omit",
-                        "confidence": 0.9,
-                        "bullet": "Current observation",
-                    }
-                ],
-                "unchanged_but_important": [
-                    {"item": "Contradictory model row", "article_ids": ["current"]}
-                ],
-            },
-            _story_memory(candidates=["plausible-but-distinct"]),
-        )
-
-        self.assertEqual(packet["unchanged_but_important"], [])
-        self.assertEqual(packet["story_decisions"][0]["change_type"], "new")
-        self.assertEqual(packet["story_decisions"][0]["disposition"], "full_report")
-        self.assertEqual(packet["new"][0]["article_ids"], ["current"])
 
 
 class StoryStoreTests(unittest.TestCase):
@@ -375,6 +256,295 @@ class StoryStoreTests(unittest.TestCase):
             self.assertTrue(hidden_pass_fact.user_visible)
             self.assertIn(source_fact.fact_id, hidden_pass_record.last_user_visible_fact_ids)
 
+    def test_suppressed_story_still_updates_source_evidence(self) -> None:
+        with TemporaryDirectory() as raw_dir:
+            store = StoryStore.from_state_dir(Path(raw_dir))
+            candidate = _candidate(
+                "hidden-repeat",
+                "Harbor bridge remains closed",
+                "Inspectors said the Harbor bridge remains closed.",
+            )
+            _annotate(candidate, "harbor-bridge")
+            store.update_selected(
+                selected=[_article(candidate)],
+                date="2026-04-01",
+                visible_article_ids=[],
+                delta_packet={"story_decisions": [{
+                    "article_ids": [candidate.id],
+                    "relationship": "same_story",
+                    "change_type": "unchanged",
+                    "disposition": "omit",
+                    "summary": "Repeated source evidence.",
+                }]},
+            )
+            record = store.records()[0]
+            self.assertIn(candidate.id, record.source_document_ids)
+            self.assertTrue(any(fact.source_id == candidate.id for fact in record.facts))
+            self.assertEqual(record.last_seen, "2026-04-01")
+
+    def test_production_delta_selects_one_prior_then_edits_all_cards(self) -> None:
+        current = _candidate(
+            "current",
+            "Bridge remains closed",
+            "The bridge remains closed pending inspection.",
+        )
+        selected = [_article(current)]
+        story_memory = {
+            "stories": [{
+                "story_key": "current-provisional",
+                "current_title": "Bridge remains closed",
+                "current_article_ids": ["current"],
+                "current_articles": [{"id": "current", "headline": current.title}],
+                "prior_baselines": [
+                    {
+                        "story_key": "wrong-bridge",
+                        "title": "A different bridge opened",
+                        "source_facts": [{
+                            "fact_id": "fact:wrong",
+                            "text": "A different bridge opened.",
+                            "source_id": "old-wrong",
+                        }],
+                    },
+                    {
+                        "story_key": "right-bridge",
+                        "title": "Bridge remains closed",
+                        "source_facts": [{
+                            "fact_id": "fact:right",
+                            "text": "The bridge remains closed pending inspection.",
+                            "source_id": "old-right",
+                        }],
+                    },
+                ],
+            }],
+        }
+
+        class Client:
+            def __init__(self):
+                self.config = SimpleNamespace(
+                    backend="test",
+                    effective_model_label="test",
+                )
+                self.calls = []
+
+            def complete_json(self, system, user, **kwargs):
+                schema_name = kwargs["json_schema"].name
+                self.calls.append(schema_name)
+                if schema_name == "story_identity_selection":
+                    return {
+                        "relationship": "same_story",
+                        "prior_story_key": "right-bridge",
+                        "confidence": 0.9,
+                        "basis": "Same bridge and unresolved closure.",
+                    }
+                if schema_name == "fact_operations":
+                    comparison = json.loads(user.split("Story comparison:\n", 1)[1].split("\n\nReturn", 1)[0])
+                    return {
+                        "story_key": "right-bridge",
+                        "operations": [
+                            {
+                                "operation": "repeat",
+                                "current_evidence_id": claim["claim_id"],
+                                "prior_fact_ids": ["fact:right"],
+                            }
+                            for claim in comparison["current_evidence"]
+                        ],
+                    }
+                return {
+                    "decisions": [{
+                        "card_id": "story-card-001",
+                        "disposition": "omit",
+                        "materiality": 0,
+                        "summary": "Bridge closure is unchanged.",
+                        "basis": "No information gain today.",
+                    }],
+                }
+
+        client = Client()
+        packet = StoryDeltaAnalyzer(client, DeltaExtractionConfig(enabled=True)).extract(
+            selected,
+            UserMemory(),
+            "daily brief",
+            story_memory,
+        )
+
+        self.assertEqual(
+            client.calls,
+            ["story_identity_selection", "fact_operations", "story_editor_selection"],
+        )
+        self.assertEqual(packet["story_cards"][0]["prior_story_key"], "right-bridge")
+        self.assertNotIn("fact:wrong", json.dumps(packet["story_cards"][0]))
+        self.assertEqual(packet["story_decisions"][0]["change_type"], "unchanged")
+        self.assertEqual(packet["story_decisions"][0]["disposition"], "omit")
+
+        with TemporaryDirectory() as raw_dir:
+            _annotate(current, "right-bridge")
+            store = StoryStore.from_state_dir(Path(raw_dir))
+            store.update_selected(
+                selected=selected,
+                date="2026-09-10",
+                delta_packet=packet,
+            )
+            event = store.records()[0].thread_events[-1]
+            self.assertEqual(event.operations[0]["operation"], "repeat")
+            self.assertEqual(
+                event.current_evidence_ids,
+                packet["story_decisions"][0]["current_evidence_ids"],
+            )
+            self.assertEqual(event.prior_evidence_ids, ["fact:right"])
+
+    def test_stashed_replacement_is_the_next_days_active_baseline(self) -> None:
+        with TemporaryDirectory() as raw_dir:
+            store = StoryStore.from_state_dir(Path(raw_dir))
+            first = _article(_candidate(
+                "state-a",
+                "Harbor gate schedule",
+                "Officials said the harbor gate will reopen on Monday.",
+            ))
+            _annotate(first.candidate, "harbor-gate")
+            store.update_selected(
+                selected=[first],
+                date="2026-09-08",
+                visible_article_ids=["state-a"],
+            )
+            first_record = store.records()[0]
+            fact_a = next(
+                fact
+                for fact in first_record.facts
+                if fact.kind == "source_sentence"
+            )
+
+            replacement = _article(_candidate(
+                "state-b",
+                "Harbor gate schedule",
+                "Officials corrected the schedule: the harbor gate will reopen on Tuesday rather than Monday.",
+            ))
+            _annotate(replacement.candidate, "harbor-gate")
+            fact_b = next(
+                fact
+                for fact in source_facts_for_article(
+                    replacement,
+                    observed_at="2026-09-09",
+                    user_visible=False,
+                )
+                if fact.kind == "source_sentence"
+            )
+            store.update_selected(
+                selected=[replacement],
+                date="2026-09-09",
+                visible_article_ids=[],
+                delta_packet={
+                    "story_delta_version": "story-cards.v1",
+                    "story_decisions": [{
+                        "story_key": "harbor-gate",
+                        "article_ids": ["state-b"],
+                        "relationship": "same_story",
+                        "change_type": "correction",
+                        "materiality": 1.0,
+                        "disposition": "omit",
+                        "editor_safe_to_defer": True,
+                        "current_evidence_ids": [fact_b.fact_id],
+                        "prior_evidence_ids": [fact_a.fact_id],
+                        "superseded_prior_evidence_ids": [fact_a.fact_id],
+                        "operations": [{
+                            "operation": "replace",
+                            "current_evidence_id": fact_b.fact_id,
+                            "prior_fact_ids": [fact_a.fact_id],
+                        }],
+                    }],
+                },
+            )
+
+            next_day_record = StoryStore.from_state_dir(Path(raw_dir)).records()[0]
+            baseline = story_baseline_payload(StoryCandidateMatch(
+                score=1.0,
+                record=next_day_record,
+                lexical_score=1.0,
+                alias_score=0.0,
+                entity_score=0.0,
+                event_score=0.0,
+                fact_score=1.0,
+                numeric_conflict=False,
+            ))
+
+        baseline_ids = {fact["fact_id"] for fact in baseline["source_facts"]}
+        self.assertEqual(next_day_record.last_shown, "2026-09-08")
+        self.assertIn(fact_b.fact_id, next_day_record.active_fact_ids)
+        self.assertNotIn(fact_a.fact_id, next_day_record.active_fact_ids)
+        self.assertIn(fact_b.fact_id, baseline_ids)
+        self.assertNotIn(fact_a.fact_id, baseline_ids)
+
+    def test_only_validated_story_editor_can_defer_a_material_story(self) -> None:
+        article = _article(_candidate("deferred", "Rare event", "A rare event occurred."))
+        decision = {
+            "story_key": "rare-event",
+            "article_ids": ["deferred"],
+            "relationship": "distinct_story",
+            "change_type": "new",
+            "confidence": 0.9,
+            "disposition": "omit",
+            "editor_safe_to_defer": True,
+        }
+        included, omitted = partition_selected_for_brief(
+            selected=[article],
+            delta_packet={
+                "story_delta_version": "story-cards.v1",
+                "story_decisions": [decision],
+            },
+        )
+        self.assertEqual(included, [])
+        self.assertEqual(omitted, [article])
+
+        for packet in (
+            {"story_delta_version": "story-cards.v1", "story_decisions": [{**decision, "editor_safe_to_defer": False}]},
+            {"story_decisions": [decision]},
+        ):
+            included, omitted = partition_selected_for_brief(selected=[article], delta_packet=packet)
+            self.assertEqual(included, [article])
+            self.assertEqual(omitted, [])
+
+    def test_candidate_context_excludes_same_day_history(self) -> None:
+        article = _article(_candidate("current", "Bridge update", "The bridge remains closed."))
+
+        def match(story_key: str, last_seen: str, score: float) -> StoryCandidateMatch:
+            return StoryCandidateMatch(
+                score=score,
+                record=SimpleNamespace(
+                    story_key=story_key,
+                    title=story_key,
+                    last_seen=last_seen,
+                    source_document_ids=[],
+                ),
+                lexical_score=score,
+                alias_score=0.0,
+                entity_score=0.0,
+                event_score=0.0,
+                fact_score=0.0,
+                numeric_conflict=False,
+            )
+
+        class Store:
+            def candidate_stories(self, *args, **kwargs):
+                return [
+                    match("written-by-general", "2026-09-10", 0.9),
+                    match("yesterdays-baseline", "2026-09-09", 0.8),
+                ]
+
+        matches = _story_matches(
+            [article],
+            story_store=Store(),
+            limit=3,
+            as_of_date="2026-09-10",
+        )
+
+        self.assertEqual(
+            [item.record.story_key for item in matches],
+            ["yesterdays-baseline"],
+        )
+        self.assertEqual(
+            [item["story_key"] for item in article.candidate.metadata["memory_prior_story_candidates"]],
+            ["yesterdays-baseline"],
+        )
+
     def test_store_compacts_repeated_and_old_evidence_but_keeps_visible_baseline(self) -> None:
         with TemporaryDirectory() as raw_dir:
             store = StoryStore.from_state_dir(Path(raw_dir))
@@ -526,9 +696,28 @@ class StoryStoreTests(unittest.TestCase):
             self.assertEqual(baselines[0]["source_facts"][0]["source_id"], "ledger-old")
             self.assertLessEqual(len(baselines), 3)
 
-            compact = _compact_decision_baselines(context, [], [_article(current)])
-            self.assertTrue(compact[0]["source_facts"])
-            self.assertEqual(compact[0]["source_facts"][0]["source_id"], "ledger-old")
+            strict_context = build_story_memory_context(
+                selected=[_article(current)],
+                story_groups=[],
+                story_store=store,
+                coverage_store=None,
+                prior_reports=[],
+                date="2026-03-02",
+                candidate_threshold=1.0,
+            )
+            self.assertEqual(strict_context["stories"][0]["prior_baselines"], [])
+
+            # A general brief may already have written today's record before a
+            # detailed brief starts. It must not become the detailed baseline.
+            same_day_context = build_story_memory_context(
+                selected=[_article(current)],
+                story_groups=[],
+                story_store=store,
+                coverage_store=None,
+                prior_reports=[],
+                date="2026-03-01",
+            )
+            self.assertEqual(same_day_context["stories"][0]["prior_baselines"], [])
 
     def test_full_corpus_candidate_recall_regression(self) -> None:
         corpus_path = Path(__file__).resolve().parents[1] / "evals" / "cases" / "change_monitoring.v1.json"
@@ -551,25 +740,21 @@ class StoryStoreTests(unittest.TestCase):
                     f"The Glass Orchard gate entered operational state {index}.",
                 )
                 _annotate(candidate, "glass-orchard-thread")
-                packet = {"story_decisions": [{
+                packet = {"story_delta_version": "story-cards.v1", "story_decisions": [{
                     "article_ids": [candidate.id],
                     "relationship": "same_story" if index else "distinct_story",
                     "change_type": "status_change" if index else "new",
                     "materiality": 0.9,
                     "disposition": "full_report",
                     "summary": f"Operational state {index} was source-confirmed.",
-                    "claim_delta": {
-                        "added_claims": [f"state {index}"],
-                        "repeated_claims": [],
-                        "superseded_claims": [f"state {index - 1}"] if index else [],
-                        "claim_relations": ([{
-                            "current_claim_id": f"fact:state-{index}",
-                            "prior_claim_id": f"fact:state-{index - 1}",
-                            "relation": "temporal_successor",
-                            "current_entails_prior": "no",
-                            "prior_entails_current": "no",
-                        }] if index else []),
-                    },
+                    "current_evidence_ids": [f"fact:state-{index}"],
+                    "prior_evidence_ids": [f"fact:state-{index - 1}"] if index else [],
+                    "superseded_prior_evidence_ids": [f"fact:state-{index - 1}"] if index else [],
+                    "operations": [{
+                        "operation": "replace" if index else "add",
+                        "current_evidence_id": f"fact:state-{index}",
+                        "prior_fact_ids": [f"fact:state-{index - 1}"] if index else [],
+                    }],
                 }]}
                 store.update_selected(
                     selected=[_article(candidate)], date=f"2026-04-{index + 1:02d}", delta_packet=packet,
@@ -577,58 +762,9 @@ class StoryStoreTests(unittest.TestCase):
             record = StoryStore.from_state_dir(Path(raw_dir)).records()[0]
 
         self.assertEqual(len(record.thread_events), 24)
-        self.assertEqual(record.thread_events[-1].added_claims, ["state 29"])
-        self.assertEqual(record.thread_events[-1].claim_relations[0]["relation"], "temporal_successor")
-        self.assertNotIn("state 0", [claim for event in record.thread_events for claim in event.added_claims])
-
-    def test_story_store_round_trips_the_canonical_claim_relation_ontology(self) -> None:
-        with TemporaryDirectory() as raw_dir:
-            root = Path(raw_dir)
-            store = StoryStore.from_state_dir(root)
-            entailment_values = sorted(ENTAILMENT_VALUES)
-            for index, relation in enumerate(sorted(CLAIM_RELATIONS)):
-                candidate = _candidate(
-                    f"relation-{index}",
-                    f"Glass Orchard relation observation {index}",
-                    f"The Glass Orchard supplied source evidence for relation observation {index}.",
-                )
-                _annotate(candidate, "glass-orchard-relations")
-                packet = {"story_decisions": [{
-                    "article_ids": [candidate.id],
-                    "relationship": "same_story",
-                    "change_type": "incremental",
-                    "summary": f"Relation {index} was source-confirmed.",
-                    "claim_delta": {
-                        "claim_relations": [{
-                            "current_claim_id": f"fact:current-{index}",
-                            "prior_claim_id": f"fact:prior-{index}",
-                            "relation": relation,
-                            "current_entails_prior": entailment_values[index % len(entailment_values)],
-                            "prior_entails_current": entailment_values[(index + 1) % len(entailment_values)],
-                        }],
-                    },
-                }]}
-                store.update_selected(
-                    selected=[_article(candidate)],
-                    date=f"2026-05-{index + 1:02d}",
-                    delta_packet=packet,
-                )
-
-            reloaded = StoryStore.from_state_dir(root).records()[0]
-            persisted_relations = {
-                claim_relation["relation"]
-                for event in reloaded.thread_events
-                for claim_relation in event.claim_relations
-            }
-            persisted_entailment_values = {
-                claim_relation[field]
-                for event in reloaded.thread_events
-                for claim_relation in event.claim_relations
-                for field in ("current_entails_prior", "prior_entails_current")
-            }
-
-        self.assertEqual(persisted_relations, CLAIM_RELATIONS)
-        self.assertEqual(persisted_entailment_values, ENTAILMENT_VALUES)
+        self.assertEqual(record.thread_events[-1].current_evidence_ids, ["fact:state-29"])
+        self.assertEqual(record.thread_events[-1].superseded_prior_evidence_ids, ["fact:state-28"])
+        self.assertNotIn("fact:state-0", [fact_id for event in record.thread_events for fact_id in event.current_evidence_ids])
 
 
 if __name__ == "__main__":

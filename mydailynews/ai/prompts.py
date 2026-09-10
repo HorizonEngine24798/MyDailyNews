@@ -209,10 +209,12 @@ Work to perform:
    - topic framing fields: short, concrete sentences.
    - list fields: concise bullets, no filler.
 5. Use evidence and delta packets when provided, but do not overstate uncertain points.
-6. Use coverage guidance to avoid making recently dominant continuing stories the core narrative unless today's supplied evidence shows a material new phase. If a story remains important but repetitive, cover it compactly and leave room for other material developments.
-7. Populate explicit `knowns`, `unknowns`, and `watch_signals` slots.
-8. Do not generate a references/sources section.
-9. Do not include URLs or markdown links in generated text fields.
+6. Follow validated delta `story_decisions` dispositions: give `full_report` normal treatment and
+   limit each `continuing_bullet` story to one compact sentence. Omitted stories are intentionally absent.
+7. Use coverage guidance to avoid making recently dominant continuing stories the core narrative unless today's supplied evidence shows a material new phase.
+8. Populate explicit `knowns`, `unknowns`, and `watch_signals` slots.
+9. Do not generate a references/sources section.
+10. Do not include URLs or markdown links in generated text fields.
 
 Return:
 {{
@@ -378,94 +380,69 @@ Return:
 }}"""
 
 
-DELTA_EXTRACTION_SYSTEM = """You extract structured narrative deltas between prior reports and current evidence.
-Return exactly one valid JSON object.
-Do not use markdown fences.
-Do not invent facts. Only use supplied article/context/prior-report evidence.
-Compare complete propositions in context, including attribution, negation, quantity, and time.
-Never infer a transition label from the presence of an action word or phrase alone.
-If prior evidence is insufficient, state that directly in baseline_coverage_note and keep lists concise."""
+STORY_IDENTITY_SYSTEM = """You select the identity baseline for one grouped current story-day.
+Return exactly one JSON object matching the supplied schema.
+Choose at most one supplied prior story key. Never invent a key.
+A shared topic, institution, person, or place is not enough: same_story means the same concrete
+unfolding event, decision, investigation, release, incident, case, or explicitly continued state."""
 
 
-DELTA_DECISION_SYSTEM = """You classify story identity and source-backed change.
-Return exactly one valid JSON object matching the supplied schema.
-Do not invent facts, write markdown, or add editorial sections.
-Compare complete propositions in context, including attribution, negation, quantity, and time.
-Never infer a transition label from the presence of an action word or phrase alone.
-Use only current evidence and the bounded candidate baselines."""
+STORY_IDENTITY_USER = """Current grouped story-day and retrieved prior candidates:
+{identity_packet}
 
-DELTA_EXTRACTION_USER = """Reader profile and style:
+Return:
+- same_story with exactly one prior_story_key only when it is the same concrete unfolding story;
+- distinct_story with an empty prior_story_key when none is the same story;
+- uncertain with an empty prior_story_key when the supplied evidence cannot safely decide.
+
+Confidence is 0.0-1.0. Keep basis to at most 16 words."""
+
+
+FACT_OPERATION_SYSTEM = """You compare one grouped current story-day with one confirmed prior story baseline.
+Return exactly one JSON object matching the supplied schema.
+Use only the supplied evidence IDs; copy them exactly and never construct an ID.
+Do not decide identity, materiality, confidence, publication, or editorial prose.
+Preserve attribution, negation, quantities, modality, and time.
+Omission from current evidence never retracts or replaces a prior fact."""
+
+
+FACT_OPERATION_USER = """Story comparison:
+{comparison}
+
+Return source-backed fact operations:
+- add: a current proposition not represented by an active prior fact; cite no prior fact.
+- repeat: an equivalent or weaker current proposition; cite the represented prior fact.
+- replace: current evidence explicitly corrects, contradicts, or supersedes the cited prior fact.
+- resolve: current evidence closes the cited central open issue or uncertainty.
+- uncertain: evidence is insufficient; cite no prior fact.
+
+Return exactly one operation for every current evidence ID. Do not use replace for ordinary
+temporal progression, added detail, or omission. Copy the supplied story_key and evidence IDs exactly."""
+
+
+STORY_EDITOR_SYSTEM = """You are the selection editor for a personal news brief.
+Return exactly one JSON object matching the supplied schema.
+You receive every validated current story card. Select coverage; do not alter fact operations.
+An omitted story is stashed for memory, not deleted."""
+
+
+STORY_EDITOR_USER = """Reader memory and style:
 {memory}
 
 Brief mode:
 {brief_goal}
 
-Extract narrative deltas for {date}.
+Validated story cards:
+{story_cards}
 
-Topics:
-{topics}
+Return exactly one decision for every supplied card_id. Use full_report for at most five cards:
+- full_report: reserve for the five most consequential, urgent, or genuinely novel stories at most.
+- continuing_bullet: a useful but secondary delta worth one compact mention.
+- omit: low-value, repeated, or deferrable today; it remains stashed in story memory.
 
-Previous reports:
-{prior_reports}
-
-Current evidence packet:
-{evidence_packet}
-
-Story memory (bounded and story-specific; candidate history, not proof of identity):
-{story_memory}
-
-Fallback selected article evidence:
-{articles}
-
-Work to perform:
-1. For every current story thread, decide whether it is the same concrete story, a related theme, distinct, or uncertain relative to the supplied baselines.
-2. If it is the same story, use a domain-neutral change label: material_update, status_change, correction, resolved, incremental, reframed, unchanged, or uncertain. Use escalated/weakened only when direction is explicitly supported. Copy the matched baseline's supplied story_key into prior_story_key.
-3. Keep entries evidence-grounded and link article ids. Never infer same-story identity from topic overlap alone. A same-story unchanged item should be omitted unless it is critical safety information; a non-material continuation should be a continuing bullet, not a full report.
-4. Use uncertain when the baseline is weak or evidence conflicts; do not suppress uncertain stories.
-5. Flag evidence gaps that limit confidence.
-6. For each decision, cite the minimal supplied current and prior claim IDs in current_evidence_ids
-   and prior_evidence_ids. A first observation has no prior IDs.
-7. Emit claim_relations edges for every cited current/prior comparison. For each edge classify the
-   relation as equivalent, supports, adds_detail, contradicts, supersedes, temporal_successor,
-   context_only, or uncertain, and assess entailment in both directions as yes, no, or uncertain.
-8. Put an ID in superseded_prior_evidence_ids only when the current evidence actually replaces that
-   exact prior proposition. Copy IDs exactly; never construct or guess them.
-
-Return one object matching the supplied JSON schema. Include every required
-top-level key, using empty arrays when a category has no items. Emit exactly
-one story_decisions entry per current story thread. Keep every prose value to
-at most 16 words. Omit optional knowns, unknowns, and watch_signals unless they
-are essential. Do not duplicate a decision into a change-category list unless
-that category adds useful information."""
-
-
-DELTA_DECISION_USER = """Date: {date}
-
-Profile priorities:
-{profile}
-
-Current source evidence:
-{current}
-
-Candidate prior-story baselines:
-{baselines}
-
-Classify every current article id (or evidence-cluster article id) exactly once.
-- same_story requires the same concrete event or tracked process, not topic overlap.
-- Copy the matching baseline story_key into prior_story_key; otherwise use an empty string.
-- A first observation is distinct_story + new + full_report.
-- For same_story choose the evidence-backed change: material_update, status_change, correction,
-  resolved, incremental, reframed, unchanged, or uncertain.
-- same_story + unchanged should be omitted. A non-material continuation should be a continuing_bullet.
-- Never omit an uncertain or materially changed story.
-- Cite the minimal supplied current and prior claim IDs in current_evidence_ids and
-  prior_evidence_ids. A first observation has no prior IDs.
-- Emit claim_relations for cited pairs. Each edge uses equivalent, supports, adds_detail,
-  contradicts, supersedes, temporal_successor, context_only, or uncertain, plus yes/no/uncertain
-  entailment in both directions.
-- Put an ID in superseded_prior_evidence_ids only when current evidence replaces that exact prior
-  proposition. Copy every ID exactly; never construct or guess IDs.
-- Keep summary to at most 12 words."""
+Judge cards against each other, not in isolation. Do not omit an uncertain identity or unsafe
+operation result. Materiality is an integer 0-3. Summary states the supported delta in at most
+16 words; basis explains the coverage choice in at most 16 words."""
 
 
 PERSPECTIVES_PLANNER_SYSTEM = """You plan bounded broad story retrieval and focused claim verification using English queries.

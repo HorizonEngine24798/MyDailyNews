@@ -86,6 +86,7 @@ def _story_context(
             story_store=story_store,
             limit=max_baselines_per_story,
             candidate_threshold=candidate_threshold,
+            as_of_date=date,
         )
         for match in matches:
             coverage = (
@@ -115,6 +116,7 @@ def _story_context(
             {item["story_key"] for item in baselines},
             current_key=key,
             current_family=current_family,
+            as_of_date=date,
         )
         if prior_baselines:
             for baseline in prior_baselines:
@@ -142,15 +144,24 @@ def _story_matches(
     story_store: StoryStore,
     limit: int,
     candidate_threshold: float = DEFAULT_CANDIDATE_THRESHOLD,
+    as_of_date: str = "",
 ) -> List[StoryCandidateMatch]:
     by_story_key: Dict[str, StoryCandidateMatch] = {}
     for article in articles:
         matches = story_store.candidate_stories(
             article.candidate,
             source_text=article.article_text or article.candidate.snippet,
-            limit=limit,
+            limit=max(3, int(limit) * 2),
             min_score=candidate_threshold,
         )
+        if as_of_date:
+            cutoff = str(as_of_date)[:10]
+            matches = [
+                match
+                for match in matches
+                if not str(match.record.last_seen or "")[:10]
+                or str(match.record.last_seen or "")[:10] < cutoff
+            ]
         article.candidate.metadata["memory_prior_story_candidates"] = [
             match.metadata() for match in matches
         ]
@@ -213,9 +224,12 @@ def _prior_report_baselines(
     *,
     current_key: str,
     current_family: str,
+    as_of_date: str = "",
 ) -> List[Dict[str, Any]]:
     output: List[Dict[str, Any]] = []
     for report in prior_reports:
+        if as_of_date and str(report.date or "")[:10] >= str(as_of_date)[:10]:
+            continue
         rows = getattr(report, "story_baselines", [])
         if not isinstance(rows, list):
             continue

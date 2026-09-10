@@ -761,15 +761,6 @@
       "learned_preference_negative_candidates": 0,
       "learned_preference_topic_matches": 0,
       "learned_preference_source_matches": 0
-    },
-    "analysis_rollout": {
-      "enabled": true,
-      "profile": "safe_local",
-      "mode": "general",
-      "evidence_requested_enabled": false,
-      "evidence_enabled": true,
-      "delta_requested_enabled": false,
-      "delta_enabled": false
     }
   },
   "analysis": {
@@ -1197,9 +1188,7 @@
           ]
         }
       ],
-      "evidence_gaps": [],
-      "deterministic_scaffold": true
-    },
-    "delta_model_role": "deterministic_scaffold"
+      "evidence_gaps": []
+    }
   }
 }

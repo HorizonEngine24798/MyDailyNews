@@ -7,11 +7,17 @@ from mydailynews.ai.base import AIClient
 from mydailynews.ai.prompts import BRIEF_SYSTEM, BRIEF_USER
 from mydailynews.ai.schemas import FINAL_BRIEF_JSON_SCHEMA
 from mydailynews.ai.token_budget import TokenBudget, resolve_client_token_budget
+from mydailynews.analysis.policy_filter import (
+    filter_delta_packet_for_articles,
+    filter_evidence_packet_for_articles,
+    filter_prior_reports_for_articles,
+)
 from mydailynews.analysis.shared import story_thread_payloads
 from mydailynews.diagnostics.debug import DebugLogger
 from mydailynews.app.models import PriorReport, SelectedArticle, TopicConfig, UserMemory
 from mydailynews.common.utils import compact_json, datetime_to_iso
 from mydailynews.domain.candidate_annotations import candidate_memory_annotation
+from mydailynews.memory.recall import recall_packet_for_selected
 
 FINAL_PROMPT_BUDGET_SAFETY_RATIO = 0.95
 
@@ -90,11 +96,16 @@ class BriefGenerator:
         result["major_headlines"] = self._major_headlines_payload(used_articles)
         result["selected_articles"] = self._selected_articles_payload(used_articles)
         result["references"] = self._references_payload(used_articles)
+        used_evidence_packet = self._evidence_packet_for_articles(
+            evidence_packet or {},
+            used_articles,
+        )
+        used_delta_packet = self._delta_packet_for_articles(delta_packet or {}, used_articles)
         self._ensure_signal_slots(
             result,
             used_articles,
-            evidence_packet=evidence_packet or {},
-            delta_packet=delta_packet or {},
+            evidence_packet=used_evidence_packet,
+            delta_packet=used_delta_packet,
         )
         self.debug.log("brief.ai", "complete", articles=len(used_articles))
         return result
@@ -112,7 +123,12 @@ class BriefGenerator:
         recall_packet: Dict[str, Any] | None = None,
     ) -> tuple[str, List[SelectedArticle]]:
         prompt_budget_tokens = self._prompt_budget_tokens()
-        ordered_articles = sorted(articles, key=lambda item: item.decision.score, reverse=True)
+        ordered_articles = sorted(
+            articles,
+            key=lambda item: self._writer_article_priority(item, delta_packet),
+            reverse=True,
+        )
+        all_article_ids = {str(article.candidate.id) for article in ordered_articles}
         active_reports = prior_reports[:3]
         analysis_options = self._analysis_payload_options(evidence_packet, delta_packet)
         excerpt_options = [
@@ -143,6 +159,7 @@ class BriefGenerator:
                     evidence_packet=evidence_payload,
                     delta_packet=delta_payload,
                     recall_packet=recall_packet or {},
+                    all_article_ids=all_article_ids,
                 )
                 estimated_tokens = self._estimate_final_input_tokens(prompt)
                 self.debug.log(
@@ -196,6 +213,7 @@ class BriefGenerator:
                 evidence_packet=fallback_evidence,
                 delta_packet=fallback_delta,
                 recall_packet=recall_packet or {},
+                all_article_ids=all_article_ids,
             ),
             [],
         )
@@ -212,19 +230,101 @@ class BriefGenerator:
         evidence_packet: Dict[str, Any],
         delta_packet: Dict[str, Any],
         recall_packet: Dict[str, Any] | None = None,
+        all_article_ids: set[str] | None = None,
     ) -> str:
         payload = [self._article_payload(article, excerpt_chars) for article in articles]
+        allowed_ids = {str(article.candidate.id) for article in articles}
+        omitted_count = len((all_article_ids or allowed_ids) - allowed_ids)
+        writer_evidence_packet = self._evidence_packet_for_articles(evidence_packet, articles)
+        writer_delta_packet = self._delta_packet_for_articles(delta_packet, articles)
+        writer_prior_reports = (
+            filter_prior_reports_for_articles(
+                prior_reports,
+                selected=articles,
+                omitted_count=omitted_count,
+            )
+            if omitted_count
+            else prior_reports
+        )
+        writer_recall_packet = (
+            recall_packet_for_selected(recall_packet, articles)
+            if omitted_count
+            else (recall_packet or {})
+        )
         return BRIEF_USER.format(
             memory=memory.to_prompt(),
             date=date,
             brief_goal=brief_goal,
             topics=compact_json(self._topics_payload(topics)),
-            prior_reports=compact_json(self._prior_reports_payload(prior_reports)),
-            recall_packet=compact_json(recall_packet or {}),
-            evidence_packet=compact_json(evidence_packet),
-            delta_packet=compact_json(delta_packet),
+            prior_reports=compact_json(self._prior_reports_payload(writer_prior_reports)),
+            recall_packet=compact_json(writer_recall_packet),
+            evidence_packet=compact_json(writer_evidence_packet),
+            delta_packet=compact_json(writer_delta_packet),
             articles=compact_json(payload),
         )
+
+    @staticmethod
+    def _writer_article_priority(article: SelectedArticle, delta_packet: Dict[str, Any]) -> tuple[int, float]:
+        disposition_rank = {"omit": 0, "continuing_bullet": 1, "full_report": 2}
+        rank = 2  # Unknown control data fails open to normal/full treatment.
+        article_id = str(article.candidate.id)
+        for decision in delta_packet.get("story_decisions", []) if isinstance(delta_packet, dict) else []:
+            if not isinstance(decision, dict) or article_id not in {
+                str(value) for value in decision.get("article_ids", [])
+            }:
+                continue
+            rank = disposition_rank.get(str(decision.get("disposition", "full_report")), 2)
+            break
+        return rank, float(article.decision.score)
+
+    @staticmethod
+    def _delta_packet_for_articles(
+        delta_packet: Dict[str, Any],
+        articles: List[SelectedArticle],
+    ) -> Dict[str, Any]:
+        """Keep delta prose and control rows only for articles still in the writer prompt."""
+
+        if not isinstance(delta_packet, dict) or not delta_packet:
+            return {}
+        allowed_ids = {str(article.candidate.id) for article in articles}
+        omitted_count = len(BriefGenerator._referenced_article_ids(delta_packet) - allowed_ids)
+        return filter_delta_packet_for_articles(
+            delta_packet,
+            allowed_article_ids=allowed_ids,
+            omitted_count=omitted_count,
+        )
+
+    @staticmethod
+    def _evidence_packet_for_articles(
+        evidence_packet: Dict[str, Any],
+        articles: List[SelectedArticle],
+    ) -> Dict[str, Any]:
+        """Drop synthesized evidence whenever any supporting article is absent."""
+
+        if not isinstance(evidence_packet, dict) or not evidence_packet:
+            return {}
+        allowed_ids = {str(article.candidate.id) for article in articles}
+        omitted_count = len(BriefGenerator._referenced_article_ids(evidence_packet) - allowed_ids)
+        return filter_evidence_packet_for_articles(
+            evidence_packet,
+            allowed_article_ids=allowed_ids,
+            omitted_count=omitted_count,
+        )
+
+    @staticmethod
+    def _referenced_article_ids(value: Any) -> set[str]:
+        output: set[str] = set()
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if key in {"article_ids", "support_article_ids", "origin_article_ids"}:
+                    if isinstance(item, list):
+                        output.update(str(raw) for raw in item if str(raw).strip())
+                    continue
+                output.update(BriefGenerator._referenced_article_ids(item))
+        elif isinstance(value, list):
+            for item in value:
+                output.update(BriefGenerator._referenced_article_ids(item))
+        return output
 
     def _estimate_final_input_tokens(self, prompt: str) -> int:
         return self.client.estimate_tokens(f"System:\n{BRIEF_SYSTEM}\n\nUser:\n{prompt}\n\nAssistant:\n")
@@ -404,11 +504,17 @@ class BriefGenerator:
         evidence_packet: Dict[str, Any],
         delta_packet: Dict[str, Any],
     ) -> List[tuple[str, Dict[str, Any], Dict[str, Any]]]:
+        control_delta = self._compact_delta_packet(delta_packet, mode="minimal")
+        control_delta = (
+            {"story_decisions": control_delta.get("story_decisions", [])}
+            if control_delta.get("story_decisions")
+            else {}
+        )
         options_raw = [
             ("full", self._compact_evidence_packet(evidence_packet, mode="full"), self._compact_delta_packet(delta_packet, mode="full")),
             ("compact", self._compact_evidence_packet(evidence_packet, mode="compact"), self._compact_delta_packet(delta_packet, mode="compact")),
             ("minimal", self._compact_evidence_packet(evidence_packet, mode="minimal"), self._compact_delta_packet(delta_packet, mode="minimal")),
-            ("none", {}, {}),
+            ("control", {}, control_delta),
         ]
         deduped: List[tuple[str, Dict[str, Any], Dict[str, Any]]] = []
         seen: set[str] = set()
@@ -418,7 +524,7 @@ class BriefGenerator:
                 continue
             seen.add(signature)
             deduped.append((label, evidence, delta))
-        return deduped or [("none", {}, {})]
+        return deduped or [("control", {}, control_delta)]
 
     @staticmethod
     def _compact_evidence_packet(packet: Dict[str, Any], mode: str) -> Dict[str, Any]:
@@ -503,7 +609,9 @@ class BriefGenerator:
 
         def _story_decisions() -> List[Dict[str, Any]]:
             rows: List[Dict[str, Any]] = []
-            for item in packet.get("story_decisions", [])[:item_limit]:
+            # Disposition is writer control data, not optional descriptive
+            # context. Preserve one small row for every surviving story.
+            for item in packet.get("story_decisions", []):
                 if not isinstance(item, dict):
                     continue
                 rows.append(

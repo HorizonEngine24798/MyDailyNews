@@ -207,14 +207,9 @@ class EvidenceDistillationConfig:
 class DeltaExtractionConfig:
     enabled: bool = False
     model_role: str = "summary"
-    input_source: str = "evidence_or_articles"
-    output_mode: str = "full"
-    require_prior_reports: bool = False
     max_input_tokens: int = 8000
     max_new_tokens: int = 1000
     max_articles: int = 8
-    max_articles_per_batch: int = 4
-    max_articles_dropped_to_avoid_split: int = 2
     max_article_chars: int = 600
     max_prior_reports: int = 4
     cache_ttl_seconds: int = 604800

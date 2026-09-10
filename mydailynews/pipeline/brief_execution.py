@@ -209,6 +209,7 @@ def run_brief(
                 selected=selected,
                 include_enrichment_context=include_enrichment_context,
                 evidence_config=evidence_config,
+                delta_config=delta_config,
                 date=date,
             )
             extend_warnings(run_warnings, story_grouping_result.warnings)
@@ -247,11 +248,9 @@ def run_brief(
                 orchestrator,
                 brief_name=name,
                 selected=selected,
-                topics=topics,
                 prior_reports=prior_reports,
                 brief_goal=brief_goal,
                 date=date,
-                evidence_packet=evidence_packet,
                 evidence_config=evidence_config,
                 delta_config=delta_config,
                 story_groups=story_groups,
@@ -351,6 +350,18 @@ def run_brief(
                         omitted=len(delta_omitted),
                     )
             rendered_selected = selected_articles_represented_in_brief(brief_selected, brief)
+            generation_omitted_count = max(0, len(brief_selected) - len(rendered_selected))
+            rendered_article_ids = [article.candidate.id for article in rendered_selected]
+            rendered_evidence_packet = filter_evidence_packet_for_articles(
+                brief_evidence_packet,
+                allowed_article_ids=rendered_article_ids,
+                omitted_count=generation_omitted_count,
+            )
+            rendered_delta_packet = filter_delta_packet_for_articles(
+                brief_delta_packet,
+                allowed_article_ids=rendered_article_ids,
+                omitted_count=generation_omitted_count,
+            )
             output_dir = Path(orchestrator.config.output_dir)
             markdown_path = output_dir / f"{date}_{output_suffix}_brief.md"
             json_path = output_dir / f"{date}_{output_suffix}_brief.json"
@@ -389,18 +400,14 @@ def run_brief(
                 "evidence_enabled": bool(evidence_config.enabled),
                 "delta_enabled": bool(delta_config.enabled),
             }
-            if brief_evidence_packet:
+            if rendered_evidence_packet:
                 brief.setdefault("analysis", {})
-                brief["analysis"]["evidence_packet"] = brief_evidence_packet
+                brief["analysis"]["evidence_packet"] = rendered_evidence_packet
                 brief["analysis"]["evidence_model_role"] = evidence_config.model_role
-            if brief_delta_packet:
+            if rendered_delta_packet:
                 brief.setdefault("analysis", {})
-                brief["analysis"]["delta_packet"] = brief_delta_packet
-                brief["analysis"]["delta_model_role"] = (
-                    "deterministic_scaffold"
-                    if bool(brief_delta_packet.get("deterministic_scaffold"))
-                    else delta_config.model_role
-                )
+                brief["analysis"]["delta_packet"] = rendered_delta_packet
+                brief["analysis"]["delta_model_role"] = delta_config.model_role
 
             if _checkpoint_stage(
                 orchestrator,
