@@ -122,43 +122,6 @@ def run_narrative_brief(
         with orchestrator.debug.span("brief.narrative.write_output"):
             markdown_path, json_path = write_narrative_outputs(output_dir, date, narrative_brief)
 
-        perspectives_used = bool(narrative_brief.get("metadata", {}).get("perspectives_used"))
-        orchestrator._record_stage_artifact(
-            stage="narrative_brief",
-            brief_name="pipeline",
-            payload=orchestrator._stage_payload(
-                stage="narrative_brief",
-                brief_name="pipeline",
-                summary={
-                    "source_briefs": source_names,
-                    "enrichment_used": enrichment_used,
-                    "enrichment_json_path": enrichment_json_path if enrichment_used else "",
-                    "recall_guidance_used": bool(recall_packet.get("coverage_guidance")),
-                    "claim_cards_available": len(claim_cards),
-                    "perspectives_used": perspectives_used,
-                    "perspectives_json_path": perspectives_json_path if perspectives_used else "",
-                    "markdown_path": str(markdown_path),
-                    "json_path": str(json_path),
-                    "segments": len(narrative_brief.get("segments", [])),
-                    "markdown_chars": len(markdown_path.read_text(encoding="utf-8")),
-                    "warnings": len(run_warnings),
-                },
-                next_stage_input={
-                    "narrative_brief": narrative_brief,
-                    "source_briefs": [
-                        {
-                            "name": source.name,
-                            "json_path": source.json_path,
-                        }
-                        for source in source_briefs
-                    ],
-                    "enrichment_json_path": enrichment_json_path if enrichment_used else "",
-                    "perspectives_json_path": perspectives_json_path if perspectives_used else "",
-                    "markdown_path": str(markdown_path),
-                    "json_path": str(json_path),
-                },
-            ),
-        )
         orchestrator.debug.set_metric("brief.narrative.status", "completed")
         orchestrator.debug.log(
             "narrative_brief.run",

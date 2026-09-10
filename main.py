@@ -48,26 +48,6 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"Stop the run after a stage checkpoint. Supported: {', '.join(ALL_STAGE_ORDER)}",
     )
     parser.add_argument(
-        "--dump-stage-artifacts",
-        action="store_true",
-        help="Write replay-oriented JSON artifacts for each executed stage.",
-    )
-    parser.add_argument(
-        "--save-intermediate",
-        action="store_true",
-        help="Write stage artifacts even when the run is not stopped at a checkpoint.",
-    )
-    parser.add_argument(
-        "--no-save-intermediate",
-        action="store_true",
-        help="Disable the --save-intermediate artifact-writing trigger.",
-    )
-    parser.add_argument(
-        "--stage-artifact-dir",
-        default="",
-        help="Optional directory for stage checkpoint JSON files.",
-    )
-    parser.add_argument(
         "--list-stages",
         action="store_true",
         help="List available --stop-after-stage values and exit.",
@@ -132,10 +112,6 @@ def main() -> int:
             markdown_path=args.markdown_path,
             skip_modules=skip_modules,
             stop_after_stage=args.stop_after_stage,
-            save_intermediate=args.save_intermediate,
-            no_save_intermediate=args.no_save_intermediate,
-            dump_stage_artifacts=args.dump_stage_artifacts,
-            stage_artifact_dir=args.stage_artifact_dir,
         )
     except ValueError as exc:
         print(f"Invalid run option: {exc}")
@@ -173,7 +149,6 @@ def main() -> int:
             reporter.debug_summary(
                 debug=orchestrator.debug,
                 output_dir=config.output_dir,
-                artifact_paths=orchestrator.stage_artifact_paths,
             )
         if isinstance(run_error, RuntimeError):
             print(f"Run failed: {run_error}")
@@ -181,9 +156,7 @@ def main() -> int:
         raise run_error
 
     if orchestrator.stopped_after_stage:
-        reporter.stopped(orchestrator.stopped_after_stage, orchestrator.stage_artifact_paths)
-    else:
-        reporter.stage_artifacts(orchestrator.stage_artifact_paths)
+        reporter.stopped(orchestrator.stopped_after_stage)
 
     if result is None:
         print("Run failed: no result returned.")
@@ -194,7 +167,6 @@ def main() -> int:
         reporter.debug_summary(
             debug=orchestrator.debug,
             output_dir=config.output_dir,
-            artifact_paths=orchestrator.stage_artifact_paths,
         )
     return 0
 

@@ -24,7 +24,6 @@ from mydailynews.pipeline.brief_stages import (
     _story_grouping_stage,
 )
 from mydailynews.pipeline.handoff import write_brief_handoff
-from mydailynews.domain.headline_selection import selection_rationale_rows
 from mydailynews.app.models import BriefOutput, HeadlineDecision, NewsCandidate, PriorReport, RunSourceSnapshot, TopicConfig
 from mydailynews.briefing.output import write_json, write_markdown
 from mydailynews.common.warnings import extend_warnings
@@ -114,23 +113,6 @@ def run_brief(
                 orchestrator,
                 brief_name=name,
                 stage="candidate_prepare",
-                summary={
-                    "raw_candidates": candidate_result.raw_count,
-                    "rss_candidates": candidate_result.rss_count,
-                    "topic_candidates": candidate_result.topic_count,
-                    "unique_candidates": len(unique_candidates),
-                    "unique_candidate_ids": [candidate.id for candidate in unique_candidates],
-                },
-                next_stage_input={
-                    "rss_candidates": candidate_result.rss_candidates,
-                    "topic_candidates": candidate_result.topic_candidates,
-                    "unique_candidates": unique_candidates,
-                    "prior_reports": prior_reports,
-                    "topics": topics,
-                    "filtering": filtering,
-                    "brief_goal": brief_goal,
-                    "since": since,
-                },
             ):
                 return None
 
@@ -151,20 +133,6 @@ def run_brief(
                 orchestrator,
                 brief_name=name,
                 stage="headline_limit",
-                summary={
-                    "limited_candidates": len(limited_candidates),
-                    "limited_candidate_ids": [candidate.id for candidate in limited_candidates],
-                    "limited_sources": headline_limit.limited_sources,
-                },
-                next_stage_input={
-                    "limited_candidates": limited_candidates,
-                    "unique_candidates": unique_candidates,
-                    "topics": topics,
-                    "filtering": filtering,
-                    "brief_goal": brief_goal,
-                    "shared_decisions": shared_decisions or {},
-                    "since": since,
-                },
             ):
                 return None
 
@@ -183,20 +151,6 @@ def run_brief(
                 orchestrator,
                 brief_name=name,
                 stage="headline_decisions",
-                summary={
-                    "decisions": len(decisions),
-                    "decision_ids": list(decisions.keys()),
-                    "missing_decisions": max(0, len(limited_candidates) - len(decisions)),
-                },
-                next_stage_input={
-                    "decisions": decisions,
-                    "limited_candidates": limited_candidates,
-                    "topics": topics,
-                    "filtering": filtering,
-                    "prior_reports": prior_reports,
-                    "brief_goal": brief_goal,
-                    "include_enrichment_context": False,
-                },
             ):
                 return None
 
@@ -219,32 +173,10 @@ def run_brief(
             extend_warnings(run_warnings, selection_result.warnings)
             selected = selection_result.selected
             selection_counts = selection_result.selection_counts
-            selected_reason_counts = selection_counts.get("selected", {})
-            skipped_reason_counts = selection_counts.get("skipped", {})
             if _checkpoint_stage(
                 orchestrator,
                 brief_name=name,
                 stage="headline_select",
-                summary={
-                    "selected": len(selected),
-                    "selected_article_ids": [article.candidate.id for article in selected],
-                    "selected_sources": selection_result.selected_sources,
-                    "selected_reason_codes": selected_reason_counts,
-                    "skipped_reason_codes": skipped_reason_counts,
-                    "composite_ranking_enabled": bool(getattr(filtering, "use_multifactor_composite_ranking", False)),
-                    "memory": selection_result.memory_summary,
-                },
-                next_stage_input={
-                    "selected": selected,
-                    "decisions": decisions,
-                    "limited_candidates": limited_candidates,
-                    "topics": topics,
-                    "filtering": filtering,
-                    "prior_reports": prior_reports,
-                    "brief_goal": brief_goal,
-                    "include_enrichment_context": include_enrichment_context,
-                    "selection_rationale": selection_rationale_rows(limited_candidates, decisions),
-                },
             ):
                 return None
             if not selected:
@@ -270,19 +202,6 @@ def run_brief(
                 orchestrator,
                 brief_name=name,
                 stage="article_fetch",
-                summary={
-                    "selected": len(selected),
-                    "article_ids": [article.candidate.id for article in selected],
-                    "extraction_status_counts": article_fetch_result.status_counts,
-                },
-                next_stage_input={
-                    "selected": selected,
-                    "filtering": filtering,
-                    "include_enrichment_context": include_enrichment_context,
-                    "evidence_config": evidence_config,
-                    "delta_config": delta_config,
-                    "analysis_rollout_meta": analysis_rollout_meta,
-                },
             ):
                 return None
 
@@ -302,30 +221,6 @@ def run_brief(
                 orchestrator,
                 brief_name=name,
                 stage="story_grouping",
-                summary={
-                    "enabled": bool(story_grouping_result.artifact.get("enabled", False)),
-                    "status": str(story_grouping_result.artifact.get("status", "")),
-                    "skipped_reason": str(story_grouping_result.artifact.get("skipped_reason", "")),
-                    "shared_grouping_ran": shared_story_grouping_ran,
-                    "selected": len(selected),
-                    "story_groups": len(story_groups),
-                    "fallback_groups": len(story_grouping_result.artifact.get("fallback_groups", [])),
-                    "split_requests": bool(story_grouping_result.artifact.get("split_requests", False)),
-                    "cache_hit": bool(story_grouping_result.artifact.get("cache_hit", False)),
-                    "story_grouping": story_grouping_result.artifact,
-                },
-                next_stage_input={
-                    "selected": selected,
-                    "story_groups": story_groups,
-                    "story_grouping": story_grouping_result.artifact,
-                    "topics": topics,
-                    "prior_reports": prior_reports,
-                    "brief_goal": brief_goal,
-                    "include_enrichment_context": include_enrichment_context,
-                    "evidence_config": evidence_config,
-                    "delta_config": delta_config,
-                    "analysis_rollout_meta": analysis_rollout_meta,
-                },
             ):
                 return None
 
@@ -348,28 +243,6 @@ def run_brief(
                 orchestrator,
                 brief_name=name,
                 stage="evidence_distillation",
-                summary={
-                    "enabled": bool(evidence_config.enabled),
-                    "requested_enabled": bool(analysis_rollout_meta.get("evidence_requested_enabled", False)),
-                    "rollout_profile": str(analysis_rollout_meta.get("rollout_profile", "")),
-                    "story_clusters": len(evidence_packet.get("story_clusters", [])) if evidence_packet else 0,
-                    "reader_qa": len(evidence_packet.get("reader_qa", [])) if evidence_packet else 0,
-                    "global_watch_signals": len(evidence_packet.get("global_watch_signals", [])) if evidence_packet else 0,
-                },
-                next_stage_input={
-                    "selected": selected,
-                    "evidence_packet": evidence_packet,
-                    "topics": topics,
-                    "prior_reports": prior_reports,
-                    "brief_goal": brief_goal,
-                    "include_enrichment_context": include_enrichment_context,
-                    "evidence_config": evidence_config,
-                    "delta_config": delta_config,
-                    "analysis_rollout_meta": analysis_rollout_meta,
-                    "story_groups": story_groups,
-                    "shared_story_grouping_ran": shared_story_grouping_ran,
-                    "story_grouping": story_grouping_result.artifact,
-                },
             ):
                 return None
 
@@ -444,32 +317,6 @@ def run_brief(
                 orchestrator,
                 brief_name=name,
                 stage="delta_extraction",
-                summary={
-                    "enabled": bool(delta_config.enabled),
-                    "requested_enabled": bool(analysis_rollout_meta.get("delta_requested_enabled", False)),
-                    "rollout_profile": str(analysis_rollout_meta.get("rollout_profile", "")),
-                    "new_items": len(delta_packet.get("new", [])) if delta_packet else 0,
-                    "escalated_items": len(delta_packet.get("escalated", [])) if delta_packet else 0,
-                    "reframed_items": len(delta_packet.get("reframed", [])) if delta_packet else 0,
-                    "evidence_gaps": len(delta_packet.get("evidence_gaps", [])) if delta_packet else 0,
-                    "deterministic_scaffold": bool(delta_packet.get("deterministic_scaffold")) if delta_packet else False,
-                    "omitted_as_unchanged": len(delta_omitted),
-                    "recall_guidance": len(prompt_recall_packet.get("coverage_guidance", [])) if prompt_recall_packet else 0,
-                    "recall_packet_saved": bool(recall_packet_path),
-                },
-                next_stage_input={
-                    "selected": brief_selected,
-                    "delta_packet": brief_delta_packet,
-                    "evidence_packet": brief_evidence_packet,
-                    "prior_reports": brief_prior_reports,
-                    "topics": topics,
-                    "brief_goal": brief_goal,
-                    "include_enrichment_context": include_enrichment_context,
-                    "evidence_config": evidence_config,
-                    "delta_config": delta_config,
-                    "analysis_rollout_meta": analysis_rollout_meta,
-                    "recall_packet": prompt_recall_packet,
-                },
             ):
                 return None
 
@@ -567,28 +414,6 @@ def run_brief(
                 orchestrator,
                 brief_name=name,
                 stage="final_brief",
-                summary={
-                    "title": str(brief.get("title", "")),
-                    "topic_reports": len(brief.get("topic_reports", [])),
-                    "sections": len(brief.get("sections", [])),
-                    "knowns": len(brief.get("knowns", [])),
-                    "unknowns": len(brief.get("unknowns", [])),
-                    "watch_signals": len(brief.get("watch_signals", [])),
-                    "warnings": len(run_warnings),
-                },
-                next_stage_input={
-                    "brief": brief,
-                    "selected": rendered_selected,
-                    "topics": topics,
-                    "prior_reports": brief_prior_reports,
-                    "evidence_packet": brief_evidence_packet,
-                    "delta_packet": brief_delta_packet,
-                    "brief_goal": brief_goal,
-                    "brief_name": name,
-                    "recall_packet": prompt_recall_packet,
-                    "markdown_path": str(markdown_path),
-                    "json_path": str(json_path),
-                },
             ):
                 return None
 
@@ -650,20 +475,6 @@ def run_brief(
                 orchestrator,
                 brief_name=name,
                 stage="write_output",
-                summary={
-                    "markdown_path": str(markdown_path),
-                    "json_path": str(json_path),
-                    "candidate_count": len(unique_candidates),
-                    "selected_count": len(rendered_selected),
-                    "memory": memory_write_summary,
-                },
-                next_stage_input={
-                    "brief": brief,
-                    "selected": rendered_selected,
-                    "memory": memory_write_summary,
-                    "markdown_path": str(markdown_path),
-                    "json_path": str(json_path),
-                },
             ):
                 return None
             rendered_ids = {article.candidate.id for article in rendered_selected}
@@ -692,16 +503,6 @@ def run_brief(
                 orchestrator,
                 brief_name=name,
                 stage="write_handoff",
-                summary={
-                    "handoff_path": str(handoff_written_path),
-                    "selected_count": len(rendered_selected),
-                    "schema_version": "brief_handoff.v1",
-                },
-                next_stage_input={
-                    "handoff_path": str(handoff_written_path),
-                    "source_json_path": str(json_path),
-                    "selected": rendered_selected,
-                },
             )
             _promote_run_warnings()
             orchestrator.debug.set_metric(f"brief.{name}.warnings", len(run_warnings))

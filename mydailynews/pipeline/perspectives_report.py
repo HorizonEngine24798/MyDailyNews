@@ -504,7 +504,6 @@ def run_perspectives_report(
         output_dir=output_dir,
     )
     markdown_path, json_path = write_perspectives_report_outputs(output_dir, date, payload)
-    _record_perspectives_report_artifact(orchestrator, payload=payload, markdown_path=markdown_path, json_path=json_path)
 
     metadata = payload.get("metadata", {})
     orchestrator.debug.set_metric("module.perspectives_report.status", "completed")
@@ -3181,34 +3180,6 @@ def _empty_plan(story: Dict[str, Any], status: str, diagnostics: List[str]) -> D
         "verification_targets": [],
         "diagnostics": diagnostics,
     }
-
-
-def _record_perspectives_report_artifact(orchestrator, *, payload: Dict[str, Any], markdown_path: Path, json_path: Path) -> None:
-    stage_payload_builder = getattr(orchestrator, "_stage_payload", None)
-    record_stage_artifact = getattr(orchestrator, "_record_stage_artifact", None)
-    if not callable(stage_payload_builder) or not callable(record_stage_artifact):
-        return
-    record_stage_artifact(
-        stage="perspectives_report",
-        brief_name="pipeline",
-        payload=stage_payload_builder(
-            stage="perspectives_report",
-            brief_name="pipeline",
-            summary={
-                "stories": payload.get("metadata", {}).get("story_count", 0),
-                "coverage_articles": payload.get("metadata", {}).get("coverage_article_count", 0),
-                "coverage_countries": payload.get("metadata", {}).get("coverage_source_country_count", 0),
-                "markdown_path": str(markdown_path),
-                "json_path": str(json_path),
-                "warnings": len(payload.get("warnings", [])),
-            },
-            next_stage_input={
-                "perspectives_report": payload,
-                "markdown_path": str(markdown_path),
-                "json_path": str(json_path),
-            },
-        ),
-    )
 
 
 def _phase(orchestrator, message: str) -> None:

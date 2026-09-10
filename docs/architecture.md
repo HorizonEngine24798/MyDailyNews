@@ -108,7 +108,7 @@ LLM call groups: headline scoring is batched, story grouping and enrichment plan
 
 AI roles: `summary_ai_client` scores and plans; the configurable analysis client runs evidence/delta; `final_ai_client` writes final and narrative briefs.
 
-Storage roles: `.cache/mydailynews/` stores network/article/enrichment fetches, `.cache/mydailynews/synth` stores reusable AI responses, `state/memory/` stores durable coverage/preferences, and `output/` stores reports, handoffs, diagnostics, and stage artifacts.
+Storage roles: `.cache/mydailynews/` stores network/article/enrichment fetches, `.cache/mydailynews/synth` stores reusable AI responses, `state/memory/` stores durable coverage/preferences, and `output/` stores reports, handoffs, and diagnostics.
 
 ## Module Flow
 
@@ -130,7 +130,7 @@ Modules:
 
 ## State Boundaries
 
-- `output/`: generated Markdown, JSON, WAV, diagnostics, and stage artifacts.
+- `output/`: generated Markdown, JSON, WAV, and diagnostics.
 - `state/memory/`: durable coverage, story, feedback, learned-preference, recall, and backup files.
 - `.cache/mydailynews/`: discovery, article text, enrichment retrieval, and AI synthesis caches.
 
