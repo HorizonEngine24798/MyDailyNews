@@ -8,6 +8,7 @@ import uuid
 
 from gui import build_parser as build_gui_parser
 from mydailynews.gui.data import GuiDataService
+from mydailynews.memory.coverage import CoverageMemoryStore
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -417,7 +418,7 @@ class GuiDataServiceTests(unittest.TestCase):
         story_a = next(item for item in snapshot["story_store"] if item["story_key"] == "story-a")
         self.assertEqual(story_a["family"], "family-a")
         self.assertEqual(story_a["coverage_count"], 1)
-        self.assertEqual(snapshot["coverage_records"][0]["story_key"], "story-a")
+        self.assertIn("story-a", {row["story_key"] for row in snapshot["coverage_records"]})
         self.assertEqual(snapshot["feedback_events"][0]["created_date"], "2026-06-28")
         self.assertEqual(snapshot["learned_preferences_summary"]["topic_weights"], 1)
         self.assertTrue(snapshot["recall_packets"]["exists"])
@@ -478,7 +479,8 @@ class GuiDataServiceTests(unittest.TestCase):
         self.assertEqual(result["repair"]["coverage_rows_archived"], 1)
         self.assertEqual(result["memory"]["summary"]["coverage_records"], 0)
         self.assertTrue(Path(result["repair"]["backup"]["path"]).exists())
-        self.assertIn("story-a", (state_dir / "coverage_log.archive.jsonl").read_text(encoding="utf-8"))
+        archived = CoverageMemoryStore.from_state_dir(state_dir).read_archive_records()
+        self.assertEqual([row["story_key"] for row in archived], ["story-a"])
 
     def test_run_manager_rejects_unknown_kind_and_runs_memory_inspect(self) -> None:
         root = self._temp_root()

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Iterable, List
 
 from mydailynews.app.models import SelectedArticle
+from mydailynews.common.storage import MEMORY_DATABASE_NAME, claim_migration, open_database, set_metadata
 from mydailynews.domain.candidate_annotations import candidate_memory_annotation
 
 
@@ -33,30 +34,36 @@ class CoverageSummary:
 
 
 class CoverageMemoryStore:
-    def __init__(self, path: Path | str) -> None:
+    def __init__(self, path: Path | str, *, database_path: Path | str | None = None) -> None:
         self.path = Path(path)
+        is_database_path = self.path.suffix.lower() in {".db", ".sqlite", ".sqlite3"}
+        self.database_path = Path(database_path) if database_path is not None else (
+            self.path if is_database_path else self.path.with_suffix(".sqlite3")
+        )
+        self._legacy_path = None if self.path == self.database_path else self.path
 
     @classmethod
     def from_state_dir(cls, state_dir: Path | str) -> "CoverageMemoryStore":
-        return cls(Path(state_dir) / "coverage_log.jsonl")
+        root = Path(state_dir)
+        return cls(root / "coverage_log.jsonl", database_path=root / MEMORY_DATABASE_NAME)
 
-    def read_records(self) -> List[CoverageRecord]:
-        if not self.path.exists():
-            return []
-        records: List[CoverageRecord] = []
-        for line in self.path.read_text(encoding="utf-8-sig").splitlines():
-            if not line.strip():
-                continue
-            try:
-                raw = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if not isinstance(raw, dict):
-                continue
-            record = _record_from_payload(raw)
-            if record is not None:
-                records.append(record)
-        return records
+    def read_records(self, *, database: Any | None = None) -> List[CoverageRecord]:
+        if database is None:
+            self._import_legacy_once()
+            with open_database(self.database_path) as opened:
+                return self.read_records(database=opened)
+        rows = database.execute(
+            "SELECT date, brief_name, story_key, payload "
+            "FROM coverage ORDER BY date, brief_name, story_key"
+        ).fetchall()
+        output: List[CoverageRecord] = []
+        for row in rows:
+            record = _record_from_payload(_json_object(row["payload"]))
+            key = (str(row["date"]), str(row["brief_name"]), str(row["story_key"]))
+            if record is None or (record.date, record.brief_name, record.story_key) != key:
+                raise ValueError(f"SQLite coverage row has an invalid payload: {key}")
+            output.append(record)
+        return output
 
     def recent_summary(
         self,
@@ -120,32 +127,118 @@ class CoverageMemoryStore:
         records.sort(key=lambda record: (record.date, record.brief_name), reverse=True)
         return records[: max(0, int(limit))]
 
-    def write_records(self, records: Iterable[CoverageRecord]) -> None:
+    def write_records(
+        self,
+        records: Iterable[CoverageRecord],
+        *,
+        database: Any | None = None,
+    ) -> None:
         incoming = [record for record in records if record.story_key and record.date and record.brief_name]
         if not incoming:
             return
-        by_key = {
-            (record.date, record.brief_name, record.story_key): record
-            for record in self.read_records()
-        }
-        for record in incoming:
-            by_key[(record.date, record.brief_name, record.story_key)] = record
-        ordered = sorted(
-            by_key.values(),
-            key=lambda item: (item.date, item.brief_name, item.story_key),
+        if database is None:
+            self._import_legacy_once()
+            with open_database(self.database_path, immediate=True) as opened:
+                self.write_records(incoming, database=opened)
+            return
+        affected = {(record.date, record.brief_name, record.story_key) for record in incoming}
+        existing = [
+            record
+            for record in self.read_records(database=database)
+            if (record.date, record.brief_name, record.story_key) in affected
+        ]
+        merged = _merge_coverage_records([*existing, *incoming])
+        database.executemany(
+            "INSERT INTO coverage(date, brief_name, story_key, payload) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(date, brief_name, story_key) DO UPDATE SET payload = excluded.payload",
+            [_coverage_row(record) for record in merged],
         )
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        lines = [json.dumps(asdict(record), ensure_ascii=False, separators=(",", ":")) for record in ordered]
-        self.path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
-    def prune(self, *, as_of_date: str, retention_days: int) -> int:
+    def replace_records(
+        self,
+        records: Iterable[CoverageRecord],
+        *,
+        database: Any | None = None,
+    ) -> None:
+        output = _merge_coverage_records(
+            record
+            for record in records
+            if record.story_key and record.date and record.brief_name
+        )
+        if database is None:
+            self._import_legacy_once()
+            with open_database(self.database_path, immediate=True) as opened:
+                self.replace_records(output, database=opened)
+            return
+        database.execute("DELETE FROM coverage")
+        database.executemany(
+            "INSERT INTO coverage(date, brief_name, story_key, payload) VALUES (?, ?, ?, ?)",
+            [_coverage_row(record) for record in output],
+        )
+        set_metadata(database, "migration.coverage.v1")
+
+    def archive_records(
+        self,
+        records: Iterable[CoverageRecord],
+        *,
+        archived_at: str,
+        database: Any | None = None,
+    ) -> int:
+        output = list(records)
+        if not output:
+            return 0
+        if database is None:
+            self._import_legacy_once()
+            with open_database(self.database_path, immediate=True) as opened:
+                return self.archive_records(output, archived_at=archived_at, database=opened)
+        database.executemany(
+            "INSERT INTO coverage_archive(archived_at, payload) VALUES (?, ?)",
+            [
+                (
+                    str(archived_at or ""),
+                    json.dumps(asdict(record), ensure_ascii=False, separators=(",", ":")),
+                )
+                for record in output
+            ],
+        )
+        return len(output)
+
+    def read_archive_records(self) -> List[dict[str, Any]]:
+        self._import_legacy_once()
+        with open_database(self.database_path) as database:
+            rows = database.execute(
+                "SELECT id, archived_at, payload FROM coverage_archive ORDER BY id"
+            ).fetchall()
+        output: List[dict[str, Any]] = []
+        for row in rows:
+            payload = _json_object(row["payload"])
+            if not payload:
+                raise ValueError(f"SQLite coverage archive row has an invalid payload: {row['id']}")
+            output.append({**payload, "archived_at": str(row["archived_at"])})
+        return output
+
+    def prune(
+        self,
+        *,
+        as_of_date: str,
+        retention_days: int,
+        database: Any | None = None,
+    ) -> int:
         as_of = _parse_date(as_of_date)
         if as_of is None:
             return 0
+        if database is None:
+            self._import_legacy_once()
+            with open_database(self.database_path, immediate=True) as opened:
+                return self.prune(
+                    as_of_date=as_of_date,
+                    retention_days=retention_days,
+                    database=opened,
+                )
         cutoff = as_of - timedelta(days=max(0, int(retention_days)))
         kept: List[CoverageRecord] = []
         removed = 0
-        for record in self.read_records():
+        for record in self.read_records(database=database):
             record_date = _parse_date(record.date)
             if record_date is not None and record_date < cutoff:
                 removed += 1
@@ -153,18 +246,44 @@ class CoverageMemoryStore:
             kept.append(record)
         if removed <= 0:
             return 0
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        if kept:
-            lines = [json.dumps(asdict(record), ensure_ascii=False, separators=(",", ":")) for record in kept]
-            self.path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-        else:
-            self.path.write_text("", encoding="utf-8")
+        self.replace_records(kept, database=database)
         return removed
 
-    def write_selected(self, *, date: str, brief_name: str, selected: List[SelectedArticle]) -> List[CoverageRecord]:
+    def write_selected(
+        self,
+        *,
+        date: str,
+        brief_name: str,
+        selected: List[SelectedArticle],
+        database: Any | None = None,
+    ) -> List[CoverageRecord]:
         records = coverage_records_for_selected(date=date, brief_name=brief_name, selected=selected)
-        self.write_records(records)
+        self.write_records(records, database=database)
         return records
+
+    def _import_legacy_once(self) -> None:
+        archive_path = self.path.with_name("coverage_log.archive.jsonl")
+        with open_database(self.database_path) as database:
+            if not claim_migration(database, "migration.coverage.v1"):
+                return
+            if self._legacy_path is not None and self._legacy_path.exists():
+                records = _merge_coverage_records(_read_legacy_records(self._legacy_path))
+                database.executemany(
+                    "INSERT OR IGNORE INTO coverage(date, brief_name, story_key, payload) VALUES (?, ?, ?, ?)",
+                    [_coverage_row(record) for record in records],
+                )
+            if archive_path.exists():
+                database.executemany(
+                    "INSERT INTO coverage_archive(archived_at, payload) VALUES (?, ?)",
+                    [
+                        (
+                            str(raw.pop("archived_at", "") or ""),
+                            json.dumps(raw, ensure_ascii=False, separators=(",", ":")),
+                        )
+                        for _, raw in _read_jsonl_objects(archive_path)
+                    ],
+                )
+            set_metadata(database, "migration.coverage.v1")
 
 
 def coverage_records_for_selected(
@@ -222,6 +341,94 @@ def _record_from_payload(raw: dict[str, Any]) -> CoverageRecord | None:
         angle=str(raw.get("angle", "") or "").strip(),
         rank_score=_float(raw.get("rank_score"), 0.0),
     )
+
+
+def _coverage_row(record: CoverageRecord) -> tuple[str, str, str, str]:
+    return (
+        record.date,
+        record.brief_name,
+        record.story_key,
+        json.dumps(asdict(record), ensure_ascii=False, separators=(",", ":")),
+    )
+
+
+def _merge_coverage_records(records: Iterable[CoverageRecord]) -> List[CoverageRecord]:
+    grouped: dict[tuple[str, str, str], List[CoverageRecord]] = {}
+    for record in records:
+        grouped.setdefault((record.date, record.brief_name, record.story_key), []).append(record)
+    output: List[CoverageRecord] = []
+    prominence_rank = {"capsule": 0, "body": 1, "lead": 2}
+    for key in sorted(grouped):
+        items = grouped[key]
+        best = max(items, key=lambda item: item.rank_score)
+        prominence = max(
+            (item.prominence for item in items),
+            key=lambda value: prominence_rank.get(value, 1),
+        )
+        article_ids = list(dict.fromkeys(article_id for item in items for article_id in item.article_ids))
+        output.append(
+            CoverageRecord(
+                schema_version=max(item.schema_version for item in items),
+                date=key[0],
+                brief_name=key[1],
+                story_key=key[2],
+                story_family_key=best.story_family_key or next(
+                    (item.story_family_key for item in items if item.story_family_key),
+                    "",
+                ),
+                title=best.title or next((item.title for item in items if item.title), ""),
+                prominence=prominence,
+                article_ids=article_ids,
+                angle=best.angle or next((item.angle for item in items if item.angle), ""),
+                rank_score=max(item.rank_score for item in items),
+            )
+        )
+    return output
+
+
+def _read_legacy_records(path: Path) -> List[CoverageRecord]:
+    records: List[CoverageRecord] = []
+    for line_number, raw in _read_jsonl_objects(path):
+        record = _record_from_payload(raw)
+        if record is None:
+            raise ValueError(
+                f"Legacy coverage file has an invalid record at line {line_number}: {path}"
+            )
+        records.append(record)
+    return records
+
+
+def _read_jsonl_objects(path: Path) -> List[tuple[int, dict[str, Any]]]:
+    if not path.exists():
+        return []
+    try:
+        lines = path.read_text(encoding="utf-8-sig").splitlines()
+    except OSError as exc:
+        raise RuntimeError(f"Could not read legacy coverage file: {path}") from exc
+    output: List[tuple[int, dict[str, Any]]] = []
+    for line_number, line in enumerate(lines, start=1):
+        if not line.strip():
+            continue
+        try:
+            raw = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                f"Legacy coverage file has invalid JSON at line {line_number}: {path}"
+            ) from exc
+        if not isinstance(raw, dict):
+            raise ValueError(
+                f"Legacy coverage file must contain objects; invalid line {line_number}: {path}"
+            )
+        output.append((line_number, raw))
+    return output
+
+
+def _json_object(value: Any) -> dict[str, Any]:
+    try:
+        raw = json.loads(str(value))
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return {}
+    return raw if isinstance(raw, dict) else {}
 
 
 def _parse_date(value: str) -> date_type | None:

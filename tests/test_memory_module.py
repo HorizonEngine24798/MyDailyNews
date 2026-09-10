@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 import uuid
 
 from mydailynews.app.config import load_config
@@ -666,9 +667,8 @@ class MemoryModuleTests(unittest.TestCase):
         feedback_keys = [event.story_key for event in FeedbackStore.from_state_dir(temp_dir).read_events()]
         self.assertEqual(feedback_keys, ["story-ab", "story-ab"])
         backup = Path(result["backup"]["path"])
+        self.assertTrue((backup / "memory.sqlite3").exists())
         self.assertTrue((backup / "story_store.json").exists())
-        self.assertTrue((backup / "coverage_log.jsonl").exists())
-        self.assertTrue((backup / "feedback_events.jsonl").exists())
 
     def test_story_merge_preserves_source_evidence_and_semantic_state(self) -> None:
         temp_dir = self._temp_dir()
@@ -735,6 +735,45 @@ class MemoryModuleTests(unittest.TestCase):
         self.assertEqual(record.last_user_visible_fact_ids, ["fact:a"])
         self.assertEqual(record.last_change_type, "confirmed")
         self.assertEqual(record.last_delta_summary, "Beta is now confirmed.")
+
+    def test_story_merge_rolls_back_every_table_when_one_write_fails(self) -> None:
+        temp_dir = self._temp_dir()
+        self._write_repair_memory(
+            temp_dir,
+            stories=[
+                {"story_key": "story-a", "title": "Story A"},
+                {"story_key": "story-b", "title": "Story B"},
+            ],
+            coverage=[
+                {
+                    "schema_version": 1,
+                    "date": "2026-09-09",
+                    "brief_name": "general",
+                    "story_key": "story-a",
+                    "title": "Story A",
+                    "prominence": "lead",
+                    "article_ids": ["a"],
+                }
+            ],
+            feedback=[],
+        )
+
+        with patch(
+            "mydailynews.memory.repair._write_coverage_records",
+            side_effect=RuntimeError("injected write failure"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "injected write failure"):
+                merge_stories(
+                    temp_dir,
+                    source_story_keys=["story-a", "story-b"],
+                    canonical_story={"story_key": "story-ab"},
+                    confirm=True,
+                )
+
+        stories = StoryStore.from_state_dir(temp_dir).records()
+        coverage = CoverageMemoryStore.from_state_dir(temp_dir).read_records()
+        self.assertEqual([record.story_key for record in stories], ["story-a", "story-b"])
+        self.assertEqual([record.story_key for record in coverage], ["story-a"])
 
     def test_story_repair_invalid_payload_fails_without_backup_or_rewrite(self) -> None:
         temp_dir = self._temp_dir()
@@ -828,9 +867,9 @@ class MemoryModuleTests(unittest.TestCase):
 
         self.assertEqual(archive_result["coverage_rows_archived"], 1)
         self.assertEqual([record.story_key for record in CoverageMemoryStore.from_state_dir(temp_dir).read_records()], ["story-b"])
-        archive_text = (temp_dir / "coverage_log.archive.jsonl").read_text(encoding="utf-8")
-        self.assertIn("story-a", archive_text)
-        self.assertTrue((Path(archive_result["backup"]["path"]) / "coverage_log.jsonl").exists())
+        archived = CoverageMemoryStore.from_state_dir(temp_dir).read_archive_records()
+        self.assertEqual([row["story_key"] for row in archived], ["story-a"])
+        self.assertTrue((Path(archive_result["backup"]["path"]) / "memory.sqlite3").exists())
 
         feedback_events = FeedbackStore.from_state_dir(temp_dir).read_events()
         edit_result = repair_feedback_events(

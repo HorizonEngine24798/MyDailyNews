@@ -136,9 +136,9 @@ Important fields:
 - `recent_story_penalty`, `recent_lead_penalty`, and `material_update_boost`: deterministic rank adjustments.
 - `max_selected_per_story` and `max_selected_per_story_family`: same-run diversity caps.
 - `recall_prompt_enabled` and `save_recall_packets`: compact coverage guidance and debug packets.
-- `feedback_enabled`: file-backed feedback events used by the GUI and learned preferences.
+- `feedback_enabled`: SQLite-backed feedback events used by the GUI and learned preferences.
 
-Memory files are inspectable under `state/memory/`, including `coverage_log.jsonl`, `story_store.json`, `feedback_events.jsonl`, `learned_preferences.json`, `backups/`, and `recall_packets/`. `story_store.json` is the single durable record for story identity, lifecycle, semantic state, retrieval signals, and bounded source evidence. On an existing installation, the store reads legacy `story_index.json` and `story_ledger.json` together until the next normal write creates `story_store.json`; the legacy files are then retained as migration backups but no longer read.
+Live story, coverage, coverage-archive, and feedback records share `state/memory/memory.sqlite3`. `learned_preferences.json` remains human-editable, while `backups/` and `recall_packets/` remain explicit artifacts. On first use, story memory is imported from `story_store.json` when present, otherwise from the merged `story_index.json` and `story_ledger.json`; coverage and feedback are imported from `coverage_log*.jsonl` and `feedback_events.jsonl`. Those legacy files are retained as migration backups and are not rewritten.
 
 The memory layer does not add LLM calls and does not mutate `user_memory`. Learned preferences are stored separately and applied as bounded deterministic rank adjustments.
 

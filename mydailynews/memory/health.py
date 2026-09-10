@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 from collections import Counter
-import json
 from pathlib import Path
-from typing import Any, Iterable, List
+from typing import Any, Iterable
 
-from mydailynews.memory.feedback import FEEDBACK_ACTIONS
+from mydailynews.memory.feedback import FeedbackStore
 
 
 def memory_health_checks(
@@ -44,7 +43,7 @@ def memory_health_checks(
         if not any(_field(event, key) for key in ("article_id", "story_key", "source", "topic"))
     ]
 
-    feedback_stats = feedback_jsonl_stats(Path(state_dir) / "feedback_events.jsonl")
+    feedback_stats = FeedbackStore.from_state_dir(state_dir).migration_stats()
     warnings: list[dict[str, Any]] = []
     if feedback_stats["invalid_rows"]:
         warnings.append(
@@ -122,34 +121,6 @@ def memory_health_checks(
             "coverage_story_key_missing_from_store": len(coverage_without_story),
             "feedback_rows_missing_identity": len(feedback_without_identity),
         },
-    }
-
-
-def feedback_jsonl_stats(path: Path | str) -> dict[str, Any]:
-    jsonl_path = Path(path)
-    if not jsonl_path.exists():
-        return {"path": str(jsonl_path), "rows": 0, "invalid_rows": 0, "line_numbers": []}
-    rows = 0
-    invalid_rows = 0
-    line_numbers: List[int] = []
-    for line_number, line in enumerate(jsonl_path.read_text(encoding="utf-8-sig").splitlines(), start=1):
-        if not line.strip():
-            continue
-        rows += 1
-        try:
-            raw = json.loads(line)
-        except json.JSONDecodeError:
-            invalid_rows += 1
-            line_numbers.append(line_number)
-            continue
-        if not isinstance(raw, dict) or str(raw.get("action", "") or "").strip() not in FEEDBACK_ACTIONS:
-            invalid_rows += 1
-            line_numbers.append(line_number)
-    return {
-        "path": str(jsonl_path),
-        "rows": rows,
-        "invalid_rows": invalid_rows,
-        "line_numbers": line_numbers[:50],
     }
 
 
