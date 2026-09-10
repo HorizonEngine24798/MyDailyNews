@@ -20,7 +20,6 @@ class AIConfig:
     response_format: str = "auto"
     request_timeout_seconds: int = 300
     token_estimation_chars_per_token: float = 4.0
-    enable_thinking: bool = False
     manage_server: bool = False
     server_executable: str = ""
     server_model_path: str = ""
@@ -30,11 +29,6 @@ class AIConfig:
     server_shutdown_timeout_seconds: int = 15
     server_auto_stop: bool = False
     server_spec_default: bool = True
-    codex_executable: str = "codex"
-    codex_model: str = "codex-mini-latest"
-    codex_workdir: str = ""
-    codex_sandbox: str = "read-only"
-    codex_ephemeral: bool = True
 
     @property
     def effective_model_label(self) -> str:

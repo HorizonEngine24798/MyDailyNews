@@ -50,6 +50,8 @@ class ReleaseSmokeTests(unittest.TestCase):
         self.assertEqual(config.ai_summary.context_window_tokens, 16384)
         self.assertLessEqual(config.ai_summary.max_input_tokens + config.ai_summary.max_new_tokens, 16384)
         self.assertFalse(hasattr(config.ai_summary, "preset"))
+        self.assertFalse(hasattr(config.ai_summary, "enable_thinking"))
+        self.assertFalse(hasattr(config.ai_summary, "codex_model"))
         self.assertTrue(config.general_topics)
         self.assertTrue(config.topics_to_examine)
         self.assertTrue(config.rss_sources)
@@ -324,6 +326,23 @@ class ReleaseSmokeTests(unittest.TestCase):
             alias_path = self._write_config_payload(TEMP_ROOT, alias_payload, "backend_alias")
             with self.assertRaisesRegex(ValueError, "Unsupported ai_summary.backend 'auto'"):
                 load_config(alias_path)
+
+        with self.subTest("removed codex backend"):
+            codex_payload = deepcopy(payload)
+            codex_payload["ai_summary"]["backend"] = "codex_agent"
+            codex_path = self._write_config_payload(TEMP_ROOT, codex_payload, "codex_backend")
+            with self.assertRaisesRegex(ValueError, "Unsupported ai_summary.backend 'codex_agent'"):
+                load_config(codex_path)
+
+        with self.subTest("removed thinking option"):
+            thinking_payload = deepcopy(payload)
+            thinking_payload["ai_summary"]["enable_thinking"] = False
+            thinking_path = self._write_config_payload(TEMP_ROOT, thinking_payload, "thinking_option")
+            with self.assertRaisesRegex(
+                ValueError,
+                r"Config section ai_summary has unrecognized key\(s\): enable_thinking",
+            ):
+                load_config(thinking_path)
 
         with self.subTest("canonical backend spelling only"):
             hyphen_payload = deepcopy(payload)

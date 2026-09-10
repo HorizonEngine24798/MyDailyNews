@@ -106,6 +106,14 @@ REMOVED_FILTERING_KEYS = (
     "use_multifactor_composite_ranking",
 )
 REMOVED_CACHE_KEYS = ("wikipedia_retention_days",)
+REMOVED_AI_KEYS = (
+    "codex_ephemeral",
+    "codex_executable",
+    "codex_model",
+    "codex_sandbox",
+    "codex_workdir",
+    "enable_thinking",
+)
 
 
 @dataclass(frozen=True)
@@ -380,6 +388,8 @@ def build_recommended_config(config: dict[str, Any], tier: dict[str, Any], model
     settings = tier["settings"]
     for section in ("ai_summary", "ai_final"):
         ai = updated.setdefault(section, {})
+        for key in REMOVED_AI_KEYS:
+            ai.pop(key, None)
         ai["backend"] = "llama_cpp_server"
         ai["base_url"] = _external_base_url(ai.get("base_url"))
         ai["server_model"] = model["model_label"]

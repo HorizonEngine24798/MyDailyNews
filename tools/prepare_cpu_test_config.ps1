@@ -33,7 +33,6 @@ foreach ($sectionName in @("ai_summary", "ai_final")) {
     Set-JsonProperty $ai "request_timeout_seconds" 180
     Set-JsonProperty $ai "token_estimation_chars_per_token" 4.0
     Set-JsonProperty $ai "response_format" "json_schema"
-    Set-JsonProperty $ai "enable_thinking" $false
     Set-JsonProperty $ai "manage_server" $false
     Set-JsonProperty $ai "server_executable" ""
     Set-JsonProperty $ai "server_model_path" ""
