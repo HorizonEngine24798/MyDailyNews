@@ -202,7 +202,7 @@
     "article_text_max_chars": 5000
   },
   "enrichment": {
-    "enabled": true,
+    "enabled": false,
     "mode": "story_llm",
     "max_story_threads": 10,
     "planner_max_questions_per_story": 4,
@@ -233,7 +233,6 @@
   "pipeline": {
     "default_series": [
       "briefs",
-      "enrichment",
       "narrative_brief"
     ]
   },

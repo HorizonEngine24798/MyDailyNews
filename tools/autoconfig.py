@@ -137,7 +137,7 @@ class ProbeReport:
 
 @dataclass(frozen=True)
 class PipelinePreferences:
-    workflow: str = "full"
+    workflow: str = "narrative"
     brief_volume: str = "standard"
     analysis_depth: str = "balanced"
     narrative_length: str = "standard"
@@ -436,7 +436,7 @@ def maybe_prompt_pipeline_preferences() -> PipelinePreferences | None:
             ("structured", "Structured briefs only", "fastest default run"),
             ("research", "Briefs + enrichment", "research context without narrative rewrite"),
         ],
-        default="full",
+        default="narrative",
     )
     brief_volume = prompt_choice(
         "How many stories should the structured briefs carry?",
@@ -538,7 +538,7 @@ def _apply_workflow_preference(config: dict[str, Any], workflow: str) -> None:
     pipeline = config.setdefault("pipeline", {})
     enrichment = config.setdefault("enrichment", {})
     narrative = config.setdefault("narrative_briefing", {})
-    workflow = str(workflow or "full").strip().lower()
+    workflow = str(workflow or "narrative").strip().lower()
     if workflow == "structured":
         pipeline["default_series"] = ["briefs"]
         enrichment["enabled"] = False
@@ -641,7 +641,7 @@ def _apply_tts_audio_preference(config: dict[str, Any], tts_audio: str) -> None:
     pipeline = config.setdefault("pipeline", {})
     series = pipeline.get("default_series")
     if not isinstance(series, list) or not series:
-        series = ["briefs", "enrichment", "narrative_brief"]
+        series = ["briefs", "narrative_brief"]
     series = [str(item or "").strip().lower().replace("-", "_") for item in series]
     if choice in {"yes", "on", "true", "enabled"}:
         tts["enabled"] = True
@@ -661,7 +661,7 @@ def _apply_perspectives_report_preference(config: dict[str, Any], perspectives_r
     pipeline = config.setdefault("pipeline", {})
     series = pipeline.get("default_series")
     if not isinstance(series, list) or not series:
-        series = ["briefs", "enrichment", "narrative_brief"]
+        series = ["briefs", "narrative_brief"]
     series = [str(item or "").strip().lower().replace("-", "_") for item in series]
     if choice in {"yes", "on", "true", "enabled"}:
         section["enabled"] = True
@@ -730,13 +730,13 @@ def _apply_perspectives_report(section: dict[str, Any]) -> None:
 
 
 def _apply_pipeline(section: dict[str, Any]) -> None:
-    default_series = ["briefs", "enrichment", "narrative_brief"]
+    default_series = ["briefs", "narrative_brief"]
     current = section.get("default_series")
     if not isinstance(current, list) or not current:
         section["default_series"] = default_series
         return
     normalized: list[str] = []
-    allowed = {*default_series, "tts", "perspectives_report"}
+    allowed = {*default_series, "enrichment", "tts", "perspectives_report"}
     for item in current:
         module = str(item or "").strip().lower().replace("-", "_")
         if module in allowed and module not in normalized:
@@ -775,7 +775,7 @@ def _apply_story_enrichment_budget(section: dict[str, Any], settings: dict[str, 
 
     mode = str(section.get("mode") or "story_llm").strip().lower()
     target_mode = "disabled" if mode == "disabled" else "story_llm"
-    explicit_enabled = bool(section.get("enabled", True))
+    explicit_enabled = bool(section.get("enabled", False))
     section.clear()
     section["enabled"] = explicit_enabled and target_mode != "disabled"
     section["mode"] = target_mode

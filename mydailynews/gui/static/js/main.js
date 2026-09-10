@@ -22,7 +22,7 @@ const PIPELINE_MODULES = [
 ];
 const TTS_MODULES = [...PIPELINE_MODULES];
 const DEFAULT_TTS_MODULES = ["narrative_brief"];
-const DEFAULT_PIPELINE_SERIES = ["briefs", "enrichment", "narrative_brief"];
+const DEFAULT_PIPELINE_SERIES = ["briefs", "narrative_brief"];
 const GUI_PREFS_KEY = "mydailynews.gui";
 const GUI_DEFAULTS = {
   theme: "charcoal",

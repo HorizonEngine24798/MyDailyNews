@@ -373,7 +373,7 @@ class NewsOrchestrator:
             raise ValueError(f"Invalid --date value '{value}'. Expected YYYY-MM-DD.") from exc
 
     def _runtime_series(self) -> List[str]:
-        configured = list(getattr(self.config.pipeline, "default_series", []) or ["briefs", "enrichment", "narrative_brief"])
+        configured = list(getattr(self.config.pipeline, "default_series", []) or ["briefs", "narrative_brief"])
         skip = set(getattr(self.run_options, "skip_modules", ()) or ())
         series: List[str] = []
         for module in configured:
