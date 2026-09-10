@@ -96,6 +96,7 @@ class MemoryModuleTests(unittest.TestCase):
         self.assertEqual(config.memory.coverage_retention_days, 30)
         self.assertEqual(config.memory.story_stale_after_days, 7)
         self.assertEqual(config.memory.story_retention_days, 30)
+        self.assertEqual(config.memory.story_candidate_threshold, 0.25)
         self.assertTrue(config.memory.feedback_enabled)
 
         payload = json.loads((REPO_ROOT / "config.example.json").read_text(encoding="utf-8-sig"))

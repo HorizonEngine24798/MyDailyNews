@@ -494,6 +494,10 @@ def _load_memory(raw: Dict[str, Any]) -> MemoryConfig:
             int(memory_raw.get("story_stale_after_days", DEFAULT_MEMORY["story_stale_after_days"])),
         ),
         story_retention_days=max(0, int(memory_raw.get("story_retention_days", DEFAULT_MEMORY["story_retention_days"]))),
+        story_candidate_threshold=max(
+            0.0,
+            min(1.0, float(memory_raw.get("story_candidate_threshold", DEFAULT_MEMORY["story_candidate_threshold"]))),
+        ),
         recent_story_penalty=max(0.0, float(memory_raw.get("recent_story_penalty", DEFAULT_MEMORY["recent_story_penalty"]))),
         recent_lead_penalty=max(0.0, float(memory_raw.get("recent_lead_penalty", DEFAULT_MEMORY["recent_lead_penalty"]))),
         material_update_boost=max(0.0, float(memory_raw.get("material_update_boost", DEFAULT_MEMORY["material_update_boost"]))),
@@ -501,24 +505,6 @@ def _load_memory(raw: Dict[str, Any]) -> MemoryConfig:
         max_selected_per_story_family=max(
             0,
             int(memory_raw.get("max_selected_per_story_family", DEFAULT_MEMORY["max_selected_per_story_family"])),
-        ),
-        story_reranker_enabled=parse_bool(
-            memory_raw.get("story_reranker_enabled", DEFAULT_MEMORY["story_reranker_enabled"]),
-            default=DEFAULT_MEMORY["story_reranker_enabled"],
-            field_name="memory.story_reranker_enabled",
-        ),
-        story_reranker_model_path=str(
-            memory_raw.get("story_reranker_model_path", DEFAULT_MEMORY["story_reranker_model_path"])
-            or ""
-        ),
-        story_reranker_threshold=max(
-            0.0,
-            min(1.0, float(memory_raw.get("story_reranker_threshold", DEFAULT_MEMORY["story_reranker_threshold"]))),
-        ),
-        story_reranker_hard_rejection=parse_bool(
-            memory_raw.get("story_reranker_hard_rejection", DEFAULT_MEMORY["story_reranker_hard_rejection"]),
-            default=DEFAULT_MEMORY["story_reranker_hard_rejection"],
-            field_name="memory.story_reranker_hard_rejection",
         ),
         recall_prompt_enabled=parse_bool(
             memory_raw.get("recall_prompt_enabled", DEFAULT_MEMORY["recall_prompt_enabled"]),

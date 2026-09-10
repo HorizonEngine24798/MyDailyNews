@@ -25,7 +25,6 @@ class StoryCandidateMatch:
     fact_score: float
     numeric_conflict: bool
     reasons: List[str] = field(default_factory=list)
-    reranker_score: float | None = None
 
     def metadata(self) -> dict[str, Any]:
         return {
@@ -43,11 +42,6 @@ class StoryCandidateMatch:
                 "numeric_conflict": self.numeric_conflict,
             },
             "reasons": list(self.reasons),
-            "reranker_score": (
-                round(float(self.reranker_score), 4)
-                if self.reranker_score is not None
-                else None
-            ),
         }
 
 

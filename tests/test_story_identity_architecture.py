@@ -25,7 +25,6 @@ from mydailynews.memory.context import build_story_memory_context
 from mydailynews.memory.coverage import CoverageMemoryStore, CoverageRecord
 from mydailynews.memory.recall import apply_delta_signals_to_selected
 from mydailynews.memory.story_store import StoryStore
-from mydailynews.memory.story_reranker import rerank_story_candidates
 from mydailynews.evaluation.retrieval_diagnostics import evaluate_story_store_retrieval
 from mydailynews.evaluation.schema import load_corpus
 
@@ -541,27 +540,6 @@ class StoryStoreTests(unittest.TestCase):
         self.assertGreaterEqual(payload["new_story_without_candidate_rate"], 0.97)
         self.assertEqual(payload["same_day_only_continuations_excluded"], 1)
         self.assertTrue(payload["uses_private_gold_for_historical_writeback"])
-
-    def test_reranker_can_only_reorder_or_reject_retrieved_candidates(self) -> None:
-        class RejectFirst:
-            def score(self, candidate, matches, *, source_text=""):
-                return [0.1, 0.9]
-
-        with TemporaryDirectory() as raw_dir:
-            store = StoryStore.from_state_dir(Path(raw_dir))
-            first = _candidate("first", "Aurora port strike begins", "Dock workers began a strike at Aurora port.")
-            second = _candidate("second", "Aurora port strike talks open", "Talks opened over the Aurora port strike.")
-            _annotate(first, "aurora-strike")
-            _annotate(second, "aurora-talks")
-            store.update_selected(selected=[_article(first), _article(second)], date="2026-03-01")
-            current = _candidate("current", "Aurora port talks resume", "Aurora port strike talks resumed today.")
-            matches = store.candidate_stories(current, source_text=current.snippet, min_score=0.0)
-            reranked = rerank_story_candidates(
-                current, matches[:2], RejectFirst(), source_text=current.snippet, reject_below_threshold=True,
-            )
-
-        self.assertEqual([item.record.story_key for item in reranked], [matches[1].record.story_key])
-        self.assertEqual(reranked[0].reranker_score, 0.9)
 
     def test_story_store_persists_bounded_claim_thread_events(self) -> None:
         with TemporaryDirectory() as raw_dir:

@@ -213,17 +213,28 @@ class AutoconfigTests(unittest.TestCase):
         catalog = self._catalog()
         source = self._example_config()
         source.pop("memory", None)
-        source["memory"] = {"recall_packet_enabled": False}
+        source["memory"] = {
+            "recall_packet_enabled": False,
+            "story_reranker_enabled": True,
+            "story_reranker_model_path": "old-model",
+            "story_reranker_threshold": 0.7,
+            "story_reranker_hard_rejection": True,
+        }
         tier = next(item for item in catalog["tiers"] if item["id"] == "nvidia_8gb")
         model = autoconfig.model_for_tier(catalog, tier)
 
         recommended = autoconfig.build_recommended_config(source, tier, model)
 
         self.assertNotIn("recall_packet_enabled", recommended["memory"])
+        self.assertNotIn("story_reranker_enabled", recommended["memory"])
+        self.assertNotIn("story_reranker_model_path", recommended["memory"])
+        self.assertNotIn("story_reranker_threshold", recommended["memory"])
+        self.assertNotIn("story_reranker_hard_rejection", recommended["memory"])
         self.assertTrue(recommended["memory"]["enabled"])
         self.assertEqual(recommended["memory"]["coverage_retention_days"], 30)
         self.assertEqual(recommended["memory"]["story_stale_after_days"], 7)
         self.assertEqual(recommended["memory"]["story_retention_days"], 30)
+        self.assertEqual(recommended["memory"]["story_candidate_threshold"], 0.25)
         self.assertTrue(recommended["memory"]["recall_prompt_enabled"])
         self.assertTrue(recommended["memory"]["save_recall_packets"])
         self.assertTrue(recommended["memory"]["feedback_enabled"])

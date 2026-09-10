@@ -66,7 +66,9 @@ class ReleaseSmokeTests(unittest.TestCase):
         self.assertTrue(config.memory.enabled)
         self.assertEqual(config.memory.coverage_retention_days, 30)
         self.assertEqual(config.memory.story_stale_after_days, 7)
+        self.assertFalse(hasattr(config.memory, "story_reranker_enabled"))
         self.assertEqual(config.memory.story_retention_days, 30)
+        self.assertEqual(config.memory.story_candidate_threshold, 0.25)
         self.assertTrue(config.memory.recall_prompt_enabled)
         self.assertTrue(config.memory.save_recall_packets)
         self.assertTrue(config.memory.feedback_enabled)
@@ -291,6 +293,16 @@ class ReleaseSmokeTests(unittest.TestCase):
                 r"Config section memory has unrecognized key\(s\): recall_packet_enabled",
             ):
                 load_config(old_memory_path)
+
+        with self.subTest("removed story reranker config"):
+            old_reranker_payload = deepcopy(payload)
+            old_reranker_payload["memory"]["story_reranker_enabled"] = True
+            old_reranker_path = self._write_config_payload(TEMP_ROOT, old_reranker_payload, "old_story_reranker")
+            with self.assertRaisesRegex(
+                ValueError,
+                r"Config section memory has unrecognized key\(s\): story_reranker_enabled",
+            ):
+                load_config(old_reranker_path)
 
         with self.subTest("duplicate pipeline module"):
             duplicate_pipeline_payload = deepcopy(payload)
