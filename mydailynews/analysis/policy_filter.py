@@ -23,14 +23,23 @@ def filter_delta_packet_for_articles(
     if omitted_count <= 0:
         return packet
     allowed = {str(value or "").strip() for value in allowed_article_ids if str(value or "").strip()}
+    editorial_selection = packet.get("story_delta_version") == "story-cards.v1"
     output: Dict[str, Any] = {
-        "baseline_coverage_note": "Writer context was filtered after unchanged-story suppression.",
+        "baseline_coverage_note": (
+            "Writer context was filtered after editorial selection."
+            if editorial_selection
+            else "Writer context was filtered after unchanged-story suppression."
+        ),
         "evidence_gaps": [],
         "writer_policy": {
-            "suppressed_unchanged_story_count": max(0, int(omitted_count)),
-            "instruction": "Suppressed story content is intentionally absent; do not reconstruct it from prior reports.",
+            "deferred_story_count" if editorial_selection else "suppressed_unchanged_story_count": max(
+                0, int(omitted_count)
+            ),
+            "instruction": "Deferred story content is intentionally absent; do not reconstruct it from prior reports.",
         },
     }
+    if editorial_selection:
+        output["story_delta_version"] = "story-cards.v1"
     for key in _DELTA_ENTRY_KEYS:
         output[key] = _rows_wholly_with_allowed_ids(packet.get(key, []), allowed, id_key="article_ids")
     output["story_decisions"] = _rows_wholly_with_allowed_ids(
@@ -38,10 +47,6 @@ def filter_delta_packet_for_articles(
         allowed,
         id_key="article_ids",
     )
-    if packet.get("deterministic_scaffold"):
-        output["deterministic_scaffold"] = True
-    if packet.get("deterministic_policy_version"):
-        output["deterministic_policy_version"] = str(packet["deterministic_policy_version"])
     return output
 
 
@@ -99,7 +104,7 @@ def filter_evidence_packet_for_articles(
             item["article_ids"] = article_ids
             reader_qa.append(item)
     return {
-        "overview": "Evidence context was filtered after unchanged-story suppression.",
+        "overview": "Evidence context was filtered after editorial story selection.",
         "story_clusters": clusters,
         "global_watch_signals": [],
         "reader_qa": reader_qa,

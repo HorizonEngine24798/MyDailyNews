@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Sequence
 
-from mydailynews.analysis.claim_delta import CLAIM_RELATIONS, ENTAILMENT_VALUES
+from mydailynews.analysis.claim_delta import FACT_OPERATIONS
 from mydailynews.app.models import MemoryAnnotation, NewsCandidate, SelectedArticle
 from mydailynews.common.utils import datetime_to_iso
 from mydailynews.common.storage import (
@@ -31,7 +31,7 @@ from mydailynews.memory.story_retrieval import (
 )
 
 
-STORY_STORE_SCHEMA_VERSION = 4
+STORY_STORE_SCHEMA_VERSION = 6
 MATCH_CONFIDENCE_THRESHOLD = 0.58
 # Source facts are an evidence cache, not a transcript archive.  The last
 # user-visible facts are always protected; the remaining slots retain the most
@@ -66,10 +66,10 @@ class StoryThreadEvent:
     materiality: float = 0.0
     disposition: str = ""
     summary: str = ""
-    added_claims: List[str] = field(default_factory=list)
-    repeated_claims: List[str] = field(default_factory=list)
-    superseded_claims: List[str] = field(default_factory=list)
-    claim_relations: List[Dict[str, str]] = field(default_factory=list)
+    current_evidence_ids: List[str] = field(default_factory=list)
+    prior_evidence_ids: List[str] = field(default_factory=list)
+    superseded_prior_evidence_ids: List[str] = field(default_factory=list)
+    operations: List[Dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -91,6 +91,7 @@ class StoryRecord:
     last_shown: str = ""
     source_document_ids: List[str] = field(default_factory=list)
     facts: List[SourceFact] = field(default_factory=list)
+    active_fact_ids: List[str] = field(default_factory=list)
     thread_events: List[StoryThreadEvent] = field(default_factory=list)
     last_user_visible_fact_ids: List[str] = field(default_factory=list)
     last_material_change_date: str = ""
@@ -214,8 +215,25 @@ class StoryStore:
             if str(value or "").strip()
         }
         decisions = _decisions_by_article(delta_packet)
+        validated_operation_packet = bool(
+            isinstance(delta_packet, dict)
+            and delta_packet.get("story_delta_version") == "story-cards.v1"
+        )
         groups = _story_group_by_article_id(story_groups or [])
-        updated = {record.story_key: record for record in self.records()}
+        current_facts_by_article_id = {
+            str(article.candidate.id): source_facts_for_article(
+                article,
+                observed_at=date,
+                user_visible=str(article.candidate.id) in visible_ids,
+            )
+            for article in selected
+        }
+        existing_records = (
+            self._read_records_from_database(database)
+            if database is not None
+            else self.records()
+        )
+        updated = {record.story_key: record for record in existing_records}
 
         for article in selected:
             annotation = candidate_memory_annotation(article.candidate)
@@ -234,13 +252,20 @@ class StoryStore:
                 source_text=article.article_text or article.candidate.snippet,
             )
             is_visible = str(article.candidate.id) in visible_ids
-            current_facts = source_facts_for_article(
-                article,
-                observed_at=date,
-                user_visible=is_visible,
+            current_facts = current_facts_by_article_id.get(str(article.candidate.id), [])
+            decision = decisions.get(str(article.candidate.id), {})
+            decision_article_ids = _string_list(
+                decision.get("article_ids", [article.candidate.id]),
+                max_items=max(1, len(current_facts_by_article_id)),
+                max_chars=120,
             )
+            operation_current_facts = [
+                fact
+                for article_id in decision_article_ids
+                for fact in current_facts_by_article_id.get(article_id, [])
+            ] or current_facts
             facts_by_id = {fact.fact_id: fact for fact in (previous.facts if previous else [])}
-            for fact in current_facts:
+            for fact in operation_current_facts:
                 existing = facts_by_id.get(fact.fact_id)
                 if existing is not None:
                     fact = replace(fact, user_visible=existing.user_visible or fact.user_visible)
@@ -260,23 +285,34 @@ class StoryStore:
                 )
             else:
                 visible_fact_ids = list(previous.last_user_visible_fact_ids) if previous else []
-            decision = decisions.get(str(article.candidate.id), {})
             claim_delta = (
                 decision.get("claim_delta", {})
                 if isinstance(decision.get("claim_delta"), dict)
                 else {}
             )
             semantic_fact_ids = _merge_strings(
+                decision.get("current_evidence_ids", []),
+                decision.get("prior_evidence_ids", []),
+                decision.get("superseded_prior_evidence_ids", []),
                 claim_delta.get("current_evidence_ids", []),
                 claim_delta.get("prior_evidence_ids", []),
                 claim_delta.get("superseded_prior_evidence_ids", []),
                 max_items=20,
                 max_chars=80,
             )
+            active_fact_ids = _next_active_fact_ids(
+                previous,
+                operation_current_facts,
+                decision,
+                operations_validated=(
+                    validated_operation_packet
+                    and decision.get("editor_safe_to_defer") is True
+                ),
+            )
             protected_fact_ids = _merge_strings(
                 visible_fact_ids,
                 semantic_fact_ids,
-                max_items=32,
+                max_items=MAX_FACTS_PER_STORY,
                 max_chars=80,
             )
             facts = _bounded_fact_history(
@@ -285,6 +321,10 @@ class StoryStore:
             )
             retained_fact_ids = {fact.fact_id for fact in facts}
             visible_fact_ids = [fact_id for fact_id in visible_fact_ids if fact_id in retained_fact_ids]
+            active_fact_id_set = set(active_fact_ids)
+            active_fact_ids = [
+                fact.fact_id for fact in facts if fact.fact_id in active_fact_id_set
+            ]
 
             semantic = _semantic_baseline_fields(previous, decision, date)
             thread_events = _updated_thread_events(
@@ -342,6 +382,7 @@ class StoryStore:
                     max_chars=120,
                 ),
                 facts=facts,
+                active_fact_ids=active_fact_ids,
                 thread_events=thread_events,
                 last_user_visible_fact_ids=visible_fact_ids[-12:],
                 last_materiality=_bounded_float(
@@ -512,8 +553,9 @@ def source_facts_for_article(
 def story_baseline_payload(match: StoryCandidateMatch, *, max_facts: int = 6) -> Dict[str, Any]:
     record = match.record
     visible_ids = set(record.last_user_visible_fact_ids)
+    active_ids = set(record.active_fact_ids)
     ordered_facts = sorted(
-        record.facts,
+        (fact for fact in record.facts if fact.fact_id in active_ids),
         key=lambda fact: (
             fact.fact_id in visible_ids,
             fact.user_visible,
@@ -564,9 +606,10 @@ def story_baseline_payload(match: StoryCandidateMatch, *, max_facts: int = 6) ->
                 "materiality": event.materiality,
                 "disposition": event.disposition,
                 "summary": event.summary,
-                "added_claims": list(event.added_claims),
-                "superseded_claims": list(event.superseded_claims),
-                "claim_relations": [dict(item) for item in event.claim_relations],
+                "current_evidence_ids": list(event.current_evidence_ids),
+                "prior_evidence_ids": list(event.prior_evidence_ids),
+                "superseded_prior_evidence_ids": list(event.superseded_prior_evidence_ids),
+                "operations": [dict(item) for item in event.operations],
             }
             for event in record.thread_events[-4:]
         ],
@@ -599,7 +642,20 @@ def story_record_from_payload(raw: Any) -> StoryRecord | None:
         max_items=12,
         max_chars=80,
     )
-    facts = _bounded_fact_history(facts, protected_fact_ids=visible_fact_ids)
+    active_fact_ids = (
+        _string_list(
+            raw.get("active_fact_ids", []),
+            max_items=MAX_FACTS_PER_STORY,
+            max_chars=80,
+        )
+        if "active_fact_ids" in raw
+        else [fact.fact_id for fact in facts]
+    )
+    facts = _bounded_fact_history(
+        facts,
+        protected_fact_ids=visible_fact_ids,
+    )
+    retained_fact_ids = {fact.fact_id for fact in facts}
     title = str(raw.get("title", "") or "").strip()[:180]
     tokens = _token_list(raw.get("tokens", []), 24)
     aliases = _string_list(raw.get("aliases", []), max_items=16, max_chars=180)
@@ -634,9 +690,12 @@ def story_record_from_payload(raw: Any) -> StoryRecord | None:
         last_shown=str(raw.get("last_shown", "") or "").strip(),
         source_document_ids=_string_list(raw.get("source_document_ids", []), max_items=40, max_chars=120),
         facts=facts[-MAX_FACTS_PER_STORY:],
+        active_fact_ids=[
+            fact_id for fact_id in active_fact_ids if fact_id in retained_fact_ids
+        ],
         thread_events=thread_events,
         last_user_visible_fact_ids=[
-            fact_id for fact_id in visible_fact_ids if fact_id in {fact.fact_id for fact in facts}
+            fact_id for fact_id in visible_fact_ids if fact_id in retained_fact_ids
         ],
         last_material_change_date=str(raw.get("last_material_change_date", "") or "").strip(),
         last_change_type=str(raw.get("last_change_type", "") or "").strip(),
@@ -672,7 +731,24 @@ def merge_story_records(
         max_items=12,
         max_chars=80,
     )
-    facts = _bounded_fact_history(facts_by_id.values(), protected_fact_ids=visible_ids)
+    requested_active_ids = (
+        _string_list(
+            raw.get("active_fact_ids", []),
+            max_items=MAX_FACTS_PER_STORY,
+            max_chars=80,
+        )
+        if "active_fact_ids" in raw
+        else _merge_strings(
+            *(record.active_fact_ids for record in records),
+            max_items=MAX_FACTS_PER_STORY,
+            max_chars=80,
+        )
+    )
+    facts = _bounded_fact_history(
+        facts_by_id.values(),
+        protected_fact_ids=visible_ids,
+    )
+    retained_fact_ids = {fact.fact_id for fact in facts}
     thread_events = _merge_thread_events(*(record.thread_events for record in records))
     active = any(record.status == "active" for record in records)
     override_tokens = _token_list(raw.get("tokens", []), 24)
@@ -709,8 +785,11 @@ def merge_story_records(
             max_chars=120,
         ),
         facts=facts,
+        active_fact_ids=[
+            fact_id for fact_id in requested_active_ids if fact_id in retained_fact_ids
+        ],
         thread_events=thread_events,
-        last_user_visible_fact_ids=[fact_id for fact_id in visible_ids if fact_id in {fact.fact_id for fact in facts}],
+        last_user_visible_fact_ids=[fact_id for fact_id in visible_ids if fact_id in retained_fact_ids],
     )
 
 
@@ -813,10 +892,14 @@ def _thread_event_from_payload(raw: Any) -> StoryThreadEvent | None:
         materiality=_bounded_float(raw.get("materiality"), 0.0),
         disposition=str(raw.get("disposition", "") or "").strip(),
         summary=str(raw.get("summary", "") or "").strip()[:400],
-        added_claims=_string_list(raw.get("added_claims", []), max_items=6, max_chars=420),
-        repeated_claims=_string_list(raw.get("repeated_claims", []), max_items=6, max_chars=420),
-        superseded_claims=_string_list(raw.get("superseded_claims", []), max_items=4, max_chars=420),
-        claim_relations=_claim_relation_list(raw.get("claim_relations", [])),
+        current_evidence_ids=_string_list(raw.get("current_evidence_ids", []), max_items=12, max_chars=80),
+        prior_evidence_ids=_string_list(raw.get("prior_evidence_ids", []), max_items=12, max_chars=80),
+        superseded_prior_evidence_ids=_string_list(
+            raw.get("superseded_prior_evidence_ids", []),
+            max_items=12,
+            max_chars=80,
+        ),
+        operations=_operation_list(raw.get("operations", [])),
     )
 
 
@@ -832,23 +915,44 @@ def _updated_thread_events(
     relationship = str(decision.get("relationship", "") or "").strip()
     change_type = str(decision.get("change_type", "") or "").strip()
     summary = str(decision.get("summary", "") or decision.get("reason", "") or "").strip()[:400]
-    claim_delta = decision.get("claim_delta", {}) if isinstance(decision.get("claim_delta"), dict) else {}
+    event_article_ids = _string_list(
+        decision.get("article_ids", [article_id] if article_id else []),
+        max_items=8,
+        max_chars=120,
+    )
+    if not event_article_ids and article_id:
+        event_article_ids = [article_id]
     digest = sha256(
-        f"{observed_at}\n{article_id}\n{relationship}\n{change_type}\n{normalized_word_text(summary)}".encode("utf-8")
+        (
+            f"{observed_at}\n{','.join(event_article_ids)}\n{relationship}\n"
+            f"{change_type}\n{normalized_word_text(summary)}"
+        ).encode("utf-8")
     ).hexdigest()[:20]
     event = StoryThreadEvent(
         event_id=f"event:{digest}",
         observed_at=observed_at,
-        article_ids=[article_id] if article_id else [],
+        article_ids=event_article_ids,
         relationship=relationship,
         change_type=change_type,
         materiality=_bounded_float(decision.get("materiality"), 0.0),
         disposition=str(decision.get("disposition", "") or "").strip(),
         summary=summary,
-        added_claims=_string_list(claim_delta.get("added_claims", []), max_items=6, max_chars=420),
-        repeated_claims=_string_list(claim_delta.get("repeated_claims", []), max_items=6, max_chars=420),
-        superseded_claims=_string_list(claim_delta.get("superseded_claims", []), max_items=4, max_chars=420),
-        claim_relations=_claim_relation_list(claim_delta.get("claim_relations", [])),
+        current_evidence_ids=_string_list(
+            decision.get("current_evidence_ids", []),
+            max_items=12,
+            max_chars=80,
+        ),
+        prior_evidence_ids=_string_list(
+            decision.get("prior_evidence_ids", []),
+            max_items=12,
+            max_chars=80,
+        ),
+        superseded_prior_evidence_ids=_string_list(
+            decision.get("superseded_prior_evidence_ids", []),
+            max_items=12,
+            max_chars=80,
+        ),
+        operations=_operation_list(decision.get("operations", [])),
     )
     return _merge_thread_events(previous, [event])
 
@@ -956,6 +1060,64 @@ def _semantic_baseline_fields(
             decision.get("prior_report_id", previous.last_report_id if previous else "") or ""
         ).strip(),
     }
+
+
+def _next_active_fact_ids(
+    previous: StoryRecord | None,
+    current_facts: Sequence[SourceFact],
+    decision: Dict[str, Any] | None,
+    *,
+    operations_validated: bool,
+) -> List[str]:
+    previous_fact_ids = {fact.fact_id for fact in previous.facts} if previous else set()
+    active = set(previous.active_fact_ids) if previous else set()
+    current_fact_ids = {fact.fact_id for fact in current_facts}
+    fail_open = active.union(current_fact_ids)
+    if not operations_validated or not isinstance(decision, dict):
+        return sorted(fail_open)
+
+    operations = _operation_list(decision.get("operations", []))
+    operation_current_ids = {
+        str(operation.get("current_evidence_id", "") or "")
+        for operation in operations
+    }
+    expected_current_ids = set(
+        _string_list(
+            decision.get("current_evidence_ids", []),
+            max_items=16,
+            max_chars=80,
+        )
+    )
+    references_are_valid = bool(operations) and all(
+        operation.get("operation") != "uncertain"
+        and str(operation.get("current_evidence_id", "") or "") in current_fact_ids
+        and all(
+            prior_id in previous_fact_ids
+            for prior_id in operation.get("prior_fact_ids", [])
+        )
+        and (
+            bool(operation.get("prior_fact_ids", []))
+            if operation.get("operation") in {"repeat", "replace", "resolve"}
+            else not operation.get("prior_fact_ids", [])
+        )
+        for operation in operations
+    )
+    if expected_current_ids and operation_current_ids != expected_current_ids:
+        references_are_valid = False
+    if not references_are_valid:
+        return sorted(fail_open)
+
+    for operation in operations:
+        operation_name = str(operation["operation"])
+        current_id = str(operation["current_evidence_id"])
+        if operation_name == "add":
+            active.add(current_id)
+        elif operation_name == "repeat":
+            continue
+        else:
+            active.difference_update(operation.get("prior_fact_ids", []))
+            active.add(current_id)
+    return sorted(active)
 
 
 def _decisions_by_article(delta_packet: Dict[str, Any] | None) -> Dict[str, Dict[str, Any]]:
@@ -1082,27 +1244,26 @@ def _merge_strings(
     return output[-max_items:]
 
 
-def _claim_relation_list(value: Any) -> List[Dict[str, str]]:
+def _operation_list(value: Any) -> List[Dict[str, Any]]:
     if not isinstance(value, list):
         return []
-    output: List[Dict[str, str]] = []
-    for raw in value[:8]:
+    output: List[Dict[str, Any]] = []
+    for raw in value[:16]:
         if not isinstance(raw, dict):
             continue
-        current_id = str(raw.get("current_claim_id", "") or "").strip()[:80]
-        prior_id = str(raw.get("prior_claim_id", "") or "").strip()[:80]
-        relation = str(raw.get("relation", "uncertain") or "uncertain").strip()
-        forward = str(raw.get("current_entails_prior", "uncertain") or "uncertain").strip()
-        reverse = str(raw.get("prior_entails_current", "uncertain") or "uncertain").strip()
-        if not current_id or not prior_id:
+        operation = str(raw.get("operation", "uncertain") or "uncertain").strip()
+        current_id = str(raw.get("current_evidence_id", "") or "").strip()[:80]
+        if operation not in FACT_OPERATIONS or not current_id:
             continue
         output.append(
             {
-                "current_claim_id": current_id,
-                "prior_claim_id": prior_id,
-                "relation": relation if relation in CLAIM_RELATIONS else "uncertain",
-                "current_entails_prior": forward if forward in ENTAILMENT_VALUES else "uncertain",
-                "prior_entails_current": reverse if reverse in ENTAILMENT_VALUES else "uncertain",
+                "operation": operation,
+                "current_evidence_id": current_id,
+                "prior_fact_ids": _string_list(
+                    raw.get("prior_fact_ids", []),
+                    max_items=8,
+                    max_chars=80,
+                ),
             }
         )
     return output

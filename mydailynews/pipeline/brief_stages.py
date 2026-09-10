@@ -390,10 +390,12 @@ def _story_grouping_stage(
     selected: List[SelectedArticle],
     include_enrichment_context: bool,
     evidence_config,
+    delta_config=None,
     date: str = "",
 ) -> StoryGroupingStageResult:
     needs_enrichment_grouping = bool(include_enrichment_context)
     needs_evidence_grouping = bool(getattr(evidence_config, "enabled", False))
+    needs_delta_grouping = bool(getattr(delta_config, "enabled", False))
     warning_sink: List[str] = []
 
     def skipped(reason: str) -> StoryGroupingStageResult:
@@ -409,13 +411,14 @@ def _story_grouping_stage(
             selected=len(selected),
             needs_enrichment=needs_enrichment_grouping,
             needs_evidence=needs_evidence_grouping,
+            needs_delta=needs_delta_grouping,
         )
         return result
 
     if not selected:
         return skipped("no_selected_articles")
-    if not needs_enrichment_grouping and not needs_evidence_grouping:
-        return skipped("both_consumers_not_enabled")
+    if not any((needs_enrichment_grouping, needs_evidence_grouping, needs_delta_grouping)):
+        return skipped("no_consumers_enabled")
 
     ai_client = getattr(orchestrator, "summary_ai_client", None)
     if ai_client is None:
