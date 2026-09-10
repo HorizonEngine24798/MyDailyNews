@@ -48,7 +48,7 @@ Autoconfig writes these as a coupled profile. Changing one knob by hand can make
 ```json
 {
   "pipeline": {
-    "default_series": ["briefs", "enrichment", "narrative_brief"]
+    "default_series": ["briefs", "narrative_brief"]
   }
 }
 ```
@@ -134,7 +134,7 @@ Important fields:
 - `coverage_window_days` and `coverage_retention_days`: recent-history lookback and retention.
 - `story_stale_after_days` and `story_retention_days`: story lifecycle limits.
 - `story_candidate_threshold`: minimum heuristic retrieval score for a prior story candidate; lower values improve recall but admit more related-theme candidates.
-- `recent_story_penalty`, `recent_lead_penalty`, and `material_update_boost`: deterministic rank adjustments.
+- `recent_story_penalty` and `recent_lead_penalty`: deterministic rank adjustments for recently covered stories. Only delta analysis may establish that a story materially changed.
 - `max_selected_per_story` and `max_selected_per_story_family`: same-run diversity caps.
 - `recall_prompt_enabled` and `save_recall_packets`: compact coverage guidance and debug packets.
 - `feedback_enabled`: SQLite-backed feedback events used by the GUI and learned preferences.
@@ -146,6 +146,7 @@ The memory layer does not add LLM calls and does not mutate `user_memory`. Learn
 ## Enrichment
 
 `enrichment` controls the post-brief story-context module.
+It is disabled and absent from the default pipeline while its value is being reevaluated. To opt in, set `enabled=true` and add `enrichment` to `pipeline.default_series`, or run the module explicitly.
 
 Modes:
 
@@ -160,7 +161,7 @@ Main knobs:
 - optional LLM preferences: `planner_max_input_tokens`, `planner_max_new_tokens`, `synthesis_max_input_tokens`, `synthesis_max_new_tokens`; `null` inherits the model-role limits
 - caching: `cache_ttl_seconds`
 
-Autoconfig rewrites the enrichment block from `profiles/model_catalog.json` while preserving explicit local opt-outs such as `enabled=false` or `mode="disabled"`.
+Autoconfig rewrites the enrichment block from `profiles/model_catalog.json` while preserving an explicit opt-in. The default remains off.
 
 ## Runtime
 
@@ -195,6 +196,8 @@ Config loading uses strict unknown-key validation. Update older local configs in
 
 Removed keys and behaviors include:
 
+- the `codex_agent` backend, its `codex_*` settings, and `enable_thinking`;
+- `filtering.use_multifactor_composite_ranking` and `memory.material_update_boost`;
 - `enrichment.mode="simple"` and the old Wikipedia/related-news enrichment path.
 - `enrichment.past_news_days`, `enrichment.max_past_news_results`, `enrichment.max_wikipedia_results`, and `enrichment.max_entities`.
 - `cache.wikipedia_retention_days`.
