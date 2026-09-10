@@ -85,7 +85,7 @@ def default_general_filtering_config() -> FilteringConfig:
 
 @dataclass
 class EnrichmentConfig:
-    enabled: bool = True
+    enabled: bool = False
     mode: str = "story_llm"
     max_context_chars_per_article: int = 3200
     max_story_threads: int = 10
@@ -177,7 +177,7 @@ class PerspectivesReportConfig:
 
 @dataclass
 class PipelineConfig:
-    default_series: List[str] = field(default_factory=lambda: ["briefs", "enrichment", "narrative_brief"])
+    default_series: List[str] = field(default_factory=lambda: ["briefs", "narrative_brief"])
 
 
 @dataclass
