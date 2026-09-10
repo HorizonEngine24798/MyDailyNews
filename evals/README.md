@@ -1,8 +1,8 @@
 # Evaluation data
 
 The versioned corpus lives under `cases/`. See
-[`docs/evaluation.md`](../docs/evaluation.md) for commands, labels, metrics, and
-the anti-leak design.
+[`docs/evaluation.md`](../docs/evaluation.md) for current focused checks and the
+anti-leak rule.
 
 When adding an arc:
 
@@ -11,11 +11,10 @@ When adding an arc:
 3. Add required and forbidden facts to the arc's fact catalog.
 4. Include both a plausible positive and a confusing negative when possible.
 5. Tag the failure mechanism, not the expected answer.
-6. Run the oracle and fault-injection tests before accepting the case.
+6. Run the corpus validation and relevant focused diagnostic before accepting the case.
 7. Include unrelated-only days and occasional `documents: []` days in long
    arcs; real feeds contain both noise and silence.
-8. A source-empty day must also have `expectations: []`. Use the
-   `hallucinate_quiet_days` fault to prove that invented output is detected.
+8. A source-empty day must also have `expectations: []`.
 
 Do not treat the committed `holdout` label as secrecy. It is only a stable
 regression slice.

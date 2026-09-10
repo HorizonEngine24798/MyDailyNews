@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from datetime import date as date_type, datetime, timezone
 import json
 from pathlib import Path
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict, List
 from urllib.parse import urlparse
 
 from mydailynews.app.models import NewsCandidate, UserMemory
@@ -323,70 +323,11 @@ class EvalArcInput:
     days: List[EvalDayInput]
 
 
-@dataclass
-class EvalPrediction:
-    arc_id: str
-    date: str
-    document_id: str
-    predicted_story_id: str
-    relationship: str
-    delta_type: str
-    material: bool
-    display: str
-    profile_relevance: str
-    selected: bool
-    reported_fact_ids: List[str] | None = None
-    unsupported_claims: List[str] = field(default_factory=list)
-    latency_ms: float = 0.0
-    metadata: Dict[str, Any] = field(default_factory=dict)
-
-    @classmethod
-    def from_dict(cls, raw: Dict[str, Any]) -> "EvalPrediction":
-        reported = raw.get("reported_fact_ids")
-        if reported is not None and not isinstance(reported, list):
-            raise ValueError("reported_fact_ids must be an array or null")
-        return cls(
-            arc_id=_text(raw.get("arc_id")),
-            date=_text(raw.get("date")),
-            document_id=_text(raw.get("document_id")),
-            predicted_story_id=_text(raw.get("predicted_story_id")),
-            relationship=_text(raw.get("relationship")) or "uncertain",
-            delta_type=_text(raw.get("delta_type")) or "uncertain",
-            material=_required_bool(raw, "material"),
-            display=_text(raw.get("display")) or "full_report",
-            profile_relevance=_text(raw.get("profile_relevance")) or "eligible",
-            selected=_required_bool(raw, "selected"),
-            reported_fact_ids=_strings(reported) if isinstance(reported, list) else None,
-            unsupported_claims=_strings(raw.get("unsupported_claims", [])),
-            latency_ms=_float(raw.get("latency_ms")),
-            metadata=dict(raw.get("metadata", {})) if isinstance(raw.get("metadata"), dict) else {},
-        )
-
-    def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
-
-
 def load_corpus(path: Path | str) -> EvalCorpus:
     payload = json.loads(Path(path).read_text(encoding="utf-8-sig"))
     if not isinstance(payload, dict):
         raise ValueError("Evaluation corpus root must be an object")
     return EvalCorpus.from_dict(payload)
-
-
-def load_predictions(path: Path | str) -> List[EvalPrediction]:
-    payload = json.loads(Path(path).read_text(encoding="utf-8-sig"))
-    rows = payload.get("predictions", []) if isinstance(payload, dict) else payload
-    if not isinstance(rows, list):
-        raise ValueError("Prediction file must be a list or contain a predictions list")
-    predictions: List[EvalPrediction] = []
-    for index, item in enumerate(rows):
-        if not isinstance(item, dict):
-            raise ValueError(f"prediction[{index}] must be an object")
-        try:
-            predictions.append(EvalPrediction.from_dict(item))
-        except ValueError as exc:
-            raise ValueError(f"prediction[{index}]: {exc}") from exc
-    return predictions
 
 
 def _text(value: Any) -> str:
@@ -401,19 +342,8 @@ def _strings(value: Any) -> List[str]:
     return [_text(item) for item in value if _text(item)]
 
 
-def _float(value: Any) -> float:
-    try:
-        return max(0.0, float(value))
-    except (TypeError, ValueError):
-        return 0.0
-
-
 def _required_bool(raw: Dict[str, Any], key: str) -> bool:
     value = raw.get(key)
     if not isinstance(value, bool):
         raise ValueError(f"{key} must be a JSON boolean")
     return value
-
-
-def prediction_keys(predictions: Iterable[EvalPrediction]) -> List[tuple[str, str, str]]:
-    return [(item.arc_id, item.date, item.document_id) for item in predictions]
