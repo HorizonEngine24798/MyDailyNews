@@ -16,12 +16,6 @@ python tools/run_story_retrieval_diagnostics.py
 The report includes recall at bounded candidate counts. It does not measure
 delta correctness or final-brief quality.
 
-## Experimental operation checks
-
-The structured-delta and daily-story experiments are documented in
-[story-experiments.md](story-experiments.md). They test narrow fact-operation
-contracts and are not alternate production implementations.
-
 The corpora under `evals/cases/` contain synthetic and blind real-news cases.
 Gold story IDs, labels, and fact expectations are scorer data and must never be
 included in model input.
