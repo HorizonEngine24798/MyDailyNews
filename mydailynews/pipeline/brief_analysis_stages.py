@@ -27,23 +27,10 @@ def _run_evidence_stage(
     date: str,
     include_enrichment_context: bool,
     evidence_config: EvidenceDistillationConfig,
-    analysis_rollout_meta: Dict[str, Any],
     story_groups: List[StoryGroup] | None = None,
 ) -> EvidenceStageResult:
     warnings: List[str] = []
     evidence_packet: Dict[str, Any] = {}
-    orchestrator.debug.set_metric(
-        f"brief.{brief_name}.analysis.rollout.enabled",
-        bool(analysis_rollout_meta.get("rollout_enabled", False)),
-    )
-    orchestrator.debug.set_metric(
-        f"brief.{brief_name}.analysis.rollout.profile",
-        str(analysis_rollout_meta.get("rollout_profile", "")),
-    )
-    orchestrator.debug.set_metric(
-        f"brief.{brief_name}.analysis.evidence.enabled_requested",
-        bool(analysis_rollout_meta.get("evidence_requested_enabled", False)),
-    )
     orchestrator.debug.set_metric(
         f"brief.{brief_name}.analysis.evidence.enabled",
         bool(evidence_config.enabled),
@@ -109,8 +96,7 @@ def _run_evidence_stage(
             int(getattr(evidence_distiller, "group_boundary_warning_count", 0)),
         )
     else:
-        reason = str(analysis_rollout_meta.get("evidence_skip_reason", "disabled"))
-        orchestrator.debug.set_metric(f"brief.{brief_name}.analysis.evidence.skipped_reason.{reason}", 1)
+        orchestrator.debug.set_metric(f"brief.{brief_name}.analysis.evidence.skipped_reason.disabled", 1)
         orchestrator.debug.set_metric(f"brief.{brief_name}.analysis.evidence.shared_grouping_used", False)
         orchestrator.debug.set_metric(f"brief.{brief_name}.analysis.evidence.group_boundary_warnings", 0)
     orchestrator.debug.set_metric(
@@ -136,7 +122,6 @@ def _run_delta_stage(
     evidence_packet: Dict[str, Any],
     evidence_config: EvidenceDistillationConfig,
     delta_config: DeltaExtractionConfig,
-    analysis_rollout_meta: Dict[str, Any],
     story_groups: List[StoryGroup] | None = None,
     story_store: StoryStore | None = None,
     coverage_store: CoverageMemoryStore | None = None,
@@ -161,10 +146,6 @@ def _run_delta_stage(
     orchestrator.debug.set_metric(
         f"brief.{brief_name}.analysis.delta.story_memory_stories",
         len(story_memory.get("stories", [])),
-    )
-    orchestrator.debug.set_metric(
-        f"brief.{brief_name}.analysis.delta.enabled_requested",
-        bool(analysis_rollout_meta.get("delta_requested_enabled", False)),
     )
     orchestrator.debug.set_metric(f"brief.{brief_name}.analysis.delta.enabled", bool(delta_config.enabled))
     if delta_config.enabled:
@@ -225,8 +206,7 @@ def _run_delta_stage(
             int(delta_pressure_warnings),
         )
     else:
-        reason = str(analysis_rollout_meta.get("delta_skip_reason", "disabled"))
-        orchestrator.debug.set_metric(f"brief.{brief_name}.analysis.delta.skipped_reason.{reason}", 1)
+        orchestrator.debug.set_metric(f"brief.{brief_name}.analysis.delta.skipped_reason.disabled", 1)
 
     deterministic_delta_packet = build_deterministic_delta_scaffold(
         selected,

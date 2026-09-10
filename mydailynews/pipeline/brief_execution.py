@@ -10,7 +10,6 @@ from mydailynews.analysis.policy_filter import (
     filter_evidence_packet_for_articles,
     filter_prior_reports_for_articles,
 )
-from mydailynews.analysis.rollout import resolve_analysis_stage_configs
 from mydailynews.briefing.generator import BriefGenerator, brief_metadata, no_material_changes_brief
 from mydailynews.pipeline.brief_analysis_stages import _run_delta_stage, _run_evidence_stage
 from mydailynews.pipeline.brief_stages import (
@@ -194,10 +193,9 @@ def run_brief(
             )
             extend_warnings(run_warnings, article_fetch_result.warnings)
             selected = article_fetch_result.selected
-            evidence_config, delta_config, analysis_rollout_meta = resolve_analysis_stage_configs(
-                orchestrator.config.analysis,
-                name,
-            )
+            brief_analysis_config = getattr(orchestrator.config.analysis, name)
+            evidence_config = brief_analysis_config.evidence_distillation
+            delta_config = brief_analysis_config.delta_extraction
             if _checkpoint_stage(
                 orchestrator,
                 brief_name=name,
@@ -234,7 +232,6 @@ def run_brief(
                 date=date,
                 include_enrichment_context=include_enrichment_context,
                 evidence_config=evidence_config,
-                analysis_rollout_meta=analysis_rollout_meta,
                 story_groups=shared_story_groups,
             )
             extend_warnings(run_warnings, evidence_result.warnings)
@@ -257,7 +254,6 @@ def run_brief(
                 evidence_packet=evidence_packet,
                 evidence_config=evidence_config,
                 delta_config=delta_config,
-                analysis_rollout_meta=analysis_rollout_meta,
                 story_groups=story_groups,
                 story_store=story_store,
                 coverage_store=coverage_store,
@@ -388,13 +384,9 @@ def run_brief(
                 "recall_packet": prompt_recall_packet if memory_is_enabled else {},
                 **(selection_result.memory_summary if memory_is_enabled else {}),
             }
-            brief["metadata"]["analysis_rollout"] = {
-                "enabled": bool(analysis_rollout_meta.get("rollout_enabled", False)),
-                "profile": str(analysis_rollout_meta.get("rollout_profile", "")),
-                "mode": str(analysis_rollout_meta.get("rollout_mode", name)),
-                "evidence_requested_enabled": bool(analysis_rollout_meta.get("evidence_requested_enabled", False)),
+            brief["metadata"]["analysis"] = {
+                "brief": name,
                 "evidence_enabled": bool(evidence_config.enabled),
-                "delta_requested_enabled": bool(analysis_rollout_meta.get("delta_requested_enabled", False)),
                 "delta_enabled": bool(delta_config.enabled),
             }
             if brief_evidence_packet:
