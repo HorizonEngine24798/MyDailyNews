@@ -56,7 +56,6 @@ def run_tts(
         orchestrator.debug.log("tts.module", "failed", error=type(exc).__name__)
         return None
 
-    _record_tts_artifact(orchestrator, output=output)
     orchestrator.debug.set_metric("module.tts.status", "completed")
     orchestrator.debug.log(
         "tts.module",
@@ -88,32 +87,3 @@ def _markdown_path(
         if path.exists():
             return path
     return None
-
-
-def _record_tts_artifact(orchestrator, *, output: TTSOutput) -> None:
-    stage_payload_builder = getattr(orchestrator, "_stage_payload", None)
-    record_stage_artifact = getattr(orchestrator, "_record_stage_artifact", None)
-    if not callable(stage_payload_builder) or not callable(record_stage_artifact):
-        return
-    record_stage_artifact(
-        stage="tts",
-        brief_name="pipeline",
-        payload=stage_payload_builder(
-            stage="tts",
-            brief_name="pipeline",
-            summary={
-                "markdown_path": output.markdown_path,
-                "wav_path": output.wav_path,
-                "json_path": output.json_path,
-                "backend": output.backend,
-                "voice": output.voice,
-                "chunks": output.chunk_count,
-                "warnings": len(output.warnings),
-            },
-            next_stage_input={
-                "markdown_path": output.markdown_path,
-                "wav_path": output.wav_path,
-                "json_path": output.json_path,
-            },
-        ),
-    )

@@ -18,11 +18,6 @@ from mydailynews.app.models import AIConfig
 from mydailynews.diagnostics.debug import DebugLogger
 from mydailynews.app.runtime_config import find_runtime_config_issues
 from mydailynews.pipeline.stages import PipelineRunOptions
-from mydailynews.pipeline.stage_artifacts import (
-    STAGE_ARTIFACT_SCHEMA_VERSION,
-    build_stage_artifact,
-    build_stage_payload,
-)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -531,39 +526,14 @@ class ReleaseSmokeTests(unittest.TestCase):
         self.assertIn("cp config.example.json config.local.json", result.stdout)
         self.assertIn("tools/autoconfig.py", result.stdout)
 
-    def test_stage_options_and_artifacts_are_replay_ready(self) -> None:
+    def test_stop_after_stage_normalizes_checkpoint_name(self) -> None:
         options = PipelineRunOptions.from_cli(
             brief="general",
             stop_after_stage="article-fetch",
-            save_intermediate=False,
-            no_save_intermediate=False,
-            dump_stage_artifacts=True,
-            stage_artifact_dir="output/stages",
-        )
-        payload = build_stage_payload(
-            stage="headline_select",
-            brief="general",
-            summary={"selected": 1},
-            next_stage_input={"selected": [{"id": "candidate-1"}]},
-        )
-        artifact = build_stage_artifact(
-            run_label="20260611_000000",
-            brief="general",
-            stage="headline_select",
-            generated_at="2026-06-11T00:00:00+00:00",
-            summary=payload["summary"],
-            next_stage_input=payload["next_stage_input"],
         )
 
         self.assertEqual(options.briefs, ("general",))
         self.assertEqual(options.stop_after_stage, "article_fetch")
-        self.assertTrue(options.save_intermediate)
-        self.assertTrue(options.dump_stage_artifacts)
-        self.assertEqual(artifact["schema_version"], STAGE_ARTIFACT_SCHEMA_VERSION)
-        self.assertEqual(artifact["next_stage"], "article_fetch")
-        self.assertEqual(artifact["next_stage_input"]["selected"][0]["id"], "candidate-1")
-        self.assertNotIn("payload", artifact)
-        self.assertNotIn("intermediate", artifact)
 
     def test_date_option_is_limited_to_standalone_disk_modules(self) -> None:
         with self.assertRaisesRegex(ValueError, "--date can only be used with standalone modules"):

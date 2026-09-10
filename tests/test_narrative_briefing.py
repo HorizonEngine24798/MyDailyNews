@@ -121,13 +121,6 @@ class FakeOrchestrator:
         self.warnings: list[str] = []
         self.reporter = FakeReporter()
         self.debug = DebugLogger(False)
-        self.artifacts: list[dict] = []
-
-    def _stage_payload(self, *, stage: str, brief_name: str, summary: dict, next_stage_input: dict) -> dict:
-        return {"stage": stage, "brief_name": brief_name, "summary": summary, "next_stage_input": next_stage_input}
-
-    def _record_stage_artifact(self, *, stage: str, brief_name: str, payload: dict) -> None:
-        self.artifacts.append({"stage": stage, "brief_name": brief_name, "payload": payload})
 
 
 class NarrativeBriefingTests(unittest.TestCase):

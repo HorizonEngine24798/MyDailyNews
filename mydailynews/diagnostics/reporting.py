@@ -94,19 +94,10 @@ class CliReporter:
                 f"coverage articles: {output.coverage_article_count}; countries: {output.country_count}"
             )
 
-    def stopped(self, stage: str, artifact_paths: Iterable[str] | None = None) -> None:
+    def stopped(self, stage: str) -> None:
         if not self.enabled:
             return
         self._print(f"Run stopped after stage: {stage}")
-        self.stage_artifacts(artifact_paths)
-
-    def stage_artifacts(self, artifact_paths: Iterable[str] | None = None) -> None:
-        paths = self._path_list(artifact_paths)
-        if not self.enabled or not paths:
-            return
-        self._print("Stage artifacts:")
-        for path in paths:
-            self._print(f"- {path}")
 
     def warnings(self, warnings: Iterable[str]) -> None:
         warning_lines = [str(warning) for warning in warnings if str(warning).strip()]
@@ -122,23 +113,16 @@ class CliReporter:
         *,
         debug: DebugLogger,
         output_dir: str | Path,
-        artifact_paths: Iterable[str] | None = None,
     ) -> None:
         if not self.enabled or not bool(getattr(debug, "enabled", False)):
             return
         analytics_path = debug.write_analytics_artifact(output_dir)
-        paths = self._path_list(artifact_paths)
-        if not analytics_path and not paths:
+        if not analytics_path:
             return
 
         self._print("")
         self._print("Debug artifacts")
-        if analytics_path:
-            self._print(f"- Analytics JSON: {analytics_path}")
-        if paths:
-            self._print("- Stage artifacts:")
-            for path in paths:
-                self._print(f"  {path}")
+        self._print(f"- Analytics JSON: {analytics_path}")
         self._print(f"- Llama server logs: {Path(output_dir) / 'diagnostics' / 'llama_server'}")
 
     def _print(self, text: str = "") -> None:
@@ -149,7 +133,3 @@ class CliReporter:
         backend = str(getattr(config, "backend", "") or "unknown")
         model = str(getattr(config, "effective_model_label", "") or getattr(config, "model_id", "") or "unknown")
         return f"{backend}:{model}"
-
-    @staticmethod
-    def _path_list(artifact_paths: Iterable[str] | None) -> list[str]:
-        return [str(path) for path in artifact_paths or [] if str(path).strip()]

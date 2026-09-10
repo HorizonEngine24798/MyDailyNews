@@ -18,7 +18,7 @@ from mydailynews.pipeline.handoff import (
     selected_article_to_handoff_payload,
     selected_articles_from_brief_json,
 )
-from mydailynews.pipeline.stage_artifacts import to_jsonable
+from mydailynews.common.utils import to_jsonable
 from mydailynews.retrieval.article import ArticleRetriever
 from mydailynews.story_grouping.models import StoryGroup
 from mydailynews.story_grouping.normalization import normalize_story_groups
@@ -116,12 +116,6 @@ def run_enrichment(
         warnings=run_warnings,
     )
     markdown_path, json_path = write_enrichment_outputs(output_dir, date, payload)
-    _record_enrichment_artifact(
-        orchestrator,
-        payload=payload,
-        markdown_path=markdown_path,
-        json_path=json_path,
-    )
 
     story_threads = payload.get("story_threads", [])
     orchestrator.debug.set_metric("module.enrichment.status", "completed")
@@ -433,34 +427,6 @@ def _refetch_degraded_article_texts(orchestrator, articles: List[SelectedArticle
         if not article.article_text:
             article.article_text = article.candidate.snippet or article.candidate.title
             article.extraction_status = "degraded_brief_json"
-
-
-def _record_enrichment_artifact(orchestrator, *, payload: Dict[str, Any], markdown_path: Path, json_path: Path) -> None:
-    stage_payload_builder = getattr(orchestrator, "_stage_payload", None)
-    record_stage_artifact = getattr(orchestrator, "_record_stage_artifact", None)
-    if not callable(stage_payload_builder) or not callable(record_stage_artifact):
-        return
-    record_stage_artifact(
-        stage="enrichment",
-        brief_name="pipeline",
-        payload=stage_payload_builder(
-            stage="enrichment",
-            brief_name="pipeline",
-            summary={
-                "source_briefs": payload.get("source_briefs", []),
-                "selected": len(payload.get("selected_articles", [])),
-                "story_threads": len(payload.get("story_threads", [])),
-                "markdown_path": str(markdown_path),
-                "json_path": str(json_path),
-                "warnings": len(payload.get("warnings", [])),
-            },
-            next_stage_input={
-                "enrichment": payload,
-                "markdown_path": str(markdown_path),
-                "json_path": str(json_path),
-            },
-        ),
-    )
 
 
 def _dedupe_articles(articles: List[SelectedArticle]) -> List[SelectedArticle]:

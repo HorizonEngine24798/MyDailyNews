@@ -7,9 +7,8 @@ import unittest
 from mydailynews.app.models import AppConfig, EnrichmentConfig, EvidenceDistillationConfig, HeadlineDecision, NewsCandidate, SelectedArticle
 from mydailynews.diagnostics.debug import DebugLogger
 from mydailynews.pipeline.brief_stages import _story_grouping_stage
-from mydailynews.pipeline.stage_artifacts import next_stage_after
 from mydailynews.pipeline.stage_results import StoryGroupingStageResult
-from mydailynews.pipeline.stages import normalize_stage_name
+from mydailynews.pipeline.stages import ALL_STAGE_ORDER, normalize_stage_name
 from mydailynews.story_grouping.models import ResearchQuestion, StoryGroup
 from mydailynews.story_grouping.normalization import normalize_story_groups
 
@@ -140,8 +139,9 @@ class StoryGroupingStageResultTests(unittest.TestCase):
 
     def test_stage_order_includes_story_grouping_after_article_fetch(self) -> None:
         self.assertEqual(normalize_stage_name("story-grouping"), "story_grouping")
-        self.assertEqual(next_stage_after("article_fetch"), "story_grouping")
-        self.assertEqual(next_stage_after("story_grouping"), "evidence_distillation")
+        article_fetch_index = ALL_STAGE_ORDER.index("article_fetch")
+        self.assertEqual(ALL_STAGE_ORDER[article_fetch_index + 1], "story_grouping")
+        self.assertEqual(ALL_STAGE_ORDER[article_fetch_index + 2], "evidence_distillation")
 
     def test_stage_runs_once_when_enrichment_and_evidence_enabled(self) -> None:
         selected = [

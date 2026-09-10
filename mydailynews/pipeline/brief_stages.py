@@ -48,25 +48,7 @@ def _checkpoint_stage(
     *,
     brief_name: str,
     stage: str,
-    summary: Dict[str, Any],
-    next_stage_input: Dict[str, Any] | None = None,
 ) -> bool:
-    payload = dict(summary)
-    stage_payload_builder = getattr(orchestrator, "_stage_payload", None)
-    if callable(stage_payload_builder):
-        payload = stage_payload_builder(
-            stage=stage,
-            brief_name=brief_name,
-            summary=summary,
-            next_stage_input=next_stage_input,
-        )
-    elif next_stage_input:
-        payload["next_stage_input"] = next_stage_input
-
-    record_stage_artifact = getattr(orchestrator, "_record_stage_artifact", None)
-    if callable(record_stage_artifact):
-        record_stage_artifact(stage=stage, brief_name=brief_name, payload=payload)
-
     stop_requested = getattr(orchestrator, "_stop_requested", None)
     if callable(stop_requested) and stop_requested(stage):
         orchestrator.debug.set_metric(f"brief.{brief_name}.status", "stopped")
