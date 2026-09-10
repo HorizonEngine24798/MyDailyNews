@@ -19,6 +19,7 @@ from mydailynews.ai.factory import create_ai_client
 from mydailynews.ai.headline_analyzer import HeadlineAnalyzer
 from mydailynews.common.cache import HTTPCache, JSONCache
 from mydailynews.pipeline.brief_execution import run_brief as run_brief_helper
+from mydailynews.pipeline.brief_specs import BriefSpec, brief_specs_from_config
 from mydailynews.pipeline.enrichment_module import run_enrichment as run_enrichment_helper
 from mydailynews.pipeline.narrative_brief import run_narrative_brief as run_narrative_brief_helper
 from mydailynews.pipeline.tts_module import run_tts as run_tts_helper
@@ -35,8 +36,8 @@ from mydailynews.app.models import (
     PriorReport,
     RunSourceSnapshot,
     NarrativeBriefOutput,
-    TopicConfig,
     TTSOutput,
+    TopicConfig,
     PerspectivesReportOutput,
 )
 from mydailynews.pipeline.stages import (
@@ -249,13 +250,20 @@ class NewsOrchestrator:
             now = utc_now()
             today = self._date_object(date) if date else now.date()
             date = today.isoformat()
-            general_topics = [topic for topic in self.config.general_topics if topic.enabled]
-            detailed_topics = [topic for topic in self.config.topics_to_examine if topic.enabled]
+            configured_briefs = brief_specs_from_config(self.config)
+            available_briefs = {brief.name for brief in configured_briefs}
+            unknown_briefs = set(self.run_options.briefs) - available_briefs
+            if unknown_briefs:
+                raise ValueError(
+                    f"Unsupported brief(s): {', '.join(sorted(unknown_briefs))}. "
+                    f"Configured briefs: {', '.join(sorted(available_briefs))}"
+                )
+            briefs = [brief for brief in configured_briefs if brief.name in self.run_options.briefs]
             enabled_sources = len([source for source in self.config.rss_sources if source.enabled])
             self.debug.set_metric("pipeline.status", "running")
             self.debug.set_metric("pipeline.rss_sources", enabled_sources)
-            self.debug.set_metric("pipeline.general_topics", len(general_topics))
-            self.debug.set_metric("pipeline.detailed_topics", len(detailed_topics))
+            for brief in briefs:
+                self.debug.set_metric(f"pipeline.{brief.name}_topics", len(brief.topics))
             self.debug.log(
                 "pipeline",
                 "starting",
@@ -264,8 +272,7 @@ class NewsOrchestrator:
                 final_model=self.config.ai_final.effective_model_label,
                 final_backend=self.config.ai_final.backend,
                 sources=enabled_sources,
-                general_topics=len(general_topics),
-                detailed_topics=len(detailed_topics),
+                brief_count=len(briefs),
                 briefs=",".join(self.run_options.briefs),
                 stop_after_stage=self.run_options.stop_after_stage or "none",
                 enrichment=self.config.enrichment.enabled,
@@ -280,7 +287,7 @@ class NewsOrchestrator:
                     return self._stopped_result()
 
                 self.reporter.phase("Preparing source snapshot...")
-                snapshot = self._build_snapshot(now, general_topics, detailed_topics)
+                snapshot = self._build_snapshot(now, briefs)
                 if self._stop_requested("snapshot"):
                     return self._stopped_result()
 
@@ -291,60 +298,29 @@ class NewsOrchestrator:
                     shared_candidates_by_brief, shared_decisions, shared_warnings = self._score_snapshot_headlines_once(
                         snapshot,
                         now,
-                        general_topics,
-                        detailed_topics,
+                        briefs,
                     )
                     extend_warnings(self.warnings, shared_warnings)
-                else:
-                    shared_warnings = []
-                general_brief_goal = (
-                    "General daily news pass. Prefer breadth and usefulness over deep specialization. "
-                    "Use the lower threshold to fill the brief with the strongest general stories, up to the configured article count. "
-                    "Still avoid trivia, gossip, minor sports, and duplicate rewrites."
-                )
-                detailed_brief_goal = (
-                    "Detailed topic investigation pass. Focus on the configured topics, identify major narratives, "
-                    "compare with prior reports, and select sources that can deepen, challenge, or reshape those narratives."
-                )
                 if self._stop_requested("shared_headline_scoring"):
                     return self._stopped_result()
 
                 outputs: List[BriefOutput] = []
-                if "general" in self.run_options.briefs:
-                    general_output = self._run_brief(
-                        name="general",
-                        output_suffix="general",
-                        topics=general_topics,
-                        filtering=self.config.general_filtering,
+                for brief in briefs:
+                    output = self._run_brief(
+                        name=brief.name,
+                        output_suffix=brief.output_suffix,
+                        topics=brief.topics,
+                        filtering=brief.filtering,
                         prior_reports=prior_reports,
                         now=now,
                         date=date,
                         snapshot=snapshot,
-                        brief_goal=general_brief_goal,
-                        limited_candidates_override=shared_candidates_by_brief.get("general"),
+                        brief_goal=brief.goal,
+                        limited_candidates_override=shared_candidates_by_brief.get(brief.name),
                         shared_decisions=shared_decisions,
                     )
-                    if general_output is not None:
-                        outputs.append(general_output)
-                    if self.stopped_after_stage:
-                        return self._stopped_result(outputs=outputs)
-
-                if "detailed" in self.run_options.briefs:
-                    detailed_output = self._run_brief(
-                        name="detailed",
-                        output_suffix="detailed",
-                        topics=detailed_topics,
-                        filtering=self.config.filtering,
-                        prior_reports=prior_reports,
-                        now=now,
-                        date=date,
-                        snapshot=snapshot,
-                        brief_goal=detailed_brief_goal,
-                        limited_candidates_override=shared_candidates_by_brief.get("detailed"),
-                        shared_decisions=shared_decisions,
-                    )
-                    if detailed_output is not None:
-                        outputs.append(detailed_output)
+                    if output is not None:
+                        outputs.append(output)
                     if self.stopped_after_stage:
                         return self._stopped_result(outputs=outputs)
 
@@ -616,14 +592,12 @@ class NewsOrchestrator:
         self,
         snapshot: RunSourceSnapshot,
         now,
-        general_topics: List[TopicConfig],
-        detailed_topics: List[TopicConfig],
+        briefs: List[BriefSpec],
     ) -> tuple[Dict[str, List[NewsCandidate]], Dict[str, HeadlineDecision], List[str]]:
         return score_snapshot_headlines_once_helper(
             snapshot=snapshot,
             now=now,
-            general_topics=general_topics,
-            detailed_topics=detailed_topics,
+            briefs=briefs,
             config=self.config,
             debug=self.debug,
             summary_ai_client=self.summary_ai_client,
@@ -631,14 +605,11 @@ class NewsOrchestrator:
             analyzer_cls=HeadlineAnalyzer,
         )
 
-    def _build_snapshot(self, now, general_topics: List[TopicConfig], detailed_topics: List[TopicConfig]) -> RunSourceSnapshot | None:
+    def _build_snapshot(self, now, briefs: List[BriefSpec]) -> RunSourceSnapshot | None:
         return build_snapshot_helper(
             use_shared_snapshot=self.config.runtime.use_shared_snapshot,
             now=now,
-            general_topics=general_topics,
-            detailed_topics=detailed_topics,
-            general_filtering=self.config.general_filtering,
-            detailed_filtering=self.config.filtering,
+            briefs=briefs,
             debug=self.debug,
             fetch_headlines=self.fetch_headlines,
             fetch_topic_headlines=self.fetch_topic_headlines,
