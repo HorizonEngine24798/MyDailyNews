@@ -173,7 +173,7 @@ Story enrichment is deterministic and sequential.
 
 ## Cache
 
-`cache` controls local discovery, article text, enrichment retrieval, and AI synthesis caches. The default directory is `.cache/mydailynews`.
+`cache` controls local discovery, article text, enrichment retrieval, and AI synthesis caches. The default directory is `.cache/mydailynews`, with live entries stored in `cache.sqlite3`. Existing file-per-entry JSON cache values are imported once and retained untouched.
 
 Useful fields:
 
