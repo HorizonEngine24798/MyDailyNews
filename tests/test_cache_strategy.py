@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-import json
 from pathlib import Path
+import sqlite3
 import unittest
 from unittest.mock import patch
 import uuid
@@ -154,12 +154,8 @@ class CacheStrategyTests(unittest.TestCase):
     @staticmethod
     def _age_json_cache(root_dir: Path, days: int) -> None:
         cached_at = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-        for path in root_dir.rglob("*.json"):
-            payload = json.loads(path.read_text(encoding="utf-8"))
-            payload["cached_at"] = cached_at
-            if isinstance(payload.get("value"), dict):
-                payload["value"]["cached_at"] = cached_at
-            path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        with sqlite3.connect(root_dir / "cache.sqlite3") as database:
+            database.execute("UPDATE json_cache SET cached_at = ?", (cached_at,))
 
 
 if __name__ == "__main__":
