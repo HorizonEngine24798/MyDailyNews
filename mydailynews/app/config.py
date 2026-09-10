@@ -437,11 +437,6 @@ def _load_filtering(raw: Dict[str, Any], defaults: Dict[str, Any], *, section_na
         ),
         article_text_max_chars=int(raw.get("article_text_max_chars", defaults["article_text_max_chars"])),
         max_selected_per_source=max(0, int(raw.get("max_selected_per_source", defaults["max_selected_per_source"]))),
-        use_multifactor_composite_ranking=parse_bool(
-            raw.get("use_multifactor_composite_ranking", defaults["use_multifactor_composite_ranking"]),
-            default=defaults["use_multifactor_composite_ranking"],
-            field_name=f"{section_name}.use_multifactor_composite_ranking",
-        ),
         min_novelty_for_selection=max(
             0.0,
             min(10.0, float(raw.get("min_novelty_for_selection", defaults["min_novelty_for_selection"]))),
@@ -485,7 +480,6 @@ def _load_memory(raw: Dict[str, Any]) -> MemoryConfig:
         ),
         recent_story_penalty=max(0.0, float(memory_raw.get("recent_story_penalty", DEFAULT_MEMORY["recent_story_penalty"]))),
         recent_lead_penalty=max(0.0, float(memory_raw.get("recent_lead_penalty", DEFAULT_MEMORY["recent_lead_penalty"]))),
-        material_update_boost=max(0.0, float(memory_raw.get("material_update_boost", DEFAULT_MEMORY["material_update_boost"]))),
         max_selected_per_story=max(0, int(memory_raw.get("max_selected_per_story", DEFAULT_MEMORY["max_selected_per_story"]))),
         max_selected_per_story_family=max(
             0,

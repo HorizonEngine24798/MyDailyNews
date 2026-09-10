@@ -214,6 +214,7 @@ class AutoconfigTests(unittest.TestCase):
         source = self._example_config()
         source.pop("memory", None)
         source["memory"] = {
+            "material_update_boost": 0.9,
             "recall_packet_enabled": False,
             "story_reranker_enabled": True,
             "story_reranker_model_path": "old-model",
@@ -225,6 +226,7 @@ class AutoconfigTests(unittest.TestCase):
 
         recommended = autoconfig.build_recommended_config(source, tier, model)
 
+        self.assertNotIn("material_update_boost", recommended["memory"])
         self.assertNotIn("recall_packet_enabled", recommended["memory"])
         self.assertNotIn("story_reranker_enabled", recommended["memory"])
         self.assertNotIn("story_reranker_model_path", recommended["memory"])
@@ -242,6 +244,19 @@ class AutoconfigTests(unittest.TestCase):
         path = self._temp_dir() / "recommended_memory.json"
         path.write_text(json.dumps(recommended, ensure_ascii=False, indent=2), encoding="utf-8")
         load_config(path)
+
+    def test_recommended_config_removes_retired_headline_ranking_switch(self) -> None:
+        catalog = self._catalog()
+        source = self._example_config()
+        source["general_filtering"]["use_multifactor_composite_ranking"] = True
+        source["filtering"]["use_multifactor_composite_ranking"] = True
+        tier = next(item for item in catalog["tiers"] if item["id"] == "nvidia_8gb")
+        model = autoconfig.model_for_tier(catalog, tier)
+
+        recommended = autoconfig.build_recommended_config(source, tier, model)
+
+        self.assertNotIn("use_multifactor_composite_ranking", recommended["general_filtering"])
+        self.assertNotIn("use_multifactor_composite_ranking", recommended["filtering"])
 
     def test_recommended_config_preserves_explicit_enrichment_opt_in(self) -> None:
         catalog = self._catalog()

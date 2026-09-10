@@ -72,15 +72,14 @@ def decisions_for_brief(
             candidate_id=candidate.id,
             score=shared.score,
             topic=HeadlineAnalyzer.best_topic_for_candidate(candidate, topics),
-            personal_relevance=shared.personal_relevance,
             impact=shared.impact,
             novelty=shared.novelty,
             urgency=shared.urgency,
-            actionability=shared.actionability,
-            confidence=shared.confidence,
+            novelty_basis=shared.novelty_basis,
+            impact_basis=shared.impact_basis,
+            urgency_basis=shared.urgency_basis,
             reason=shared.reason,
             skip_reason=shared.skip_reason,
-            angle_type=shared.angle_type,
             selection_reason_code=shared.selection_reason_code,
             selection_rank_score=shared.selection_rank_score,
             selection_rank_mode=shared.selection_rank_mode,
@@ -550,34 +549,6 @@ def title_dedupe_key(title: str) -> str:
     return " ".join(core[:10])
 
 
-COMPOSITE_DIM_WEIGHTS: Dict[str, float] = {
-    "personal_relevance": 0.30,
-    "impact": 0.20,
-    "novelty": 0.18,
-    "actionability": 0.15,
-    "urgency": 0.10,
-    "confidence": 0.07,
-}
-
-
-def _decision_has_multifactor_signal(decision: HeadlineDecision) -> bool:
-    if str(decision.reason or "").strip():
-        return True
-    if str(decision.angle_type or "").strip():
-        return True
-    if str(decision.skip_reason or "").strip():
-        return True
-    values = [
-        float(decision.personal_relevance),
-        float(decision.impact),
-        float(decision.novelty),
-        float(decision.actionability),
-        float(decision.urgency),
-        float(decision.confidence),
-    ]
-    return any(abs(value - 5.0) > 1e-6 for value in values)
-
-
 def ranking_score_for_candidate(
     decision: HeadlineDecision,
     candidate: NewsCandidate,
@@ -586,17 +557,8 @@ def ranking_score_for_candidate(
     memory_enabled: bool = False,
     learned_preferences: LearnedPreferences | None = None,
 ) -> tuple[float, str]:
-    use_composite = bool(getattr(filtering, "use_multifactor_composite_ranking", False))
-    if use_composite and _decision_has_multifactor_signal(decision):
-        base_score = 0.0
-        for key, weight in COMPOSITE_DIM_WEIGHTS.items():
-            base_score += float(getattr(decision, key, 5.0)) * float(weight)
-        rank_mode = "composite"
-    else:
-        base_score = float(decision.score)
-        rank_mode = "score"
-
-    adjusted = float(base_score)
+    adjusted = float(decision.score)
+    rank_mode = "score"
 
     profile_annotation = candidate_profile_match_annotation(candidate)
     if profile_annotation is not None and profile_annotation.source_preferred:
@@ -698,13 +660,13 @@ def selection_rationale_rows(
                 "selected": code.startswith("selected_"),
                 "score": round(float(decision.score), 4),
                 "topic": str(decision.topic or candidate.metadata.get("topic_name", "")),
-                "composite_dimensions": {
-                    "personal_relevance": round(float(decision.personal_relevance), 4),
-                    "impact": round(float(decision.impact), 4),
+                "scoring_dimensions": {
                     "novelty": round(float(decision.novelty), 4),
-                    "actionability": round(float(decision.actionability), 4),
+                    "novelty_basis": str(decision.novelty_basis or ""),
+                    "impact": round(float(decision.impact), 4),
+                    "impact_basis": str(decision.impact_basis or ""),
                     "urgency": round(float(decision.urgency), 4),
-                    "confidence": round(float(decision.confidence), 4),
+                    "urgency_basis": str(decision.urgency_basis or ""),
                 },
                 "memory": memory_payload,
                 "learned_preferences": learned_payload,
@@ -853,7 +815,6 @@ def select_articles(
         if (
             memory_annotation is not None
             and memory_annotation.recent_coverage_count > 0
-            and memory_annotation.today_policy != "material_update_ok"
             and candidate.metadata.get("memory_identity_state") != "provisional"
         ):
             mark_skip(candidate, decision, "skipped_recent_coverage")
@@ -864,13 +825,9 @@ def select_articles(
         if family_cap > 0 and story_family_key and story_family_counts.get(story_family_key, 0) >= family_cap:
             mark_skip(candidate, decision, "skipped_story_family_cap")
             return False
-        rank_mode = str(decision.selection_rank_mode or "score")
-        reason_code = "selected_high_composite" if rank_mode.startswith("composite") else "selected_high_score"
+        reason_code = "selected_high_score"
         if memory_annotation is not None and abs(float(memory_annotation.score_adjustment or 0.0)) > 1e-6:
-            if memory_annotation.recent_coverage_count > 0 and memory_annotation.score_adjustment > 0:
-                reason_code = "selected_material_update_override"
-            else:
-                reason_code = f"{reason_code}_memory_adjusted"
+            reason_code = f"{reason_code}_memory_adjusted"
         else:
             learned_effect = learned_preference_effect_from_candidate(candidate)
             if learned_effect is not None and learned_effect.changed:

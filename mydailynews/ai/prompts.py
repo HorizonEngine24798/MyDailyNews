@@ -1,8 +1,9 @@
-HEADLINE_ANALYSIS_SYSTEM = """You are an editorial triage scorer for a personal news briefing.
+HEADLINE_ANALYSIS_SYSTEM = """You make three independent editorial judgments for a personal news briefing.
 Return exactly one valid JSON object.
 Do not use markdown fences.
 Use only supplied reader memory, brief goal, topics, and candidate headlines.
-Return one decision for every candidate id."""
+Return one decision for every candidate id.
+Do not produce an overall score; application code calculates priority."""
 
 GENERIC_JSON_RETRY_USER = """Retry instruction: your previous answer could not be parsed as one valid JSON object.
 Return exactly one JSON object only.
@@ -23,47 +24,55 @@ Topics:
 Candidate headlines:
 {items}
 
-Score each candidate from 0.0 to 10.0 for whether it is worth retrieving in full for this brief.
-Apply this rubric:
-1. Personal relevance to the reader profile and brief goal.
-2. Impact (who/what is materially affected).
-3. Novelty (new signal vs repetition).
-4. Actionability (supports concrete decisions, risk monitoring, or planning).
-5. Urgency (cost of waiting until tomorrow).
+Judge exactly three axes. Use only integer levels 0, 1, 2, or 3 and a distinct,
+source-grounded basis of at most 12 words for each axis.
 
-Use regret framing:
-Would this reader regret missing this today?
-- Strong "yes" => score higher.
-- Weak or "no" => score lower.
+NOVELTY — How far is the event from nominal common sense and ordinary world experience?
+This is world-rarity, not novelty versus previous coverage and not how recently it was published.
+- 0: sadly/routinely recurring or an expected instance of a familiar event.
+- 1: somewhat unusual detail within a familiar kind of event.
+- 2: rare, surprising, or meaningfully outside normal expectations.
+- 3: extraordinary first, discovery, reversal of established knowledge, or historic anomaly.
+A school shooting is tragic but not inherently novel. Credible discovery of life on Mars is novel.
 
-Explicit penalties:
-- Routine high-volume coverage without reader-specific stake.
-- Minor incremental updates that do not materially change understanding.
-- Rewrites of the same event with no meaningful new information.
-- Topic keyword match with low impact or low urgency.
+IMPACT — If true, how broad, severe, and durable are the consequences for the tracked domain?
+- 0: negligible consequence or curiosity only.
+- 1: narrow, modest, or readily reversible consequence.
+- 2: meaningful consequence for a group, sector, institution, or important decision.
+- 3: broad, severe, systemic, or durable consequence.
 
-Examples:
-- High-value must-know (8-10): a consequential state change with immediate impact on this reader's interests or decisions.
-- Mid-value monitor (5-7): relevant update with some signal but limited urgency or actionability.
-- Low-value noise (0-4): repetitive recap, small incremental change, promotional/clickbait framing, or weakly relevant topic mention.
+URGENCY — What is lost if the reader waits 24 hours before learning this?
+- 0: essentially nothing.
+- 1: useful soon, but waiting carries little cost.
+- 2: monitoring or action is materially better today.
+- 3: active hazard, immediate deadline, or rapidly closing decision window.
 
-Decision fields:
-- Return exactly these fields for every candidate: `id`, `score`, `personal_relevance`, `impact`, `novelty`, `urgency`, `actionability`, `confidence`, `angle_type`.
-- Use a short snake_case label for `angle_type`.
+Independence rules:
+- Score each axis from its own definition; never infer one score from another.
+- Tragedy or impact does not imply novelty. Novelty does not imply impact.
+- Impact does not imply urgency. Breaking publication does not imply urgency.
+- Equal levels are allowed only when each separate basis supports them.
+- Do not force a distribution across the batch; homogeneous batches can be real.
+- Treat promotional, speculative, vague, or weakly supported claims conservatively.
+
+Contrastive calibration:
+- Credible life discovered on Mars: novelty 3, impact 3, urgency depends on immediate consequences.
+- A school shooting: novelty 0, impact and urgency may be high.
+- A law enacted today but effective next year: novelty 1-2, impact 2-3, urgency 0-1.
+- An actively exploited software flaw: novelty 1-2, impact 2-3, urgency 3.
+- An exotic consumer novelty with no consequence: novelty 2-3, impact 0, urgency 0.
 
 Return:
 {{
   "decisions": [
     {{
       "id": "candidate id",
-      "score": 8.0,
-      "personal_relevance": 8.0,
-      "impact": 7.5,
-      "novelty": 6.5,
-      "urgency": 7.0,
-      "actionability": 6.0,
-      "confidence": 7.5,
-      "angle_type": "material_state_change"
+      "novelty": 2,
+      "novelty_basis": "rare outcome outside ordinary expectations",
+      "impact": 3,
+      "impact_basis": "durable consequences across the tracked sector",
+      "urgency": 1,
+      "urgency_basis": "no action or deadline within 24 hours"
     }}
   ]
 }}"""

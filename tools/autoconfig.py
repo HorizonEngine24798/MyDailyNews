@@ -60,7 +60,6 @@ DEFAULT_MEMORY_CONFIG = {
     "story_candidate_threshold": 0.25,
     "recent_story_penalty": 0.6,
     "recent_lead_penalty": 1.1,
-    "material_update_boost": 0.9,
     "max_selected_per_story": 1,
     "max_selected_per_story_family": 2,
     "recall_prompt_enabled": True,
@@ -92,6 +91,7 @@ DEFAULT_PERSPECTIVES_REPORT_CONFIG = {
     "verification_documents_per_claim": 4,
 }
 REMOVED_MEMORY_KEYS = (
+    "material_update_boost",
     "recall_packet_enabled",
     "story_reranker_enabled",
     "story_reranker_model_path",
@@ -103,6 +103,7 @@ REMOVED_FILTERING_KEYS = (
     "prefer_multi_source_clusters",
     "multi_source_cluster_bonus",
     "event_cluster_time_window_hours",
+    "use_multifactor_composite_ranking",
 )
 REMOVED_CACHE_KEYS = ("wikipedia_retention_days",)
 

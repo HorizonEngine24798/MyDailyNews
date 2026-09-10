@@ -55,7 +55,6 @@ class FilteringConfig:
     fill_selected_articles: bool = False
     article_text_max_chars: int = 6000
     max_selected_per_source: int = 2
-    use_multifactor_composite_ranking: bool = False
     min_novelty_for_selection: float = 0.0
     source_preference_bonus: float = 0.35
     source_avoid_penalty: float = 1.25
@@ -72,7 +71,6 @@ class MemoryConfig:
     story_candidate_threshold: float = 0.25
     recent_story_penalty: float = 0.6
     recent_lead_penalty: float = 1.1
-    material_update_boost: float = 0.9
     max_selected_per_story: int = 1
     max_selected_per_story_family: int = 2
     recall_prompt_enabled: bool = True
@@ -457,15 +455,14 @@ class HeadlineDecision:
     candidate_id: str
     score: float
     topic: str = ""
-    personal_relevance: float = 5.0
     impact: float = 5.0
     novelty: float = 5.0
     urgency: float = 5.0
-    actionability: float = 5.0
-    confidence: float = 5.0
+    novelty_basis: str = ""
+    impact_basis: str = ""
+    urgency_basis: str = ""
     reason: str = ""
     skip_reason: Optional[str] = None
-    angle_type: str = ""
     selection_reason_code: str = ""
     selection_rank_score: float = 0.0
     selection_rank_mode: str = "score"

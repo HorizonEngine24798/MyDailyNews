@@ -492,9 +492,6 @@ def run_brief(
             brief["metadata"]["delta_omitted_count"] = len(delta_omitted)
             brief["metadata"]["prompt_selected_count"] = len(brief_selected)
             brief["metadata"]["final_generation_skipped_no_material_changes"] = not bool(brief_selected)
-            brief["metadata"]["composite_ranking_enabled"] = bool(
-                getattr(filtering, "use_multifactor_composite_ranking", False)
-            )
             brief["metadata"]["memory"] = {
                 "enabled": memory_is_enabled,
                 "recall_prompt_enabled": recall_prompt_enabled,

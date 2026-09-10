@@ -69,7 +69,6 @@ def _memory_config(**overrides) -> MemoryConfig:
         "story_retention_days": 30,
         "recent_story_penalty": 0.6,
         "recent_lead_penalty": 1.1,
-        "material_update_boost": 0.9,
         "max_selected_per_story": 1,
         "max_selected_per_story_family": 0,
         "recall_prompt_enabled": True,
@@ -168,10 +167,11 @@ class MemoryModuleTests(unittest.TestCase):
         rationale = selection_rationale_rows([repeated, fresh], decisions)
         self.assertTrue(any(row["memory"] and row["memory"]["story_key"] == story_key for row in rationale))
 
-    def test_material_update_boost_can_offset_recent_body_coverage(self) -> None:
+    def test_headline_impact_does_not_pretend_a_recent_story_changed(self) -> None:
         temp_dir = self._temp_dir()
-        candidate = _candidate("update", "Iran Israel ceasefire")
-        story_key = story_identity_for_candidate(candidate).story_key
+        repeated = _candidate("repeat", "Iran Israel ceasefire")
+        fresh = _candidate("fresh", "Central bank cuts interest rates", source="Finance Wire")
+        story_key = story_identity_for_candidate(repeated).story_key
         store = CoverageMemoryStore.from_state_dir(temp_dir)
         store.write_records(
             [
@@ -188,18 +188,18 @@ class MemoryModuleTests(unittest.TestCase):
             ]
         )
         decisions = {
-            "update": HeadlineDecision(
-                "update",
-                score=8.0,
-                novelty=9.0,
+            "repeat": HeadlineDecision(
+                "repeat",
+                score=9.0,
+                novelty=2.0,
                 impact=9.0,
-                urgency=8.0,
-                angle_type="policy_change",
-            )
+                urgency=9.0,
+            ),
+            "fresh": HeadlineDecision("fresh", score=8.5, novelty=8.0, impact=8.0, urgency=7.0),
         }
 
         selected = select_articles(
-            [candidate],
+            [repeated, fresh],
             decisions,
             [TopicConfig(name="Major world events")],
             FilteringConfig(headline_score_cutoff=0.0, max_selected_articles=1, max_selected_per_source=0),
@@ -209,11 +209,13 @@ class MemoryModuleTests(unittest.TestCase):
             date="2026-06-27",
         )
 
-        self.assertEqual([article.candidate.id for article in selected], ["update"])
-        annotation = candidate_memory_annotation(candidate)
+        self.assertEqual([article.candidate.id for article in selected], ["fresh"])
+        annotation = candidate_memory_annotation(repeated)
         self.assertIsNotNone(annotation)
-        self.assertGreater(annotation.score_adjustment, 0)
-        self.assertEqual(selected[0].selection_reason_code, "selected_material_update_override")
+        self.assertLess(annotation.score_adjustment, 0)
+        self.assertEqual(annotation.materiality, 0.0)
+        self.assertEqual(annotation.change_type, "")
+        self.assertEqual(decisions["repeat"].selection_reason_code, "skipped_recent_coverage")
 
     def test_non_material_recent_story_is_ineligible_even_when_capacity_remains(self) -> None:
         temp_dir = self._temp_dir()
