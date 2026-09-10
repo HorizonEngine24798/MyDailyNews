@@ -18,7 +18,11 @@ from mydailynews.ai.base import set_ai_artifact_root
 from mydailynews.ai.factory import create_ai_client
 from mydailynews.ai.headline_analyzer import HeadlineAnalyzer
 from mydailynews.common.cache import HTTPCache, JSONCache
-from mydailynews.pipeline.brief_execution import run_brief as run_brief_helper
+from mydailynews.pipeline.brief_execution import (
+    PendingMemoryWrite,
+    run_brief as run_brief_helper,
+    write_pending_memory,
+)
 from mydailynews.pipeline.brief_specs import BriefSpec, brief_specs_from_config
 from mydailynews.pipeline.enrichment_module import run_enrichment as run_enrichment_helper
 from mydailynews.pipeline.narrative_brief import run_narrative_brief as run_narrative_brief_helper
@@ -305,24 +309,32 @@ class NewsOrchestrator:
                     return self._stopped_result()
 
                 outputs: List[BriefOutput] = []
-                for brief in briefs:
-                    output = self._run_brief(
-                        name=brief.name,
-                        output_suffix=brief.output_suffix,
-                        topics=brief.topics,
-                        filtering=brief.filtering,
-                        prior_reports=prior_reports,
-                        now=now,
-                        date=date,
-                        snapshot=snapshot,
-                        brief_goal=brief.goal,
-                        limited_candidates_override=shared_candidates_by_brief.get(brief.name),
-                        shared_decisions=shared_decisions,
-                    )
-                    if output is not None:
-                        outputs.append(output)
-                    if self.stopped_after_stage:
-                        return self._stopped_result(outputs=outputs)
+                pending_memory_writes: List[PendingMemoryWrite] = []
+                try:
+                    for brief in briefs:
+                        output = self._run_brief(
+                            name=brief.name,
+                            output_suffix=brief.output_suffix,
+                            topics=brief.topics,
+                            filtering=brief.filtering,
+                            prior_reports=prior_reports,
+                            now=now,
+                            date=date,
+                            snapshot=snapshot,
+                            brief_goal=brief.goal,
+                            limited_candidates_override=shared_candidates_by_brief.get(brief.name),
+                            shared_decisions=shared_decisions,
+                            pending_memory_writes=pending_memory_writes,
+                        )
+                        if output is not None:
+                            outputs.append(output)
+                        if self.stopped_after_stage:
+                            return self._stopped_result(outputs=outputs)
+                finally:
+                    # All briefs compare against the same pre-run history. Once
+                    # analysis ends, commit every report that reached write_output,
+                    # including reports produced before a later brief failed.
+                    self._flush_memory_writes(pending_memory_writes)
 
                 self.debug.set_metric("pipeline.outputs", len(outputs))
                 self.debug.set_metric("pipeline.narrative_outputs", 0)
@@ -541,6 +553,7 @@ class NewsOrchestrator:
         brief_goal: str,
         limited_candidates_override: List[NewsCandidate] | None = None,
         shared_decisions: Dict[str, HeadlineDecision] | None = None,
+        pending_memory_writes: List[PendingMemoryWrite] | None = None,
     ) -> BriefOutput | None:
         return run_brief_helper(
             self,
@@ -555,7 +568,14 @@ class NewsOrchestrator:
             brief_goal=brief_goal,
             limited_candidates_override=limited_candidates_override,
             shared_decisions=shared_decisions,
+            pending_memory_writes=pending_memory_writes,
         )
+
+    def _flush_memory_writes(self, pending_writes: List[PendingMemoryWrite]) -> None:
+        for pending in pending_writes:
+            warning_count = len(pending.warnings)
+            write_pending_memory(pending, self.debug)
+            extend_warnings(self.warnings, pending.warnings[warning_count:])
 
     def _run_narrative_brief(
         self,

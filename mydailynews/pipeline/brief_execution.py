@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import replace
+from copy import deepcopy
+from dataclasses import dataclass, replace
 from datetime import timedelta
 from pathlib import Path
 from typing import Dict, List
@@ -25,6 +26,7 @@ from mydailynews.pipeline.brief_stages import (
 from mydailynews.pipeline.handoff import write_brief_handoff
 from mydailynews.app.models import BriefOutput, HeadlineDecision, NewsCandidate, PriorReport, RunSourceSnapshot, TopicConfig
 from mydailynews.briefing.output import write_json, write_markdown
+from mydailynews.common.storage import open_database
 from mydailynews.common.warnings import extend_warnings
 from mydailynews.memory.config import memory_enabled, memory_state_dir
 from mydailynews.memory.coverage import CoverageMemoryStore
@@ -38,6 +40,112 @@ from mydailynews.memory.recall import (
     selected_articles_represented_in_brief,
 )
 from mydailynews.memory.story_store import StoryStore
+
+
+@dataclass
+class PendingMemoryWrite:
+    """Memory update captured after a brief, then committed after all briefs analyze."""
+
+    brief_name: str
+    date: str
+    memory_config: object
+    coverage_store: CoverageMemoryStore
+    story_store: StoryStore
+    selected: list
+    rendered_selected: list
+    story_groups: list
+    delta_packet: dict
+    warnings: List[str]
+
+
+def capture_pending_memory_write(
+    *,
+    brief_name: str,
+    date: str,
+    memory_config: object,
+    coverage_store: CoverageMemoryStore,
+    story_store: StoryStore,
+    selected: list,
+    rendered_selected: list,
+    story_groups: list,
+    delta_packet: dict,
+    warnings: List[str],
+) -> PendingMemoryWrite:
+    """Snapshot mutable brief state for commit after all delta reads finish."""
+
+    return PendingMemoryWrite(
+        brief_name=brief_name,
+        date=date,
+        memory_config=memory_config,
+        coverage_store=coverage_store,
+        story_store=story_store,
+        selected=deepcopy(selected),
+        rendered_selected=deepcopy(rendered_selected),
+        story_groups=deepcopy(story_groups),
+        delta_packet=deepcopy(delta_packet),
+        warnings=warnings,
+    )
+
+
+def write_pending_memory(pending: PendingMemoryWrite, debug) -> dict:
+    """Commit one brief's memory update without changing another brief's baseline."""
+
+    try:
+        # Analysis uses an intentionally frozen pre-run view. Commit through a
+        # new instance so each queued brief starts from the preceding commit,
+        # rather than replacing it with that brief's stale cached snapshot.
+        story_store = StoryStore(
+            pending.story_store.path,
+            legacy_index_path=pending.story_store.legacy_index_path,
+            legacy_ledger_path=pending.story_store.legacy_ledger_path,
+            database_path=pending.story_store.database_path,
+        )
+        coverage_store = CoverageMemoryStore(
+            pending.coverage_store.path,
+            database_path=pending.coverage_store.database_path,
+        )
+        if story_store.database_path != coverage_store.database_path:
+            raise ValueError("Story and coverage memory must share one SQLite database.")
+        # Complete any one-time imports before taking the write lock. The
+        # transaction itself re-reads live rows after BEGIN IMMEDIATE.
+        story_store.records()
+        coverage_store.read_records()
+        with open_database(story_store.database_path, immediate=True) as database:
+            story_records = story_store.update_selected(
+                selected=pending.selected,
+                date=pending.date,
+                visible_article_ids=[article.candidate.id for article in pending.rendered_selected],
+                story_groups=pending.story_groups,
+                delta_packet=pending.delta_packet,
+                stale_after_days=int(getattr(pending.memory_config, "story_stale_after_days", 7)),
+                retention_days=int(getattr(pending.memory_config, "story_retention_days", 30)),
+                database=database,
+            )
+            coverage_records = coverage_store.write_selected(
+                date=pending.date,
+                brief_name=pending.brief_name,
+                selected=pending.rendered_selected,
+                database=database,
+            )
+            coverage_rows_pruned = coverage_store.prune(
+                as_of_date=pending.date,
+                retention_days=int(getattr(pending.memory_config, "coverage_retention_days", 30)),
+                database=database,
+            )
+        summary = {
+            "coverage_rows_written": len(coverage_records),
+            "coverage_rows_pruned": coverage_rows_pruned,
+            "story_store_records": len(story_records),
+            "story_store_stale_records": sum(1 for record in story_records if record.status == "stale"),
+            "story_store_source_facts": sum(len(record.facts) for record in story_records),
+        }
+        for metric, value in summary.items():
+            debug.set_metric(f"brief.{pending.brief_name}.memory.{metric}", value)
+        return summary
+    except Exception as exc:
+        error = f"{type(exc).__name__}: {exc}"
+        pending.warnings.append(f"{pending.brief_name}: memory writeback failed ({error}).")
+        return {"write_error": error}
 
 
 def run_brief(
@@ -54,6 +162,7 @@ def run_brief(
     brief_goal: str,
     limited_candidates_override: List[NewsCandidate] | None = None,
     shared_decisions: Dict[str, HeadlineDecision] | None = None,
+    pending_memory_writes: List[PendingMemoryWrite] | None = None,
 ) -> BriefOutput | None:
     with orchestrator.debug.span(f"brief.{name}.total"):
         since = now - timedelta(hours=filtering.time_window_hours)
@@ -419,57 +528,23 @@ def run_brief(
             with orchestrator.debug.span(f"brief.{name}.write_output"):
                 write_markdown(markdown_path, brief)
                 write_json(json_path, brief)
-            memory_write_summary = {}
             if memory_is_enabled and coverage_store is not None and story_store is not None:
-                try:
-                    story_records = story_store.update_selected(
-                        selected=selected,
-                        date=date,
-                        visible_article_ids=[article.candidate.id for article in rendered_selected],
-                        story_groups=story_groups,
-                        delta_packet=delta_packet,
-                        stale_after_days=int(getattr(memory_config, "story_stale_after_days", 7)),
-                        retention_days=int(getattr(memory_config, "story_retention_days", 30)),
-                    )
-                    coverage_records = coverage_store.write_selected(
-                        date=date,
-                        brief_name=name,
-                        selected=rendered_selected,
-                    )
-                    coverage_rows_pruned = coverage_store.prune(
-                        as_of_date=date,
-                        retention_days=int(getattr(memory_config, "coverage_retention_days", 30)),
-                    )
-                    memory_write_summary = {
-                        "coverage_rows_written": len(coverage_records),
-                        "coverage_rows_pruned": coverage_rows_pruned,
-                        "story_store_records": len(story_records),
-                        "story_store_stale_records": sum(1 for record in story_records if record.status == "stale"),
-                        "story_store_source_facts": sum(len(record.facts) for record in story_records),
-                    }
-                    orchestrator.debug.set_metric(
-                        f"brief.{name}.memory.coverage_rows_written",
-                        len(coverage_records),
-                    )
-                    orchestrator.debug.set_metric(
-                        f"brief.{name}.memory.coverage_rows_pruned",
-                        coverage_rows_pruned,
-                    )
-                    orchestrator.debug.set_metric(
-                        f"brief.{name}.memory.story_store_records",
-                        len(story_records),
-                    )
-                    orchestrator.debug.set_metric(
-                        f"brief.{name}.memory.story_store_stale_records",
-                        memory_write_summary["story_store_stale_records"],
-                    )
-                    orchestrator.debug.set_metric(
-                        f"brief.{name}.memory.story_store_source_facts",
-                        memory_write_summary["story_store_source_facts"],
-                    )
-                except Exception as exc:
-                    memory_write_summary = {"write_error": f"{type(exc).__name__}: {exc}"}
-                    run_warnings.append(f"{name}: memory writeback failed ({type(exc).__name__}: {exc}).")
+                pending_write = capture_pending_memory_write(
+                    brief_name=name,
+                    date=date,
+                    memory_config=memory_config,
+                    coverage_store=coverage_store,
+                    story_store=story_store,
+                    selected=selected,
+                    rendered_selected=rendered_selected,
+                    story_groups=story_groups,
+                    delta_packet=delta_packet,
+                    warnings=run_warnings,
+                )
+                if pending_memory_writes is None:
+                    write_pending_memory(pending_write, orchestrator.debug)
+                else:
+                    pending_memory_writes.append(pending_write)
             if _checkpoint_stage(
                 orchestrator,
                 brief_name=name,

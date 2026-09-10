@@ -2,15 +2,26 @@ from __future__ import annotations
 
 from contextlib import closing
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 import sqlite3
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
+from mydailynews.app.models import HeadlineDecision, MemoryAnnotation, NewsCandidate, SelectedArticle
 from mydailynews.common.cache import JSONCache
+from mydailynews.domain.candidate_annotations import set_memory_annotation
 from mydailynews.memory.coverage import CoverageMemoryStore, CoverageRecord
 from mydailynews.memory.feedback import FeedbackStore
 from mydailynews.memory.story_store import StoryStore
+from mydailynews.pipeline.brief_execution import PendingMemoryWrite, write_pending_memory
+
+
+class _Debug:
+    def set_metric(self, *_args, **_kwargs) -> None:
+        pass
 
 
 class SQLiteStorageTests(unittest.TestCase):
@@ -136,6 +147,63 @@ class SQLiteStorageTests(unittest.TestCase):
             )
             records = CoverageMemoryStore.from_state_dir(root).read_records()
             self.assertEqual([record.story_key for record in records], ["story-repaired"])
+
+    def test_brief_memory_writeback_rolls_back_story_when_coverage_write_fails(self) -> None:
+        with TemporaryDirectory() as raw_dir:
+            root = Path(raw_dir)
+            story_store = StoryStore.from_state_dir(root)
+            coverage_store = CoverageMemoryStore.from_state_dir(root)
+            candidate = NewsCandidate(
+                id="article-a",
+                source="Example",
+                category="world",
+                title="A material development",
+                url="https://example.test/article-a",
+                snippet="The report establishes a specific current fact.",
+                published_at=datetime(2026, 9, 10, tzinfo=timezone.utc),
+            )
+            set_memory_annotation(
+                candidate,
+                MemoryAnnotation(
+                    story_key="story-a",
+                    story_family_key="family-a",
+                    story_title="Story A",
+                    today_policy="normal",
+                ),
+            )
+            article = SelectedArticle(
+                candidate=candidate,
+                decision=HeadlineDecision("article-a", score=8.0),
+                article_text=candidate.snippet,
+                selection_rank_score=8.0,
+            )
+            pending = PendingMemoryWrite(
+                brief_name="general",
+                date="2026-09-10",
+                memory_config=SimpleNamespace(
+                    story_stale_after_days=7,
+                    story_retention_days=30,
+                    coverage_retention_days=30,
+                ),
+                coverage_store=coverage_store,
+                story_store=story_store,
+                selected=[article],
+                rendered_selected=[article],
+                story_groups=[],
+                delta_packet={},
+                warnings=[],
+            )
+
+            with patch.object(
+                CoverageMemoryStore,
+                "write_selected",
+                side_effect=RuntimeError("simulated coverage failure"),
+            ):
+                result = write_pending_memory(pending, _Debug())
+
+            self.assertIn("simulated coverage failure", result["write_error"])
+            self.assertEqual(StoryStore.from_state_dir(root).records(), [])
+            self.assertEqual(CoverageMemoryStore.from_state_dir(root).read_records(), [])
 
 
 if __name__ == "__main__":
