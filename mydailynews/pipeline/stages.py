@@ -3,7 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date as date_type
 
-PIPELINE_BRIEFS = ("general", "detailed")
+from mydailynews.pipeline.brief_specs import DEFAULT_BRIEF_NAMES
+
+
+PIPELINE_BRIEFS = DEFAULT_BRIEF_NAMES
 PIPELINE_MODULES = ("briefs", "enrichment", "narrative_brief", "perspectives_report", "tts")
 PIPELINE_MODULE_CHOICES = PIPELINE_MODULES + ("series",)
 
@@ -57,7 +60,7 @@ def normalize_brief_selection(value: str) -> tuple[str, ...]:
         return PIPELINE_BRIEFS
     if selected in PIPELINE_BRIEFS:
         return (selected,)
-    supported = "general, detailed, both"
+    supported = ", ".join((*PIPELINE_BRIEFS, "both"))
     raise ValueError(f"Unsupported brief '{value}'. Supported values: {supported}")
 
 

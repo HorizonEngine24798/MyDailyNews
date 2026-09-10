@@ -11,10 +11,11 @@ import uuid
 from typing import Any, Dict, List
 
 from mydailynews.app.config import load_config
+from mydailynews.pipeline.brief_specs import DEFAULT_BRIEF_NAMES
 
 
 RUN_KINDS = {"series", "briefs", "enrichment", "narrative_brief", "tts", "perspectives_report", "memory"}
-BRIEF_CHOICES = {"general", "detailed", "both"}
+BRIEF_CHOICES = {*DEFAULT_BRIEF_NAMES, "both"}
 MEMORY_RUN_ACTIONS = {"inspect", "prune", "export"}
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 TAIL_LIMIT = 20000

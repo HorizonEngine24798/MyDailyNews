@@ -20,13 +20,14 @@ from mydailynews.app.models import (
     TopicConfig,
 )
 from mydailynews.domain.article_identity import article_aliases_for_candidate
-from mydailynews.pipeline.stage_artifacts import to_jsonable
+from mydailynews.common.utils import to_jsonable
+from mydailynews.pipeline.brief_specs import DEFAULT_BRIEF_NAMES
 from mydailynews.story_grouping.models import StoryGroup
 from mydailynews.story_grouping.payloads import story_group_artifact
 
 
 BRIEF_HANDOFF_SCHEMA_VERSION = "brief_handoff.v1"
-STRUCTURED_BRIEF_NAMES = ("general", "detailed")
+STRUCTURED_BRIEF_NAMES = DEFAULT_BRIEF_NAMES
 
 
 @dataclass
