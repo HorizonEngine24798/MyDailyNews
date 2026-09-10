@@ -171,6 +171,7 @@
     "coverage_retention_days": 30,
     "story_stale_after_days": 7,
     "story_retention_days": 30,
+    "story_candidate_threshold": 0.25,
     "recent_story_penalty": 0.6,
     "recent_lead_penalty": 1.1,
     "material_update_boost": 0.9,

@@ -69,6 +69,7 @@ class MemoryConfig:
     coverage_retention_days: int = 30
     story_stale_after_days: int = 7
     story_retention_days: int = 30
+    story_candidate_threshold: float = 0.25
     recent_story_penalty: float = 0.6
     recent_lead_penalty: float = 1.1
     material_update_boost: float = 0.9
@@ -77,10 +78,6 @@ class MemoryConfig:
     recall_prompt_enabled: bool = True
     save_recall_packets: bool = True
     feedback_enabled: bool = True
-    story_reranker_enabled: bool = False
-    story_reranker_model_path: str = ""
-    story_reranker_threshold: float = 0.5
-    story_reranker_hard_rejection: bool = False
 
 
 def default_general_filtering_config() -> FilteringConfig:

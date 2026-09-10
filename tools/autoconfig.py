@@ -57,6 +57,7 @@ DEFAULT_MEMORY_CONFIG = {
     "coverage_retention_days": 30,
     "story_stale_after_days": 7,
     "story_retention_days": 30,
+    "story_candidate_threshold": 0.25,
     "recent_story_penalty": 0.6,
     "recent_lead_penalty": 1.1,
     "material_update_boost": 0.9,
@@ -90,7 +91,13 @@ DEFAULT_PERSPECTIVES_REPORT_CONFIG = {
     "verification_queries_per_claim": 2,
     "verification_documents_per_claim": 4,
 }
-REMOVED_MEMORY_KEYS = ("recall_packet_enabled",)
+REMOVED_MEMORY_KEYS = (
+    "recall_packet_enabled",
+    "story_reranker_enabled",
+    "story_reranker_model_path",
+    "story_reranker_threshold",
+    "story_reranker_hard_rejection",
+)
 REMOVED_FILTERING_KEYS = (
     "max_selected_per_event_cluster",
     "prefer_multi_source_clusters",

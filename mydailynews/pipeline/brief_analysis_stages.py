@@ -129,7 +129,6 @@ def _run_delta_stage(
 ) -> DeltaStageResult:
     warnings: List[str] = []
     delta_packet: Dict[str, Any] = {}
-    candidate_reranker = _candidate_reranker(orchestrator, warnings)
     memory_config = getattr(orchestrator.config, "memory", None)
     story_memory = build_story_memory_context(
         selected=selected,
@@ -139,9 +138,7 @@ def _run_delta_stage(
         prior_reports=prior_reports,
         date=date,
         coverage_window_days=coverage_window_days,
-        candidate_reranker=candidate_reranker,
-        reranker_acceptance_threshold=float(getattr(memory_config, "story_reranker_threshold", 0.5)),
-        reranker_hard_rejection=bool(getattr(memory_config, "story_reranker_hard_rejection", False)),
+        candidate_threshold=float(getattr(memory_config, "story_candidate_threshold", 0.25)),
     )
     orchestrator.debug.set_metric(
         f"brief.{brief_name}.analysis.delta.story_memory_stories",
@@ -261,28 +258,3 @@ def _run_delta_stage(
         len(delta_packet.get("evidence_gaps", [])) if delta_packet else 0,
     )
     return DeltaStageResult(delta_packet=delta_packet, warnings=warnings)
-
-
-def _candidate_reranker(orchestrator, warnings: List[str]):
-    """Lazily enable the configured local reranker once per pipeline run."""
-
-    memory_config = getattr(orchestrator.config, "memory", None)
-    if not bool(getattr(memory_config, "story_reranker_enabled", False)):
-        return None
-    cached = getattr(orchestrator, "_story_candidate_reranker", None)
-    if cached is not None:
-        return cached
-    model_path = str(getattr(memory_config, "story_reranker_model_path", "") or "").strip()
-    if not model_path:
-        warnings.append("story reranker enabled but memory.story_reranker_model_path is empty; using heuristic retrieval.")
-        return None
-    from pathlib import Path
-
-    if not Path(model_path).exists():
-        warnings.append(f"story reranker model path does not exist ({model_path}); using heuristic retrieval.")
-        return None
-    from mydailynews.ai.qwen_story_reranker import QwenStoryReranker
-
-    cached = QwenStoryReranker(model_path)
-    setattr(orchestrator, "_story_candidate_reranker", cached)
-    return cached

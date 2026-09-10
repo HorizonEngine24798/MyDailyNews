@@ -44,6 +44,7 @@ def annotate_candidates_with_memory(
             matches = story_store.candidate_stories(
                 candidate,
                 source_text=candidate.snippet,
+                min_score=float(memory_config.story_candidate_threshold),
             )
             candidate.metadata["memory_prior_story_candidates"] = [match.metadata() for match in matches]
             candidate.metadata["memory_identity_state"] = "provisional"
