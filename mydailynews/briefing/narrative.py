@@ -32,7 +32,6 @@ _LINK_KEYS = {
     "urls",
 }
 _NOISY_METADATA_KEYS = {
-    "analysis_rollout",
     "candidate_count",
     "composite_ranking_enabled",
     "memory",

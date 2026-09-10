@@ -6,15 +6,13 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List
 
-from mydailynews.analysis.rollout import ANALYSIS_ROLLOUT_PROFILE_NAMES
-from mydailynews.common.booleans import parse_bool, parse_optional_bool
+from mydailynews.common.booleans import parse_bool
 from mydailynews.perspectives.sources import load_source_registry
 from mydailynews.app.models import (
     AnalysisConfig,
-    AnalysisRolloutConfig,
-    AnalysisRolloutModeConfig,
     AIConfig,
     AppConfig,
+    BriefAnalysisConfig,
     PerspectivesReportConfig,
     CacheConfig,
     DeltaExtractionConfig,
@@ -61,7 +59,6 @@ DEFAULT_PERSPECTIVES_REPORT = _defaults(PerspectivesReportConfig())
 DEFAULT_PIPELINE = _defaults(PipelineConfig())
 DEFAULT_ANALYSIS_EVIDENCE = _defaults(EvidenceDistillationConfig())
 DEFAULT_ANALYSIS_DELTA = _defaults(DeltaExtractionConfig())
-DEFAULT_ANALYSIS_ROLLOUT = _defaults(AnalysisRolloutConfig())
 
 ROOT_CONFIG_KEYS = {
     "output_dir",
@@ -100,15 +97,10 @@ PERSPECTIVES_REPORT_CONFIG_KEYS = set(DEFAULT_PERSPECTIVES_REPORT.keys()) | {
 PIPELINE_CONFIG_KEYS = set(DEFAULT_PIPELINE.keys())
 PIPELINE_MODULE_NAMES = {"briefs", "enrichment", "narrative_brief", "tts", "perspectives_report"}
 TTS_MODULE_NAMES = PIPELINE_MODULE_NAMES - {"tts"}
-ANALYSIS_CONFIG_KEYS = {"evidence_distillation", "delta_extraction", "rollout"}
-EVIDENCE_DISTILLATION_CONFIG_KEYS = set(DEFAULT_ANALYSIS_EVIDENCE.keys()) | {
-    "max_story_clusters",
-    "max_claims_per_cluster",
-    "max_questions",
-}
+ANALYSIS_CONFIG_KEYS = {"general", "detailed"}
+BRIEF_ANALYSIS_CONFIG_KEYS = {"evidence_distillation", "delta_extraction"}
+EVIDENCE_DISTILLATION_CONFIG_KEYS = set(DEFAULT_ANALYSIS_EVIDENCE.keys())
 DELTA_EXTRACTION_CONFIG_KEYS = set(DEFAULT_ANALYSIS_DELTA.keys())
-ANALYSIS_ROLLOUT_CONFIG_KEYS = set(DEFAULT_ANALYSIS_ROLLOUT.keys())
-ANALYSIS_ROLLOUT_MODE_CONFIG_KEYS = {field.name for field in fields(AnalysisRolloutModeConfig)}
 USER_MEMORY_CONFIG_KEYS = {field.name for field in fields(UserMemory)}
 TOPIC_CONFIG_KEYS = {field.name for field in fields(TopicConfig)}
 SOURCES_CONFIG_KEYS = {"rss", "google_news", "prior_reports"}
@@ -242,10 +234,6 @@ def _optional_int(value: Any) -> int | None:
     return int(value)
 
 
-def _optional_bool(value: Any, *, field_name: str = "boolean value") -> bool | None:
-    return parse_optional_bool(value, field_name=field_name)
-
-
 def _optional_pos_int(value: Any, *, minimum: int = 1) -> int | None:
     if value is None:
         return None
@@ -347,66 +335,6 @@ def _load_pipeline(raw: Dict[str, Any]) -> PipelineConfig:
     if not series:
         raise ValueError("pipeline.default_series must contain at least one module")
     return PipelineConfig(default_series=series)
-
-
-def _load_analysis_rollout_mode(value: Any, field_name: str) -> AnalysisRolloutModeConfig:
-    if value is None:
-        value = {}
-    if not isinstance(value, dict):
-        raise ValueError(f"Config section {field_name} must be an object")
-    _reject_unknown_keys(value, ANALYSIS_ROLLOUT_MODE_CONFIG_KEYS, field_name)
-    return AnalysisRolloutModeConfig(
-        evidence_enabled=_optional_bool(
-            value.get("evidence_enabled"),
-            field_name=f"{field_name}.evidence_enabled",
-        ),
-        delta_enabled=_optional_bool(
-            value.get("delta_enabled"),
-            field_name=f"{field_name}.delta_enabled",
-        ),
-        evidence_max_input_tokens=_optional_pos_int(value.get("evidence_max_input_tokens"), minimum=256),
-        evidence_max_new_tokens=_optional_pos_int(value.get("evidence_max_new_tokens"), minimum=64),
-        evidence_max_articles=_optional_pos_int(value.get("evidence_max_articles"), minimum=1),
-        evidence_max_articles_per_batch=_optional_pos_int(value.get("evidence_max_articles_per_batch"), minimum=1),
-        evidence_max_articles_dropped_to_avoid_split=_optional_pos_int(
-            value.get("evidence_max_articles_dropped_to_avoid_split"),
-            minimum=0,
-        ),
-        evidence_max_article_chars=_optional_pos_int(value.get("evidence_max_article_chars"), minimum=120),
-        delta_max_input_tokens=_optional_pos_int(value.get("delta_max_input_tokens"), minimum=256),
-        delta_max_new_tokens=_optional_pos_int(value.get("delta_max_new_tokens"), minimum=64),
-        delta_max_articles=_optional_pos_int(value.get("delta_max_articles"), minimum=1),
-        delta_max_articles_per_batch=_optional_pos_int(value.get("delta_max_articles_per_batch"), minimum=1),
-        delta_max_articles_dropped_to_avoid_split=_optional_pos_int(
-            value.get("delta_max_articles_dropped_to_avoid_split"),
-            minimum=0,
-        ),
-        delta_max_article_chars=_optional_pos_int(value.get("delta_max_article_chars"), minimum=120),
-        delta_max_prior_reports=_optional_pos_int(value.get("delta_max_prior_reports"), minimum=1),
-    )
-
-
-def _load_analysis_rollout(value: Any) -> AnalysisRolloutConfig:
-    if value is None:
-        value = {}
-    if not isinstance(value, dict):
-        raise ValueError("Config section analysis.rollout must be an object")
-    _reject_unknown_keys(value, ANALYSIS_ROLLOUT_CONFIG_KEYS, "analysis.rollout")
-    profile = str(value.get("profile", DEFAULT_ANALYSIS_ROLLOUT["profile"])).strip().lower()
-    profile = profile or str(DEFAULT_ANALYSIS_ROLLOUT["profile"])
-    if profile not in ANALYSIS_ROLLOUT_PROFILE_NAMES:
-        allowed_text = ", ".join(sorted(ANALYSIS_ROLLOUT_PROFILE_NAMES))
-        raise ValueError(f"analysis.rollout.profile must be one of: {allowed_text}")
-    return AnalysisRolloutConfig(
-        enabled=parse_bool(
-            value.get("enabled", DEFAULT_ANALYSIS_ROLLOUT["enabled"]),
-            default=DEFAULT_ANALYSIS_ROLLOUT["enabled"],
-            field_name="analysis.rollout.enabled",
-        ),
-        profile=profile,
-        general=_load_analysis_rollout_mode(value.get("general", {}), "analysis.rollout.general"),
-        detailed=_load_analysis_rollout_mode(value.get("detailed", {}), "analysis.rollout.detailed"),
-    )
 
 
 def _load_ai(ai_raw: Dict[str, Any], section_name: str = "ai") -> AIConfig:
@@ -610,46 +538,48 @@ def _load_memory(raw: Dict[str, Any]) -> MemoryConfig:
     )
 
 
-def _load_analysis(raw: Dict[str, Any]) -> AnalysisConfig:
-    analysis_raw = raw.get("analysis", {})
-    if analysis_raw is None:
-        analysis_raw = {}
-    if not isinstance(analysis_raw, dict):
-        raise ValueError("Config section analysis must be an object")
-    _reject_unknown_keys(analysis_raw, ANALYSIS_CONFIG_KEYS, "analysis")
+def _load_brief_analysis(value: Any, field_name: str) -> BriefAnalysisConfig:
+    if value is None:
+        value = {}
+    if not isinstance(value, dict):
+        raise ValueError(f"Config section {field_name} must be an object")
+    _reject_unknown_keys(value, BRIEF_ANALYSIS_CONFIG_KEYS, field_name)
 
-    evidence_raw = analysis_raw.get("evidence_distillation", {})
+    evidence_raw = value.get("evidence_distillation", {})
     if evidence_raw is None:
         evidence_raw = {}
     if not isinstance(evidence_raw, dict):
-        raise ValueError("Config section analysis.evidence_distillation must be an object")
-    _reject_unknown_keys(evidence_raw, EVIDENCE_DISTILLATION_CONFIG_KEYS, "analysis.evidence_distillation")
+        raise ValueError(f"Config section {field_name}.evidence_distillation must be an object")
+    _reject_unknown_keys(
+        evidence_raw,
+        EVIDENCE_DISTILLATION_CONFIG_KEYS,
+        f"{field_name}.evidence_distillation",
+    )
 
-    delta_raw = analysis_raw.get("delta_extraction", {})
+    delta_raw = value.get("delta_extraction", {})
     if delta_raw is None:
         delta_raw = {}
     if not isinstance(delta_raw, dict):
-        raise ValueError("Config section analysis.delta_extraction must be an object")
-    _reject_unknown_keys(delta_raw, DELTA_EXTRACTION_CONFIG_KEYS, "analysis.delta_extraction")
-    rollout_raw = analysis_raw.get("rollout", {})
+        raise ValueError(f"Config section {field_name}.delta_extraction must be an object")
+    _reject_unknown_keys(delta_raw, DELTA_EXTRACTION_CONFIG_KEYS, f"{field_name}.delta_extraction")
 
     evidence_defaults = DEFAULT_ANALYSIS_EVIDENCE
     delta_defaults = DEFAULT_ANALYSIS_DELTA
-    return AnalysisConfig(
+    return BriefAnalysisConfig(
         evidence_distillation=EvidenceDistillationConfig(
             enabled=parse_bool(
                 evidence_raw.get("enabled", evidence_defaults["enabled"]),
                 default=evidence_defaults["enabled"],
-                field_name="analysis.evidence_distillation.enabled",
+                field_name=f"{field_name}.evidence_distillation.enabled",
             ),
             model_role=_normalize_analysis_model_role(
                 evidence_raw.get("model_role", evidence_defaults["model_role"]),
-                "analysis.evidence_distillation.model_role",
+                f"{field_name}.evidence_distillation.model_role",
             ),
             include_reader_qa=parse_bool(
                 evidence_raw.get("include_reader_qa", evidence_defaults["include_reader_qa"]),
                 default=evidence_defaults["include_reader_qa"],
-                field_name="analysis.evidence_distillation.include_reader_qa",
+                field_name=f"{field_name}.evidence_distillation.include_reader_qa",
             ),
             max_input_tokens=max(256, int(evidence_raw.get("max_input_tokens", evidence_defaults["max_input_tokens"]))),
             max_new_tokens=max(64, int(evidence_raw.get("max_new_tokens", evidence_defaults["max_new_tokens"]))),
@@ -678,37 +608,32 @@ def _load_analysis(raw: Dict[str, Any]) -> AnalysisConfig:
             enabled=parse_bool(
                 delta_raw.get("enabled", delta_defaults["enabled"]),
                 default=delta_defaults["enabled"],
-                field_name="analysis.delta_extraction.enabled",
+                field_name=f"{field_name}.delta_extraction.enabled",
             ),
             model_role=_normalize_analysis_model_role(
                 delta_raw.get("model_role", delta_defaults["model_role"]),
-                "analysis.delta_extraction.model_role",
-            ),
-            input_source=_normalize_delta_input_source(delta_raw.get("input_source", delta_defaults["input_source"])),
-            output_mode=_normalize_delta_output_mode(delta_raw.get("output_mode", delta_defaults["output_mode"])),
-            require_prior_reports=parse_bool(
-                delta_raw.get("require_prior_reports", delta_defaults["require_prior_reports"]),
-                default=delta_defaults["require_prior_reports"],
-                field_name="analysis.delta_extraction.require_prior_reports",
+                f"{field_name}.delta_extraction.model_role",
             ),
             max_input_tokens=max(256, int(delta_raw.get("max_input_tokens", delta_defaults["max_input_tokens"]))),
             max_new_tokens=max(64, int(delta_raw.get("max_new_tokens", delta_defaults["max_new_tokens"]))),
             max_articles=max(1, int(delta_raw.get("max_articles", delta_defaults["max_articles"]))),
-            max_articles_per_batch=max(1, int(delta_raw.get("max_articles_per_batch", delta_defaults["max_articles_per_batch"]))),
-            max_articles_dropped_to_avoid_split=max(
-                0,
-                int(
-                    delta_raw.get(
-                        "max_articles_dropped_to_avoid_split",
-                        delta_defaults["max_articles_dropped_to_avoid_split"],
-                    )
-                ),
-            ),
             max_article_chars=max(120, int(delta_raw.get("max_article_chars", delta_defaults["max_article_chars"]))),
             max_prior_reports=max(1, int(delta_raw.get("max_prior_reports", delta_defaults["max_prior_reports"]))),
             cache_ttl_seconds=max(0, int(delta_raw.get("cache_ttl_seconds", delta_defaults["cache_ttl_seconds"]))),
         ),
-        rollout=_load_analysis_rollout(rollout_raw),
+    )
+
+
+def _load_analysis(raw: Dict[str, Any]) -> AnalysisConfig:
+    analysis_raw = raw.get("analysis", {})
+    if analysis_raw is None:
+        analysis_raw = {}
+    if not isinstance(analysis_raw, dict):
+        raise ValueError("Config section analysis must be an object")
+    _reject_unknown_keys(analysis_raw, ANALYSIS_CONFIG_KEYS, "analysis")
+    return AnalysisConfig(
+        general=_load_brief_analysis(analysis_raw.get("general", {}), "analysis.general"),
+        detailed=_load_brief_analysis(analysis_raw.get("detailed", {}), "analysis.detailed"),
     )
 
 

@@ -182,6 +182,12 @@ Useful fields:
 - `article_text_retention_days`, `enrichment_retention_days`, and `http_retention_days`: cache pruning windows.
 - `ai_enabled` and `synth_fresh_seconds`: AI synthesis cache behavior.
 
+## Analysis
+
+`analysis.general` and `analysis.detailed` each contain complete `evidence_distillation` and
+`delta_extraction` settings. There are no rollout profiles or inherited analysis settings: the
+configuration shown for a brief is the configuration that brief runs.
+
 ## Migration Notes
 
 Config loading uses strict unknown-key validation. Update older local configs instead of relying on compatibility shims.
@@ -194,6 +200,8 @@ Removed keys and behaviors include:
 - `runtime.max_enrichment_workers`.
 - `memory.recall_packet_enabled`; use `memory.recall_prompt_enabled` and `memory.save_recall_packets`.
 - old event-cluster selection/filtering configuration.
+- `analysis.rollout` and the former shared `analysis.evidence_distillation` / `analysis.delta_extraction`
+  overlays; configure both brief modes directly under `analysis.general` and `analysis.detailed`.
 
 ## Runtime Checks
 

@@ -224,37 +224,15 @@ class DeltaExtractionConfig:
 
 
 @dataclass
-class AnalysisRolloutModeConfig:
-    evidence_enabled: Optional[bool] = None
-    delta_enabled: Optional[bool] = None
-    evidence_max_input_tokens: Optional[int] = None
-    evidence_max_new_tokens: Optional[int] = None
-    evidence_max_articles: Optional[int] = None
-    evidence_max_articles_per_batch: Optional[int] = None
-    evidence_max_articles_dropped_to_avoid_split: Optional[int] = None
-    evidence_max_article_chars: Optional[int] = None
-    delta_max_input_tokens: Optional[int] = None
-    delta_max_new_tokens: Optional[int] = None
-    delta_max_articles: Optional[int] = None
-    delta_max_articles_per_batch: Optional[int] = None
-    delta_max_articles_dropped_to_avoid_split: Optional[int] = None
-    delta_max_article_chars: Optional[int] = None
-    delta_max_prior_reports: Optional[int] = None
-
-
-@dataclass
-class AnalysisRolloutConfig:
-    enabled: bool = False
-    profile: str = "safe_local"
-    general: AnalysisRolloutModeConfig = field(default_factory=AnalysisRolloutModeConfig)
-    detailed: AnalysisRolloutModeConfig = field(default_factory=AnalysisRolloutModeConfig)
+class BriefAnalysisConfig:
+    evidence_distillation: EvidenceDistillationConfig = field(default_factory=EvidenceDistillationConfig)
+    delta_extraction: DeltaExtractionConfig = field(default_factory=DeltaExtractionConfig)
 
 
 @dataclass
 class AnalysisConfig:
-    evidence_distillation: EvidenceDistillationConfig = field(default_factory=EvidenceDistillationConfig)
-    delta_extraction: DeltaExtractionConfig = field(default_factory=DeltaExtractionConfig)
-    rollout: AnalysisRolloutConfig = field(default_factory=AnalysisRolloutConfig)
+    general: BriefAnalysisConfig = field(default_factory=BriefAnalysisConfig)
+    detailed: BriefAnalysisConfig = field(default_factory=BriefAnalysisConfig)
 
 
 @dataclass

@@ -559,37 +559,19 @@ def _apply_brief_volume_preference(config: dict[str, Any], brief_volume: str) ->
 
 def _apply_analysis_depth_preference(config: dict[str, Any], analysis_depth: str) -> None:
     analysis = config.setdefault("analysis", {})
-    evidence = analysis.setdefault("evidence_distillation", {})
-    delta = analysis.setdefault("delta_extraction", {})
-    rollout = analysis.setdefault("rollout", {})
-    general = rollout.setdefault("general", {})
-    detailed = rollout.setdefault("detailed", {})
+    general = analysis.setdefault("general", {})
+    detailed = analysis.setdefault("detailed", {})
     analysis_depth = str(analysis_depth or "balanced").strip().lower()
     if analysis_depth == "fast":
-        rollout["enabled"] = False
-        rollout["profile"] = "safe_local"
-        evidence["enabled"] = False
-        delta["enabled"] = False
-        for mode_config in (general, detailed):
-            mode_config["evidence_enabled"] = False
-            mode_config["delta_enabled"] = False
+        enabled_by_mode = {"general": (False, False), "detailed": (False, False)}
     elif analysis_depth == "deep":
-        rollout["enabled"] = True
-        rollout["profile"] = "quality_focused"
-        evidence["enabled"] = True
-        delta["enabled"] = True
-        for mode_config in (general, detailed):
-            mode_config["evidence_enabled"] = True
-            mode_config["delta_enabled"] = True
+        enabled_by_mode = {"general": (True, True), "detailed": (True, True)}
     else:
-        rollout["enabled"] = True
-        rollout["profile"] = "balanced_local"
-        evidence["enabled"] = False
-        delta["enabled"] = False
-        general["evidence_enabled"] = True
-        general["delta_enabled"] = False
-        detailed["evidence_enabled"] = True
-        detailed["delta_enabled"] = True
+        enabled_by_mode = {"general": (True, False), "detailed": (True, True)}
+    for mode_name, mode_config in (("general", general), ("detailed", detailed)):
+        evidence_enabled, delta_enabled = enabled_by_mode[mode_name]
+        mode_config.setdefault("evidence_distillation", {})["enabled"] = evidence_enabled
+        mode_config.setdefault("delta_extraction", {})["enabled"] = delta_enabled
 
 
 def _apply_narrative_length_preference(config: dict[str, Any], narrative_length: str) -> None:
@@ -786,31 +768,35 @@ def _apply_story_enrichment_budget(section: dict[str, Any], settings: dict[str, 
 
 
 def _apply_analysis(analysis: dict[str, Any], settings: dict[str, Any]) -> None:
-    evidence = analysis.setdefault("evidence_distillation", {})
-    evidence["max_input_tokens"] = settings["evidence_max_input_tokens"]
-    evidence["max_new_tokens"] = settings["evidence_max_new_tokens"]
-    evidence["max_articles"] = settings["evidence_max_articles"]
-    evidence["max_articles_per_batch"] = settings["evidence_max_articles_per_batch"]
-    evidence["max_article_chars"] = min(int(evidence.get("max_article_chars", 1200)), settings["article_text_max_chars"])
+    for old_key in ("rollout", "evidence_distillation", "delta_extraction"):
+        analysis.pop(old_key, None)
+    enabled_defaults = {"general": (True, False), "detailed": (True, True)}
+    for mode, (evidence_enabled, delta_enabled) in enabled_defaults.items():
+        mode_config = analysis.setdefault(mode, {})
+        evidence = mode_config.setdefault("evidence_distillation", {})
+        evidence.setdefault("enabled", evidence_enabled)
+        evidence["max_input_tokens"] = settings["evidence_max_input_tokens"]
+        evidence["max_new_tokens"] = settings["evidence_max_new_tokens"]
+        evidence["max_articles"] = settings["evidence_max_articles"]
+        evidence["max_articles_per_batch"] = settings["evidence_max_articles_per_batch"]
+        evidence["max_article_chars"] = min(
+            int(evidence.get("max_article_chars", 1200)),
+            settings["article_text_max_chars"],
+        )
 
-    delta = analysis.setdefault("delta_extraction", {})
-    delta["max_input_tokens"] = settings["delta_max_input_tokens"]
-    delta["max_new_tokens"] = settings["delta_max_new_tokens"]
-    delta["max_articles"] = settings["delta_max_articles"]
-    delta["max_articles_per_batch"] = settings["delta_max_articles_per_batch"]
-
-    rollout = analysis.setdefault("rollout", {})
-    rollout["enabled"] = bool(rollout.get("enabled", True))
-    for mode in ("general", "detailed"):
-        mode_config = rollout.setdefault(mode, {})
-        mode_config["evidence_max_input_tokens"] = settings["evidence_max_input_tokens"]
-        mode_config["evidence_max_new_tokens"] = settings["evidence_max_new_tokens"]
-        mode_config["evidence_max_articles"] = settings["evidence_max_articles"]
-        mode_config["evidence_max_articles_per_batch"] = settings["evidence_max_articles_per_batch"]
-        mode_config["delta_max_input_tokens"] = settings["delta_max_input_tokens"]
-        mode_config["delta_max_new_tokens"] = settings["delta_max_new_tokens"]
-        mode_config["delta_max_articles"] = settings["delta_max_articles"]
-        mode_config["delta_max_articles_per_batch"] = settings["delta_max_articles_per_batch"]
+        delta = mode_config.setdefault("delta_extraction", {})
+        delta.setdefault("enabled", delta_enabled)
+        delta["max_input_tokens"] = settings["delta_max_input_tokens"]
+        delta["max_new_tokens"] = settings["delta_max_new_tokens"]
+        delta["max_articles"] = settings["delta_max_articles"]
+        for old_key in (
+            "input_source",
+            "output_mode",
+            "require_prior_reports",
+            "max_articles_per_batch",
+            "max_articles_dropped_to_avoid_split",
+        ):
+            delta.pop(old_key, None)
 
 
 def existing_model_path(config: dict[str, Any]) -> str:
