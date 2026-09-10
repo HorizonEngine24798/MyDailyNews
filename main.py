@@ -3,7 +3,13 @@ from pathlib import Path
 
 from mydailynews.app.config import load_config
 from mydailynews.app.runtime_config import find_runtime_config_issues, format_runtime_config_issues
-from mydailynews.pipeline.stages import ALL_STAGE_ORDER, PIPELINE_MODULE_CHOICES, PIPELINE_MODULES, PipelineRunOptions
+from mydailynews.pipeline.stages import (
+    ALL_STAGE_ORDER,
+    PIPELINE_BRIEFS,
+    PIPELINE_MODULE_CHOICES,
+    PIPELINE_MODULES,
+    PipelineRunOptions,
+)
 from mydailynews.diagnostics.reporting import CliReporter
 from mydailynews.memory.cli import MEMORY_ACTIONS
 
@@ -39,7 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--brief",
         default="both",
-        choices=("general", "detailed", "both"),
+        choices=(*PIPELINE_BRIEFS, "both"),
         help="Run only one brief mode or both.",
     )
     parser.add_argument(
