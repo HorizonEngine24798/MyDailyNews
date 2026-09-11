@@ -1,0 +1,4 @@
+# Cryptographically sealed evaluation artifacts must retain their exact bytes.
+/evals/cases/change_monitoring.real_blind.v1.json text eol=lf
+/evals/cases/change_monitoring.real_blind.v1.provenance.json text eol=lf
+/docs/real-blind-corpus-methodology-2026-08-30.md text eol=lf
