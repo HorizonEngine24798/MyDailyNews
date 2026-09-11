@@ -412,6 +412,7 @@ Return exactly one JSON object matching the supplied schema.
 Use only the supplied evidence IDs; copy them exactly and never construct an ID.
 Do not decide identity, materiality, confidence, publication, or editorial prose.
 Preserve attribution, negation, quantities, modality, and time.
+Judge the relationship by meaning, including paraphrase and negation; do not require cue words.
 Omission from current evidence never retracts or replaces a prior fact."""
 
 

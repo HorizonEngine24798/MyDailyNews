@@ -220,9 +220,10 @@ def validate_fact_operations(
 ) -> FactOperationValidation:
     """Validate a narrow model response without making editorial judgments.
 
-    Any malformed row, unknown ID, conflict, or unsafe mutation makes the
+    This function validates structure and evidence references, not meaning.
+    Any malformed row, unknown ID, conflict, or incomplete response makes the
     whole response fail open. Valid ``uncertain`` responses are also visible
-    and non-applicable, but retain their cited source evidence for diagnostics.
+    and non-applicable.
     """
 
     diagnostics: list[str] = []
@@ -284,18 +285,6 @@ def validate_fact_operations(
         if operation in {"add", "uncertain"} and prior_ids:
             diagnostics.append(f"operation {index} must not cite a prior fact")
             continue
-        if operation == "replace" and not all(
-            _explicitly_replaces(current_by_id[current_id].text, prior_by_id[prior_id].text)
-            for prior_id in prior_ids
-        ):
-            diagnostics.append(f"operation {index} lacks explicit correction or supersession evidence")
-            continue
-        if operation == "resolve" and not all(
-            _explicitly_resolves(current_by_id[current_id].text, prior_by_id[prior_id].text)
-            for prior_id in prior_ids
-        ):
-            diagnostics.append(f"operation {index} does not cite an explicitly open prior state")
-            continue
         key = (operation, current_id, prior_ids)
         if key in seen_exact:
             continue
@@ -353,48 +342,6 @@ def publication_policy_for_operations(
     if any(item.operation == "add" for item in operations):
         return "incremental"
     return "visible_fail_open"
-
-
-_REPLACEMENT_MARKERS = re.compile(
-    r"\b(amend(?:ed|ment)|correct(?:ed|ion)|den(?:y|ied|ies)|false|no longer|"
-    r"retract(?:ed|ion)|revis(?:ed|ion)|instead|rather than|supersed(?:e|ed|es)|"
-    r"replac(?:e|ed|es)|binding change)\b",
-    re.IGNORECASE,
-)
-_NOT_A_REPLACEMENT = re.compile(
-    r"\b(?:not|isn't|wasn't) (?:a |an )?(?:correction|retraction|replacement)\b",
-    re.IGNORECASE,
-)
-_RESOLUTION_MARKERS = re.compile(
-    r"\b(resolv(?:e|ed|es)|fix(?:ed|es)?|repair(?:ed|s)?|ended|closed|cleared|"
-    r"restored|prevent(?:ed|s)?|completed|returned|released)\b",
-    re.IGNORECASE,
-)
-_OPEN_STATE_MARKERS = re.compile(
-    r"\b(open|unresolved|uncertain|uncertainty|pending|await(?:ing|ed)?|remains?|"
-    r"could|can|risk|fault|problem|issue|investigat(?:e|ed|ing|ion)|not yet|"
-    r"planned?|proposed|expected|scheduled)\b",
-    re.IGNORECASE,
-)
-
-
-def _explicitly_replaces(current_text: str, prior_text: str) -> bool:
-    current = _clean_text(current_text, 420)
-    prior = _clean_text(prior_text, 420)
-    return bool(
-        current
-        and prior
-        and normalized_word_text(current) != normalized_word_text(prior)
-        and _REPLACEMENT_MARKERS.search(current)
-        and not _NOT_A_REPLACEMENT.search(current)
-    )
-
-
-def _explicitly_resolves(current_text: str, prior_text: str) -> bool:
-    return bool(
-        _RESOLUTION_MARKERS.search(_clean_text(current_text, 420))
-        and _OPEN_STATE_MARKERS.search(_clean_text(prior_text, 420))
-    )
 
 
 def _claim_rows(title: str, text: str, *, max_claims: int) -> list[tuple[str, str]]:

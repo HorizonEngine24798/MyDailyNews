@@ -392,7 +392,7 @@ class StoryStoreTests(unittest.TestCase):
             )
             self.assertEqual(event.prior_evidence_ids, ["fact:right"])
 
-    def test_stashed_replacement_is_the_next_days_active_baseline(self) -> None:
+    def test_stashed_replacement_retains_prior_facts_in_the_next_baseline(self) -> None:
         with TemporaryDirectory() as raw_dir:
             store = StoryStore.from_state_dir(Path(raw_dir))
             first = _article(_candidate(
@@ -469,9 +469,9 @@ class StoryStoreTests(unittest.TestCase):
         baseline_ids = {fact["fact_id"] for fact in baseline["source_facts"]}
         self.assertEqual(next_day_record.last_shown, "2026-09-08")
         self.assertIn(fact_b.fact_id, next_day_record.active_fact_ids)
-        self.assertNotIn(fact_a.fact_id, next_day_record.active_fact_ids)
+        self.assertIn(fact_a.fact_id, next_day_record.active_fact_ids)
         self.assertIn(fact_b.fact_id, baseline_ids)
-        self.assertNotIn(fact_a.fact_id, baseline_ids)
+        self.assertIn(fact_a.fact_id, baseline_ids)
 
     def test_only_validated_story_editor_can_defer_a_material_story(self) -> None:
         article = _article(_candidate("deferred", "Rare event", "A rare event occurred."))

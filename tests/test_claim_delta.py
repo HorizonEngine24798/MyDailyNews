@@ -49,7 +49,7 @@ class FactOperationContractTests(unittest.TestCase):
         self.assertEqual(validation.operations[0].current_evidence_id, "current-1")
         self.assertEqual(publication_policy_for_operations(validation, request), "incremental")
 
-    def test_explicit_correction_can_replace_only_its_target(self) -> None:
+    def test_structurally_valid_replace_cites_its_target(self) -> None:
         request = self.request(
             "The agency corrected the notice: the bridge reopened Tuesday.",
             "The agency said the bridge would remain closed through Tuesday.",
@@ -59,33 +59,23 @@ class FactOperationContractTests(unittest.TestCase):
         self.assertEqual(validation.operations[0].prior_fact_ids, ("prior-1",))
         self.assertEqual(publication_policy_for_operations(validation, request), "materiality_candidate")
 
-    def test_temporal_progression_cannot_replace_history(self) -> None:
+    def test_validator_does_not_reinterpret_model_semantics(self) -> None:
         request = self.request(
             "The council enacted the proposal on Tuesday.",
             "The council proposed the measure on Monday.",
         )
-        rejected = self.validate(request, "replace", ("prior-1",))
-        self.assertFalse(rejected.safe_to_apply)
-        self.assertIn("lacks explicit correction", rejected.diagnostics[0])
-        self.assertTrue(self.validate(request, "add").safe_to_apply)
+        validation = self.validate(request, "replace", ("prior-1",))
+        self.assertTrue(validation.safe_to_apply)
+        self.assertEqual(validation.operations[0].prior_fact_ids, ("prior-1",))
 
-    def test_genuine_resolution_retires_the_cited_open_state(self) -> None:
+    def test_semantic_resolution_does_not_require_a_cue_word(self) -> None:
         request = self.request(
-            "The released repair fixed the charging fault.",
-            "The battery can overheat while charging.",
+            "The injunction was lifted.",
+            "The injunction remains in force pending appeal.",
         )
         validation = self.validate(request, "resolve", ("prior-1",))
         self.assertTrue(validation.safe_to_apply)
         self.assertEqual(validation.operations[0].prior_fact_ids, ("prior-1",))
-
-    def test_omission_is_not_retraction(self) -> None:
-        request = self.request(
-            "This cached article repeats the original proposal and omits the later vote.",
-            "The council enacted the proposal after the vote.",
-        )
-        validation = self.validate(request, "replace", ("prior-1",))
-        self.assertFalse(validation.safe_to_apply)
-        self.assertEqual(publication_policy_for_operations(validation, request), "visible_fail_open")
 
     def test_unknown_cross_story_ids_and_conflicts_fail_open(self) -> None:
         request = self.request("The bridge remains closed.")
