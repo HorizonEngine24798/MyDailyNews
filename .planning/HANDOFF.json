@@ -1,0 +1,100 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-09-11T10:06:10+04:00",
+  "phase": null,
+  "phase_name": "direct repository refactor",
+  "phase_dir": null,
+  "plan": null,
+  "task": null,
+  "total_tasks": null,
+  "status": "paused",
+  "completed_tasks": [
+    {
+      "id": 1,
+      "name": "Replace the legacy delta pipeline with identity, fact operations, and one bounded editor",
+      "status": "done",
+      "commit": "3e83e16"
+    },
+    {
+      "id": 2,
+      "name": "Remove legacy evaluator, semantic experiments, replay artifacts, rollout overlays, ModernBERT, optional reranker, and Codex backend",
+      "status": "done",
+      "commit": "f73cae1, 892737c, fae1b6b, 7b930db, 2155b22, 8302dfa, 808c154"
+    },
+    {
+      "id": 3,
+      "name": "Replace configuration overlays with shared brief specifications",
+      "status": "done",
+      "commit": "4797ddc, 7ee543a, 03f435c"
+    },
+    {
+      "id": 4,
+      "name": "Move caches and memory stores to SQLite and freeze history during multi-brief analysis",
+      "status": "done",
+      "commit": "d4eab66, c82f684, ec2b3cc"
+    },
+    {
+      "id": 5,
+      "name": "Reduce headline scoring to common-sense novelty, impact, and urgency",
+      "status": "done",
+      "commit": "cb9b1b3"
+    },
+    {
+      "id": 6,
+      "name": "Keep enrichment opt-in and simplify analytics/debug output",
+      "status": "done",
+      "commit": "71b8e84, 102aab7"
+    },
+    {
+      "id": 7,
+      "name": "Remove English semantic marker gates and retain prior facts",
+      "status": "done",
+      "commit": "2380b88"
+    }
+  ],
+  "remaining_tasks": [],
+  "blockers": [],
+  "human_actions_pending": [],
+  "decisions": [
+    {
+      "decision": "Keep LLM-based same-day grouping",
+      "rationale": "The current grouping is acceptable and replacing it was explicitly deferred.",
+      "phase": null
+    },
+    {
+      "decision": "Define novelty relative to ordinary common sense",
+      "rationale": "Novelty is distinct from whether a story changed since its previous report.",
+      "phase": null
+    },
+    {
+      "decision": "Use identity selection, semantic fact operations, then one bounded editor",
+      "rationale": "This separates historical identity, factual change, and editorial promotion.",
+      "phase": null
+    },
+    {
+      "decision": "Let the LLM own replace and resolve semantics",
+      "rationale": "English keyword regexes were deterministic checks of vocabulary rather than meaning.",
+      "phase": null
+    },
+    {
+      "decision": "Keep fact memory non-destructive",
+      "rationale": "Replace and resolve remain audit relations but no longer deactivate cited prior facts.",
+      "phase": null
+    },
+    {
+      "decision": "Keep enrichment disabled by default and defer budgeting",
+      "rationale": "Both were explicitly deferred by the user.",
+      "phase": null
+    }
+  ],
+  "uncommitted_files": [
+    "mydailynews/evaluation/retrieval_diagnostics.py",
+    "mydailynews/retrieval/google_news.py",
+    "tests/test_autoconfig.py",
+    "tests/test_real_blind_corpus.py",
+    "tools/run_story_retrieval_diagnostics.py",
+    "docs/brittle-designs.md"
+  ],
+  "next_action": "Inspect the preserved dirty files before starting a new task; the requested simplification is complete.",
+  "context_notes": "No GSD phase exists; this was a direct repository refactor on main. Code baseline is 2380b88 and the working-tree suite passed 268 tests. safe_to_apply now means structurally complete, reference-valid, conflict-free, and non-uncertain; it is not an independent semantic proof. Semantic relations can still influence editorial selection, but cannot deactivate prior facts. Stored facts remain bounded, so old facts may age out even though semantic operations no longer retire them."
+}
