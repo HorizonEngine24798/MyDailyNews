@@ -1108,15 +1108,8 @@ def _next_active_fact_ids(
         return sorted(fail_open)
 
     for operation in operations:
-        operation_name = str(operation["operation"])
-        current_id = str(operation["current_evidence_id"])
-        if operation_name == "add":
-            active.add(current_id)
-        elif operation_name == "repeat":
-            continue
-        else:
-            active.difference_update(operation.get("prior_fact_ids", []))
-            active.add(current_id)
+        if operation["operation"] != "repeat":
+            active.add(str(operation["current_evidence_id"]))
     return sorted(active)
 
 
