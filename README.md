@@ -48,7 +48,7 @@ flowchart LR
     CONFIG["config + runtime checks"] --> BRIEFS["briefs module"]
     SOURCES["feeds, searches,<br/>prior reports"] --> BRIEFS
     MEMORY["state/memory<br/>coverage + preferences"] --> BRIEFS
-    BRIEFS --> BRIEF_CALLS["LLM calls:<br/>score, group, evidence,<br/>delta, final brief"]
+    BRIEFS --> BRIEF_CALLS["LLM calls:<br/>score, group, evidence,<br/>fact comparison, editor, final brief"]
     BRIEF_CALLS --> STRUCTURED["structured briefs<br/>Markdown + JSON"]
     BRIEF_CALLS --> HANDOFF["handoff<br/>selected articles"]
     HANDOFF --> ENRICH["enrichment module"]
@@ -78,7 +78,7 @@ Use [setup](docs/setup.md) for install, config, first run, GUI, Docker, TTS, and
 - [Configuration](docs/configuration.md): config sections and runtime rules.
 - [Architecture](docs/architecture.md): runtime model and module flow.
 - [Evaluation](docs/evaluation.md): focused retrieval and story-operation checks.
-- [Story quality](docs/story-quality.md): current findings, next experiment, and deferred work.
+- [Story quality](docs/story-quality.md): current change-analysis design and failure policy.
 - [Docker](docs/docker.md): container usage.
 - [Hardware profiles](docs/hardware_profiles.md): model and context sizing.
 - [TTS audio](docs/tts.md): Kokoro setup and audio output.

@@ -23,7 +23,7 @@ from mydailynews.domain.candidate_annotations import candidate_memory_annotation
 from mydailynews.domain.headline_selection import select_articles
 from mydailynews.memory.context import _story_matches, build_story_memory_context
 from mydailynews.memory.coverage import CoverageMemoryStore, CoverageRecord
-from mydailynews.memory.recall import partition_selected_for_brief
+from mydailynews.memory.recall import apply_delta_signals_to_selected, partition_selected_for_brief
 from mydailynews.memory.story_store import (
     StoryStore,
     source_facts_for_article,
@@ -282,7 +282,7 @@ class StoryStoreTests(unittest.TestCase):
             self.assertTrue(any(fact.source_id == candidate.id for fact in record.facts))
             self.assertEqual(record.last_seen, "2026-04-01")
 
-    def test_production_delta_selects_one_prior_then_edits_all_cards(self) -> None:
+    def test_production_delta_classifies_facts_against_all_retrieved_history(self) -> None:
         current = _candidate(
             "current",
             "Bridge remains closed",
@@ -329,17 +329,11 @@ class StoryStoreTests(unittest.TestCase):
             def complete_json(self, system, user, **kwargs):
                 schema_name = kwargs["json_schema"].name
                 self.calls.append(schema_name)
-                if schema_name == "story_identity_selection":
-                    return {
-                        "relationship": "same_story",
-                        "prior_story_key": "right-bridge",
-                        "confidence": 0.9,
-                        "basis": "Same bridge and unresolved closure.",
-                    }
                 if schema_name == "fact_operations":
                     comparison = json.loads(user.split("Story comparison:\n", 1)[1].split("\n\nReturn", 1)[0])
+                    self.comparison = comparison
                     return {
-                        "story_key": "right-bridge",
+                        "story_key": comparison["story_key"],
                         "operations": [
                             {
                                 "operation": "repeat",
@@ -369,15 +363,27 @@ class StoryStoreTests(unittest.TestCase):
 
         self.assertEqual(
             client.calls,
-            ["story_identity_selection", "fact_operations", "story_editor_selection"],
+            ["fact_operations", "story_editor_selection"],
         )
-        self.assertEqual(packet["story_cards"][0]["prior_story_key"], "right-bridge")
-        self.assertNotIn("fact:wrong", json.dumps(packet["story_cards"][0]))
+        self.assertEqual(
+            {fact["claim_id"] for fact in client.comparison["prior_facts"]},
+            {"fact:wrong", "fact:right"},
+        )
+        self.assertNotIn("identity", packet["story_cards"][0])
+        self.assertNotIn("relationship", packet["story_decisions"][0])
+        self.assertEqual(packet["story_decisions"][0]["story_key"], "right-bridge")
+        self.assertEqual(
+            packet["story_cards"][0]["referenced_prior_story_keys"],
+            ["right-bridge"],
+        )
         self.assertEqual(packet["story_decisions"][0]["change_type"], "unchanged")
         self.assertEqual(packet["story_decisions"][0]["disposition"], "omit")
+        self.assertEqual(packet["story_delta_version"], "story-cards.v2")
 
         with TemporaryDirectory() as raw_dir:
-            _annotate(current, "right-bridge")
+            _annotate(current, "current-provisional")
+            apply_delta_signals_to_selected(selected=selected, delta_packet=packet)
+            self.assertEqual(candidate_memory_annotation(current).story_key, "right-bridge")
             store = StoryStore.from_state_dir(Path(raw_dir))
             store.update_selected(
                 selected=selected,
@@ -391,6 +397,66 @@ class StoryStoreTests(unittest.TestCase):
                 packet["story_decisions"][0]["current_evidence_ids"],
             )
             self.assertEqual(event.prior_evidence_ids, ["fact:right"])
+
+    def test_add_operation_can_anchor_a_continuing_story_without_identity_verdict(self) -> None:
+        current = _candidate(
+            "current-add",
+            "Bridge inspection publishes structural analysis",
+            "Inspectors published a new structural analysis of the bridge.",
+        )
+        selected = [_article(current)]
+        story_memory = {
+            "stories": [{
+                "story_key": "current-provisional",
+                "current_title": current.title,
+                "current_article_ids": [current.id],
+                "prior_baselines": [{
+                    "story_key": "bridge-history",
+                    "title": "Bridge remains closed",
+                    "source_facts": [{
+                        "fact_id": "fact:bridge-closed",
+                        "text": "The bridge remains closed pending inspection.",
+                        "source_id": "prior-bridge",
+                    }],
+                }],
+            }],
+        }
+
+        class Client:
+            config = SimpleNamespace(backend="test", effective_model_label="test")
+
+            def complete_json(self, system, user, **kwargs):
+                if kwargs["json_schema"].name == "fact_operations":
+                    comparison = json.loads(user.split("Story comparison:\n", 1)[1].split("\n\nReturn", 1)[0])
+                    return {
+                        "story_key": comparison["story_key"],
+                        "operations": [{
+                            "operation": "add",
+                            "current_evidence_id": claim["claim_id"],
+                            "prior_fact_ids": ["fact:bridge-closed"],
+                        } for claim in comparison["current_evidence"]],
+                    }
+                return {
+                    "decisions": [{
+                        "card_id": "story-card-001",
+                        "disposition": "full_report",
+                        "materiality": 2,
+                        "summary": "Inspectors published a new structural analysis.",
+                        "basis": "The bridge story gained substantive new evidence.",
+                    }],
+                }
+
+        packet = StoryDeltaAnalyzer(Client(), DeltaExtractionConfig(enabled=True)).extract(
+            selected,
+            UserMemory(),
+            "daily brief",
+            story_memory,
+        )
+
+        decision = packet["story_decisions"][0]
+        self.assertEqual(decision["story_key"], "bridge-history")
+        self.assertEqual(decision["change_type"], "incremental")
+        self.assertNotIn("relationship", decision)
 
     def test_stashed_replacement_retains_prior_facts_in_the_next_baseline(self) -> None:
         with TemporaryDirectory() as raw_dir:

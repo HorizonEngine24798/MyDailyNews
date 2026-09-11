@@ -133,8 +133,8 @@ Important fields:
 - `state_dir`: durable memory directory. The default is `state/memory`.
 - `coverage_window_days` and `coverage_retention_days`: recent-history lookback and retention.
 - `story_stale_after_days` and `story_retention_days`: story lifecycle limits.
-- `story_candidate_threshold`: minimum heuristic retrieval score for a prior story candidate; lower values improve recall but admit more related-theme candidates.
-- `recent_story_penalty` and `recent_lead_penalty`: deterministic rank adjustments for recently covered stories. Only delta analysis may establish that a story materially changed.
+- `story_candidate_threshold`: minimum heuristic retrieval score for a historical comparison candidate; lower values improve recall but admit more related-theme candidates.
+- `recent_story_penalty` and `recent_lead_penalty`: deterministic rank adjustments for recently covered stories. Fact comparison finds source-grounded changes; the selection editor decides whether they are worth reporting.
 - `max_selected_per_story` and `max_selected_per_story_family`: same-run diversity caps.
 - `recall_prompt_enabled` and `save_recall_packets`: compact coverage guidance and debug packets.
 - `feedback_enabled`: SQLite-backed feedback events used by the GUI and learned preferences.

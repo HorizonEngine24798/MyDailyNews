@@ -97,8 +97,8 @@ def annotate_candidates_with_memory(
                 adjustment = max(adjustment, -MAX_PROVISIONAL_COVERAGE_PENALTY)
                 today_policy = "await_delta"
                 reason = (
-                    "A retrieved prior candidate was recently covered, but identity remains "
-                    "unvalidated until delta classification."
+                    "Retrieved history was recently covered, but current facts have not yet "
+                    "been classified against it."
                 )
             if adjustment < 0.0:
                 reduced_keys.add(coverage_story_key or identity.story_key)

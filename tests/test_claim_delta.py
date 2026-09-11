@@ -49,6 +49,10 @@ class FactOperationContractTests(unittest.TestCase):
         self.assertEqual(validation.operations[0].current_evidence_id, "current-1")
         self.assertEqual(publication_policy_for_operations(validation, request), "incremental")
 
+        anchored = self.validate(request, "add", ("prior-1",))
+        self.assertTrue(anchored.safe_to_apply)
+        self.assertEqual(anchored.operations[0].prior_fact_ids, ("prior-1",))
+
     def test_structurally_valid_replace_cites_its_target(self) -> None:
         request = self.request(
             "The agency corrected the notice: the bridge reopened Tuesday.",
@@ -77,7 +81,7 @@ class FactOperationContractTests(unittest.TestCase):
         self.assertTrue(validation.safe_to_apply)
         self.assertEqual(validation.operations[0].prior_fact_ids, ("prior-1",))
 
-    def test_unknown_cross_story_ids_and_conflicts_fail_open(self) -> None:
+    def test_unknown_ambiguous_and_conflicting_ids_fail_open(self) -> None:
         request = self.request("The bridge remains closed.")
         unknown = validate_fact_operations({
             "story_key": "bridge-thread",
@@ -96,8 +100,36 @@ class FactOperationContractTests(unittest.TestCase):
             prior_claims=(ClaimEvidence("prior-1", "A different bridge closed.", "prior", story_key="other-thread", source_id="other"),),
         )
         crossed = self.validate(cross_story, "repeat", ("prior-1",))
-        self.assertFalse(crossed.safe_to_apply)
-        self.assertFalse(crossed.structurally_valid_references)
+        self.assertTrue(crossed.safe_to_apply)
+        self.assertTrue(crossed.structurally_valid_references)
+
+        ambiguous = FactOperationRequest(
+            story_key=request.story_key,
+            current_claims=request.current_claims,
+            prior_claims=(
+                ClaimEvidence("shared-fact", "The bridge closed.", "prior", story_key="first-thread"),
+                ClaimEvidence("shared-fact", "The bridge closed.", "prior", story_key="second-thread"),
+            ),
+        )
+        ambiguous_result = self.validate(ambiguous, "repeat", ("shared-fact",))
+        self.assertFalse(ambiguous_result.safe_to_apply)
+        self.assertFalse(ambiguous_result.structurally_valid_references)
+
+        multiple_stories = FactOperationRequest(
+            story_key=request.story_key,
+            current_claims=request.current_claims,
+            prior_claims=(
+                ClaimEvidence("first-fact", "The bridge closed.", "prior", story_key="first-thread"),
+                ClaimEvidence("second-fact", "Inspection is pending.", "prior", story_key="second-thread"),
+            ),
+        )
+        multiple_result = self.validate(
+            multiple_stories,
+            "repeat",
+            ("first-fact", "second-fact"),
+        )
+        self.assertFalse(multiple_result.safe_to_apply)
+        self.assertTrue(multiple_result.structurally_valid_references)
 
         conflicting = validate_fact_operations({
             "story_key": "bridge-thread",

@@ -108,7 +108,7 @@ def _story_context(
 
     # Prior-report rows are a memory-disabled fallback only. When StoryStore is
     # active every baseline must be an explicitly retrieved candidate so an
-    # unscored report row cannot bypass the identity gate.
+    # unscored report row cannot bypass the bounded comparison set.
     if story_store is None:
         current_family = annotation.story_family_key if annotation else ""
         prior_baselines = _prior_report_baselines(

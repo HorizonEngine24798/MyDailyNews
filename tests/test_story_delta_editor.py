@@ -24,7 +24,6 @@ def _card(index: int) -> dict:
     return {
         "card_id": f"story-card-{index:03d}",
         "title": f"Story {index}",
-        "identity": {"relationship": "distinct_story", "confidence": 1.0},
         "operation_validation": {"safe_to_apply": True},
         "editorial_signals": [{
             "priority": float(index),

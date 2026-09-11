@@ -389,28 +389,11 @@ Return:
 }}"""
 
 
-STORY_IDENTITY_SYSTEM = """You select the identity baseline for one grouped current story-day.
-Return exactly one JSON object matching the supplied schema.
-Choose at most one supplied prior story key. Never invent a key.
-A shared topic, institution, person, or place is not enough: same_story means the same concrete
-unfolding event, decision, investigation, release, incident, case, or explicitly continued state."""
-
-
-STORY_IDENTITY_USER = """Current grouped story-day and retrieved prior candidates:
-{identity_packet}
-
-Return:
-- same_story with exactly one prior_story_key only when it is the same concrete unfolding story;
-- distinct_story with an empty prior_story_key when none is the same story;
-- uncertain with an empty prior_story_key when the supplied evidence cannot safely decide.
-
-Confidence is 0.0-1.0. Keep basis to at most 16 words."""
-
-
-FACT_OPERATION_SYSTEM = """You compare one grouped current story-day with one confirmed prior story baseline.
+FACT_OPERATION_SYSTEM = """You compare one grouped current story-day with bounded retrieved story history.
 Return exactly one JSON object matching the supplied schema.
 Use only the supplied evidence IDs; copy them exactly and never construct an ID.
-Do not decide identity, materiality, confidence, publication, or editorial prose.
+Classify current facts only; do not return a same-story/new-story verdict.
+Do not decide materiality, publication, or editorial prose.
 Preserve attribution, negation, quantities, modality, and time.
 Judge the relationship by meaning, including paraphrase and negation; do not require cue words.
 Omission from current evidence never retracts or replaces a prior fact."""
@@ -420,7 +403,8 @@ FACT_OPERATION_USER = """Story comparison:
 {comparison}
 
 Return source-backed fact operations:
-- add: a current proposition not represented by an active prior fact; cite no prior fact.
+- add: a current proposition not represented by a prior fact. Cite a prior fact only when it
+  anchors this addition to one continuing historical story; otherwise cite no prior fact.
 - repeat: an equivalent or weaker current proposition; cite the represented prior fact.
 - replace: current evidence explicitly corrects, contradicts, or supersedes the cited prior fact.
 - resolve: current evidence closes the cited central open issue or uncertainty.
@@ -450,8 +434,8 @@ Return exactly one decision for every supplied card_id. Use full_report for at m
 - continuing_bullet: a useful but secondary delta worth one compact mention.
 - omit: low-value, repeated, or deferrable today; it remains stashed in story memory.
 
-Judge cards against each other, not in isolation. Do not omit an uncertain identity or unsafe
-operation result. Materiality is an integer 0-3. Summary states the supported delta in at most
+Judge cards against each other, not in isolation. Do not omit an unsafe operation result.
+Materiality is an integer 0-3. Summary states the supported delta in at most
 16 words; basis explains the coverage choice in at most 16 words."""
 
 
