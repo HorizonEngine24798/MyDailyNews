@@ -23,7 +23,8 @@ def filter_delta_packet_for_articles(
     if omitted_count <= 0:
         return packet
     allowed = {str(value or "").strip() for value in allowed_article_ids if str(value or "").strip()}
-    editorial_selection = packet.get("story_delta_version") == "story-cards.v1"
+    version = str(packet.get("story_delta_version", "") or "")
+    editorial_selection = version in {"story-cards.v1", "story-cards.v2"}
     output: Dict[str, Any] = {
         "baseline_coverage_note": (
             "Writer context was filtered after editorial selection."
@@ -39,7 +40,7 @@ def filter_delta_packet_for_articles(
         },
     }
     if editorial_selection:
-        output["story_delta_version"] = "story-cards.v1"
+        output["story_delta_version"] = version
     for key in _DELTA_ENTRY_KEYS:
         output[key] = _rows_wholly_with_allowed_ids(packet.get(key, []), allowed, id_key="article_ids")
     output["story_decisions"] = _rows_wholly_with_allowed_ids(

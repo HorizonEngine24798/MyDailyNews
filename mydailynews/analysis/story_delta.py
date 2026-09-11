@@ -8,13 +8,10 @@ from mydailynews.ai.prompts import (
     FACT_OPERATION_USER,
     STORY_EDITOR_SYSTEM,
     STORY_EDITOR_USER,
-    STORY_IDENTITY_SYSTEM,
-    STORY_IDENTITY_USER,
 )
 from mydailynews.ai.schemas import (
     FACT_OPERATION_JSON_SCHEMA,
     STORY_EDITOR_JSON_SCHEMA,
-    STORY_IDENTITY_JSON_SCHEMA,
 )
 from mydailynews.ai.token_budget import resolve_client_token_budget
 from mydailynews.analysis.shared import _short_text
@@ -75,7 +72,7 @@ def _current_story_claims(
 
 
 class StoryDeltaAnalyzer:
-    """Production story comparison: identity, one prior, operations, then editor."""
+    """Production story comparison: retrieved history, fact operations, then editor."""
 
     def __init__(
         self,
@@ -144,29 +141,27 @@ class StoryDeltaAnalyzer:
         baselines = [
             item for item in story.get("prior_baselines", [])
             if isinstance(item, dict) and str(item.get("story_key", "") or "").strip()
-        ]
-        identity = self._select_identity(
-            current_key=current_key,
-            story=story,
-            current_claims=current_claims,
-            baselines=baselines,
-            label=f"story identity {index} ({brief_name or 'brief'})",
-        )
-        prior_key = identity["prior_story_key"] if identity["relationship"] == "same_story" else ""
-        baseline = next(
-            (item for item in baselines if str(item.get("story_key", "") or "") == prior_key),
-            None,
-        )
-        prior_claims = tuple(prior_claim_evidence(baseline, max_claims=8)) if baseline else ()
-        resolved_key = prior_key or current_key
+        ][: max(1, min(3, int(self.config.max_prior_reports)))]
+        prior_claims: List[Any] = []
+        prior_story_keys_by_id: Dict[str, set[str]] = {}
+        seen_prior_claims: set[tuple[str, str]] = set()
+        for baseline in baselines:
+            for claim in prior_claim_evidence(baseline, max_claims=8):
+                owner = str(claim.story_key or "")
+                prior_story_keys_by_id.setdefault(claim.claim_id, set()).add(owner)
+                key = (claim.claim_id, owner)
+                if key not in seen_prior_claims:
+                    seen_prior_claims.add(key)
+                    prior_claims.append(claim)
+        bounded_prior_claims = tuple(prior_claims)
         request = FactOperationRequest(
-            story_key=resolved_key,
+            story_key=current_key,
             current_claims=current_claims,
-            prior_claims=prior_claims,
+            prior_claims=bounded_prior_claims,
             article_ids=article_ids,
         )
 
-        if identity["relationship"] == "same_story" and prior_claims:
+        if bounded_prior_claims:
             try:
                 raw_operations = self._complete_json(
                     FACT_OPERATION_SYSTEM,
@@ -181,25 +176,30 @@ class StoryDeltaAnalyzer:
                     f"story delta {index} failed ({type(exc).__name__}: {exc}); kept visible for editor."
                 )
                 validation = FactOperationValidation(
-                    story_key=resolved_key,
+                    story_key=current_key,
                     diagnostics=("comparison request failed",),
                 )
-        elif identity["relationship"] == "distinct_story":
+        else:
             raw_operations = {
-                "story_key": resolved_key,
+                "story_key": current_key,
                 "operations": [
                     FactOperation("add", claim.claim_id).payload() for claim in current_claims
                 ],
             }
             validation = validate_fact_operations(raw_operations, request)
-        else:
-            raw_operations = {
-                "story_key": resolved_key,
-                "operations": [
-                    FactOperation("uncertain", claim.claim_id).payload() for claim in current_claims
-                ],
-            }
-            validation = validate_fact_operations(raw_operations, request)
+
+        referenced_prior_story_keys = sorted({
+            owner
+            for operation in validation.operations
+            for prior_id in operation.prior_fact_ids
+            for owner in prior_story_keys_by_id.get(prior_id, set())
+            if owner
+        })
+        resolved_key = (
+            referenced_prior_story_keys[0]
+            if validation.safe_to_apply and len(referenced_prior_story_keys) == 1
+            else current_key
+        )
 
         member_articles = [by_id[article_id] for article_id in article_ids]
         return {
@@ -217,10 +217,12 @@ class StoryDeltaAnalyzer:
                 for article in member_articles
             ],
             "current_facts": [claim.payload() for claim in current_claims],
-            "prior_story_key": prior_key,
             "retrieved_candidate_count": len(baselines),
-            "relevant_prior_facts": [claim.payload() for claim in prior_claims],
-            "identity": identity,
+            "retrieved_prior_story_keys": [
+                str(item.get("story_key", "") or "") for item in baselines
+            ],
+            "referenced_prior_story_keys": referenced_prior_story_keys,
+            "relevant_prior_facts": [claim.payload() for claim in bounded_prior_claims],
             "proposed_operations": [item.payload() for item in validation.operations],
             "operation_validation": {
                 "safe_to_apply": validation.safe_to_apply,
@@ -228,7 +230,7 @@ class StoryDeltaAnalyzer:
                 "diagnostics": list(validation.diagnostics),
             },
             "operation_signal": publication_policy_for_operations(validation, request),
-            "change_type": _change_type_for_operations(identity, validation),
+            "change_type": _change_type_for_operations(validation),
             "editorial_signals": [
                 {
                     "article_id": article.candidate.id,
@@ -242,83 +244,6 @@ class StoryDeltaAnalyzer:
                 }
                 for article in member_articles
             ],
-        }
-
-    def _select_identity(
-        self,
-        *,
-        current_key: str,
-        story: Dict[str, Any],
-        current_claims: tuple[Any, ...],
-        baselines: List[Dict[str, Any]],
-        label: str,
-    ) -> Dict[str, Any]:
-        if not baselines:
-            return {
-                "relationship": "distinct_story",
-                "prior_story_key": "",
-                "confidence": 1.0,
-                "basis": "No historical candidate was retrieved.",
-            }
-        candidates = [
-            {
-                "story_key": str(item.get("story_key", "") or ""),
-                "title": str(item.get("title", "") or "")[:180],
-                "last_seen": str(item.get("last_seen", "") or "")[:32],
-                "candidate_score": item.get("candidate_score", 0.0),
-                "facts": [claim.payload() for claim in prior_claim_evidence(item, max_claims=8)],
-            }
-            for item in baselines[: max(1, min(3, int(self.config.max_prior_reports)))]
-        ]
-        packet = {
-            "current": {
-                "story_key": current_key,
-                "title": str(story.get("current_title", "") or "")[:180],
-                "articles": list(story.get("current_articles", []))[:8],
-                "facts": [claim.payload() for claim in current_claims],
-            },
-            "prior_candidates": candidates,
-        }
-        try:
-            raw = self._complete_json(
-                STORY_IDENTITY_SYSTEM,
-                STORY_IDENTITY_USER.format(identity_packet=compact_json(packet)),
-                label=label,
-                schema=STORY_IDENTITY_JSON_SCHEMA,
-                max_new_tokens=192,
-            )
-        except Exception as exc:
-            self.warnings.append(f"{label} failed ({type(exc).__name__}: {exc}); identity left uncertain.")
-            return {
-                "relationship": "uncertain",
-                "prior_story_key": "",
-                "confidence": 0.0,
-                "basis": "Identity request failed.",
-            }
-        allowed = {item["story_key"] for item in candidates}
-        relationship = str(raw.get("relationship", "uncertain") or "uncertain").strip()
-        prior_key = str(raw.get("prior_story_key", "") or "").strip()
-        confidence = _bounded_float(raw.get("confidence"), 0.0)
-        basis = str(raw.get("basis", "") or "").strip()[:160]
-        if relationship == "same_story" and prior_key in allowed and confidence >= 0.5:
-            return {
-                "relationship": "same_story",
-                "prior_story_key": prior_key,
-                "confidence": confidence,
-                "basis": basis,
-            }
-        if relationship == "distinct_story" and not prior_key and confidence >= 0.5:
-            return {
-                "relationship": "distinct_story",
-                "prior_story_key": "",
-                "confidence": confidence,
-                "basis": basis,
-            }
-        return {
-            "relationship": "uncertain",
-            "prior_story_key": "",
-            "confidence": min(confidence, 0.49),
-            "basis": basis or "Identity choice was invalid or below confidence threshold.",
         }
 
     def _edit_story_cards(
@@ -484,13 +409,10 @@ class StoryDeltaAnalyzer:
         return result
 
 
-def _change_type_for_operations(
-    identity: Dict[str, Any],
-    validation: FactOperationValidation,
-) -> str:
-    if identity.get("relationship") == "uncertain" or not validation.safe_to_apply:
+def _change_type_for_operations(validation: FactOperationValidation) -> str:
+    if not validation.safe_to_apply:
         return "uncertain"
-    if identity.get("relationship") == "distinct_story":
+    if not any(item.prior_fact_ids for item in validation.operations):
         return "new"
     operations = {item.operation for item in validation.operations}
     if operations == {"repeat"}:
@@ -577,7 +499,6 @@ def _compact_editor_card(card: Dict[str, Any], *, fact_chars: int) -> Dict[str, 
         for row in fact_deltas
         if per_fact_chars > 0
     ]
-    identity = card.get("identity", {}) if isinstance(card.get("identity"), dict) else {}
     validation = (
         card.get("operation_validation", {})
         if isinstance(card.get("operation_validation"), dict)
@@ -587,10 +508,7 @@ def _compact_editor_card(card: Dict[str, Any], *, fact_chars: int) -> Dict[str, 
         "card_id": str(card.get("card_id", "")),
         "title": _short_text(card.get("title", ""), 180),
         "change_type": str(card.get("change_type", "uncertain") or "uncertain"),
-        "identity": {
-            "relationship": str(identity.get("relationship", "uncertain") or "uncertain"),
-            "confidence": _bounded_float(identity.get("confidence"), 0.0),
-        },
+        "retrieved_history_count": int(card.get("retrieved_candidate_count", 0) or 0),
         "safe_to_apply": bool(validation.get("safe_to_apply", False)),
         "diagnostics": [
             _short_text(item, 120)
@@ -655,8 +573,7 @@ def _validated_editor_decisions(
             disposition = "full_report"
         operation_validation = card.get("operation_validation", {})
         unsafe = not bool(operation_validation.get("safe_to_apply", False))
-        uncertain_identity = card.get("identity", {}).get("relationship") == "uncertain"
-        if disposition == "omit" and (unsafe or uncertain_identity):
+        if disposition == "omit" and unsafe:
             disposition = "full_report"
         try:
             materiality_level = max(0, min(3, int(raw.get("materiality", 0))))
@@ -706,9 +623,9 @@ def _story_delta_packet(
 ) -> Dict[str, Any]:
     editor_by_card = {str(item["card_id"]): item for item in editor_decisions}
     packet: Dict[str, Any] = {
-        "story_delta_version": "story-cards.v1",
+        "story_delta_version": "story-cards.v2",
         "baseline_coverage_note": (
-            "Each grouped current story was linked to at most one validated prior baseline; "
+            "Each grouped current story was compared with bounded retrieved history; "
             "the editor compared the bounded card set, and prompt-excluded cards failed open."
         ),
         "new": [],
@@ -723,13 +640,8 @@ def _story_delta_packet(
     }
     for card in cards:
         editor = editor_by_card[str(card["card_id"])]
-        identity = card["identity"]
-        relationship = str(identity["relationship"])
         validation = card["operation_validation"]
         change_type = str(card["change_type"])
-        confidence = _bounded_float(identity.get("confidence"), 0.0)
-        if not validation.get("safe_to_apply"):
-            confidence = min(confidence, 0.49)
         operations = list(card.get("proposed_operations", []))
         prior_ids = list(dict.fromkeys(
             str(prior_id)
@@ -747,11 +659,10 @@ def _story_delta_packet(
         row = {
             "story_key": str(card["story_key"]),
             "article_ids": list(card["article_ids"]),
-            "prior_story_key": str(card.get("prior_story_key", "")),
-            "relationship": relationship,
+            "retrieved_prior_story_keys": list(card.get("retrieved_prior_story_keys", [])),
+            "referenced_prior_story_keys": list(card.get("referenced_prior_story_keys", [])),
             "change_type": change_type,
             "materiality": round(float(editor["materiality"]) / 3.0, 4),
-            "confidence": confidence,
             "disposition": str(editor["disposition"]),
             "summary": str(editor["summary"]),
             "bullet": str(editor["summary"]),
@@ -766,9 +677,7 @@ def _story_delta_packet(
             "prior_evidence_ids": prior_ids,
             "superseded_prior_evidence_ids": superseded,
             "operations": operations,
-            "editor_safe_to_defer": bool(
-                validation.get("safe_to_apply") and relationship != "uncertain"
-            ),
+            "editor_safe_to_defer": bool(validation.get("safe_to_apply")),
         }
         packet["story_decisions"].append(row)
         entry = {
@@ -786,7 +695,7 @@ def _story_delta_packet(
             packet["evidence_gaps"].append(
                 {
                     "gap": str(editor["summary"]),
-                    "why_it_matters": "Identity or delta validation was uncertain; story was kept visible.",
+                    "why_it_matters": "Fact comparison or structural validation was uncertain; story was kept visible.",
                     "article_ids": list(card["article_ids"]),
                 }
             )

@@ -59,15 +59,19 @@ flowchart TD
     FETCH --> EVIDENCE
     ANALYSIS["analysis client<br/>summary or final"] --> EVIDENCE_CALL["LLM: evidence<br/>0..N article batches"]
     EVIDENCE_CALL --> EVIDENCE
-    GROUP --> DELTA["story identity + delta"]
-    FETCH --> DELTA
-    MEMORY --> DELTA
-    ANALYSIS --> IDENTITY_CALL["LLM: identity<br/>one selected prior per story"]
+    GROUP --> HISTORY["deterministic bounded<br/>history retrieval<br/>up to 3 candidates per story"]
+    FETCH --> HISTORY
+    MEMORY --> HISTORY
+    GROUP --> OPERATIONS["per-story fact-operation comparison<br/>bounded facts from all retrieved candidates"]
+    FETCH --> OPERATIONS
+    HISTORY --> OPERATIONS
     ANALYSIS --> OPERATION_CALL["LLM: fact operations<br/>0..1 comparison per story"]
+    OPERATION_CALL --> OPERATIONS
+    OPERATIONS --> VALIDATE["structural validation<br/>IDs, ownership, coverage, conflicts"]
+    VALIDATE --> CARDS["validated current<br/>story cards"]
     ANALYSIS --> EDITOR_CALL["LLM: selection editor<br/>one bounded comparative call"]
-    IDENTITY_CALL --> DELTA
-    OPERATION_CALL --> DELTA
-    EDITOR_CALL --> DELTA
+    CARDS --> EDITOR_CALL
+    EDITOR_CALL --> DELTA["editorial story decisions"]
     EVIDENCE --> FINAL_BRIEF["final brief generation"]
     DELTA --> FINAL_BRIEF
     MEMORY --> FINAL_BRIEF
@@ -80,7 +84,6 @@ flowchart TD
     SCORE_CALL --> AI_CACHE["AI synth cache"]
     GROUP_CALL --> AI_CACHE
     EVIDENCE_CALL --> AI_CACHE
-    IDENTITY_CALL --> AI_CACHE
     OPERATION_CALL --> AI_CACHE
     EDITOR_CALL --> AI_CACHE
     FETCH --> HTTP_CACHE["HTTP/article cache"]
@@ -112,7 +115,7 @@ flowchart TD
     ENRICHED --> OUTPUT["output/"]
 ```
 
-LLM call groups: headline scoring is batched; story grouping and enrichment planning can split into multiple planner calls; evidence is an optional batched analysis call. Enabled delta analysis selects one prior candidate per current story, makes at most one narrow fact-operation call per story, then makes one bounded selection-editor call. Every story receives a decision; cards excluded by configured or token limits fail open. Final brief is normally one call per structured brief, narrative brief is normally one call, and enrichment synthesis is one call per enriched story thread. Cache hits skip eligible calls; JSON/transport retries can add attempts.
+LLM call groups: headline scoring is batched; story grouping and enrichment planning can split into multiple planner calls; evidence is an optional batched analysis call. Enabled delta analysis deterministically retrieves up to three prior candidates for each grouped current story. When retrieved prior facts exist, it makes at most one fact-operation call per story over the current facts and bounded facts from every retrieved candidate; stories without prior facts receive deterministic `add` operations and skip that call. The result is structurally validated before one bounded selection-editor call compares the validated card set. Every story receives a decision; cards excluded by configured or token limits fail open. Final brief is normally one call per structured brief, narrative brief is normally one call, and enrichment synthesis is one call per enriched story thread. Cache hits skip eligible calls; JSON/transport retries can add attempts.
 
 AI roles: `summary_ai_client` scores and plans; the configurable analysis client runs evidence/delta; `final_ai_client` writes final and narrative briefs.
 

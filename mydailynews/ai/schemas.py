@@ -333,25 +333,6 @@ FACT_OPERATION_JSON_SCHEMA = JSONSchemaSpec(
 )
 
 
-STORY_IDENTITY_JSON_SCHEMA = JSONSchemaSpec(
-    name="story_identity_selection",
-    schema={
-        "type": "object",
-        "properties": {
-            "relationship": {
-                "type": "string",
-                "enum": ["same_story", "distinct_story", "uncertain"],
-            },
-            "prior_story_key": {"type": "string"},
-            "confidence": {"type": "number", "minimum": 0, "maximum": 1},
-            "basis": {"type": "string", "maxLength": 160},
-        },
-        "required": ["relationship", "prior_story_key", "confidence", "basis"],
-        "additionalProperties": False,
-    },
-)
-
-
 STORY_EDITOR_JSON_SCHEMA = JSONSchemaSpec(
     name="story_editor_selection",
     schema={

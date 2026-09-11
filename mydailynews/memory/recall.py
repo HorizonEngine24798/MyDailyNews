@@ -25,7 +25,8 @@ def partition_selected_for_brief(
 
     decisions = _unambiguous_story_decisions_by_article(delta_packet)
     editor_validated = bool(
-        isinstance(delta_packet, dict) and delta_packet.get("story_delta_version") == "story-cards.v1"
+        isinstance(delta_packet, dict)
+        and delta_packet.get("story_delta_version") in {"story-cards.v1", "story-cards.v2"}
     )
     included: List[SelectedArticle] = []
     omitted: List[SelectedArticle] = []
@@ -83,7 +84,10 @@ def apply_delta_signals_to_selected(
     selected: List[SelectedArticle],
     delta_packet: Dict[str, Any] | None,
 ) -> None:
-    if not isinstance(delta_packet, dict) or delta_packet.get("story_delta_version") != "story-cards.v1":
+    if (
+        not isinstance(delta_packet, dict)
+        or delta_packet.get("story_delta_version") not in {"story-cards.v1", "story-cards.v2"}
+    ):
         return
     decision_by_article = _unambiguous_story_decisions_by_article(delta_packet)
     for article in selected:
@@ -94,11 +98,7 @@ def apply_delta_signals_to_selected(
         change_type = str(decision.get("change_type", "") or "").strip()
         materiality = _bounded_float(decision.get("materiality"), annotation.materiality)
         disposition = _effective_disposition(decision, editor_validated=True)
-        relationship = str(decision.get("relationship", "") or "").strip()
         resolved_story_key = str(decision.get("story_key", "") or "").strip() or annotation.story_key
-        article.candidate.metadata["memory_identity_state"] = (
-            "linked" if relationship == "same_story" else "new_or_unlinked"
-        )
         set_memory_annotation(
             article.candidate,
             MemoryAnnotation(
@@ -155,7 +155,7 @@ def _unambiguous_story_decisions_by_article(
     for article_id, decisions in grouped.items():
         signatures = {
             (
-                str(item.get("relationship", "") or "").strip(),
+                str(item.get("story_key", "") or "").strip(),
                 str(item.get("change_type", "") or "").strip(),
                 str(item.get("disposition", "") or "").strip(),
             )
@@ -164,7 +164,7 @@ def _unambiguous_story_decisions_by_article(
         if len(signatures) == 1:
             output[article_id] = max(
                 decisions,
-                key=lambda item: _bounded_float(item.get("confidence"), 0.0),
+                key=lambda item: _bounded_float(item.get("materiality"), 0.0),
             )
     return output
 

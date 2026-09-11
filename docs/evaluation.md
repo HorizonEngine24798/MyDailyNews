@@ -6,15 +6,16 @@ scored questions.
 
 ## Retrieval diagnostic
 
-Measure whether production story retrieval supplies the correct historical
-candidate before asking an LLM to decide identity:
+Measure whether production story retrieval supplies the correct bounded set of
+historical candidates and their facts for fact-operation comparison:
 
 ```powershell
 python tools/run_story_retrieval_diagnostics.py
 ```
 
-The report includes recall at bounded candidate counts. It does not measure
-delta correctness or final-brief quality.
+The report includes recall at bounded candidate counts. It measures candidate
+recall only; it does not measure fact-operation correctness, editorial
+selection, or final-brief quality.
 
 The corpora under `evals/cases/` contain synthetic and blind real-news cases.
 Gold story IDs, labels, and fact expectations are scorer data and must never be

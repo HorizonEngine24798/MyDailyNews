@@ -1,4 +1,4 @@
-# Story identity and change analysis
+# Story change analysis
 
 Updated: 2026-09-11
 
@@ -9,12 +9,17 @@ isolation:
 
 1. Group today's articles that describe the same concrete story.
 2. Retrieve at most three plausible historical story candidates.
-3. Ask the identity model to select exactly one supplied prior story, select no
-   prior story, or return `uncertain`.
-4. If a prior story was selected, ask the analysis model for one operation per
-   current fact: `add`, `repeat`, `replace`, `resolve`, or `uncertain`.
-5. Reject the entire operation response when IDs are invented, facts cross
-   story boundaries, operations conflict, or current facts are left uncovered.
+3. Ask the analysis model for one operation per current fact against all
+   bounded retrieved facts: `add`, `repeat`, `replace`, `resolve`, or
+   `uncertain`. There is no separate same-story/new-story verdict.
+4. Reject the entire operation response when IDs are invented, a cited fact has
+   ambiguous ownership, cited facts span multiple historical stories,
+   operations conflict, or current facts are left uncovered.
+5. Reuse a historical story key only when a valid operation response cites
+   facts owned by exactly one prior story. An `add` may cite one such fact as a
+   continuity anchor even though the current proposition is new. Otherwise
+   retain the current grouped story key and fail open when the response is
+   unsafe.
 6. Send the bounded story cards to one editor model. It chooses
    `full_report`, `continuing_bullet`, or `omit`; no more than five stories can
    receive full-report treatment in one brief.
@@ -22,15 +27,15 @@ isolation:
    historical baseline. A story omitted from today's prose still adds durable
    evidence for tomorrow without deactivating earlier facts.
 
-Identity, fact comparison, and editorial selection are deliberately separate
-decisions. The identity model cannot invent a historical key, the operation
-model cannot choose whether a story is published, and the editor cannot retire
-facts.
+Fact comparison and editorial selection are deliberately separate decisions.
+Historical retrieval and story-key reuse are deterministic, the operation model
+cannot choose whether a story is published, and the editor cannot alter or
+retire facts.
 
 ## Failure policy
 
 Uncertain, malformed, missing, over-budget, or failed model output fails open:
-the affected story remains visible. Only a validated `story-cards.v1` editor
+the affected story remains visible. Only a validated `story-cards.v2` editor
 decision may defer a story.
 
 Validated `replace` and `resolve` operations record the model-proposed
@@ -41,11 +46,12 @@ append-only and avoiding destructive semantic mutation.
 ## Semantic boundary
 
 The operation model owns the semantic classification. The deterministic
-validator checks only response shape, supplied evidence IDs, story ownership,
-conflicts, and complete coverage. It does not use English keyword lists to
-approve or veto semantic relationships. Model output remains stochastic, so
-malformed or `uncertain` results fail open and no operation automatically
-deactivates historical evidence.
+validator checks only response shape, supplied evidence IDs, unambiguous story
+ownership, single-story historical linkage, conflicts, and complete coverage.
+It does not use English keyword lists to approve or veto semantic
+relationships. Model output remains stochastic, so malformed or `uncertain`
+results fail open and no operation automatically deactivates historical
+evidence.
 
 ## Deliberate non-features
 

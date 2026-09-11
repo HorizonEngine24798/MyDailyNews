@@ -63,7 +63,7 @@ class FactOperation:
 
 @dataclass(frozen=True)
 class FactOperationRequest:
-    """One grouped story-day compared with at most one prior story."""
+    """One grouped story-day compared with bounded retrieved history."""
 
     story_key: str
     current_claims: tuple[ClaimEvidence, ...]
@@ -251,7 +251,9 @@ def validate_fact_operations(
     seen_exact: set[tuple[str, str, tuple[str, ...]]] = set()
     by_current: dict[str, set[tuple[str, tuple[str, ...]]]] = {}
     current_by_id = {claim.claim_id: claim for claim in request.current_claims}
-    prior_by_id = {claim.claim_id: claim for claim in request.prior_claims}
+    prior_by_id: dict[str, list[ClaimEvidence]] = {}
+    for claim in request.prior_claims:
+        prior_by_id.setdefault(claim.claim_id, []).append(claim)
 
     for index, raw in enumerate(raw_operations[:16]):
         if not isinstance(raw, Mapping):
@@ -271,18 +273,21 @@ def validate_fact_operations(
             diagnostics.append(f"operation {index} cites an unknown current evidence ID")
             reference_errors = True
             continue
+        if any(prior_id not in prior_by_id for prior_id in prior_ids):
+            diagnostics.append(f"operation {index} cites an unknown prior fact ID")
+            reference_errors = True
+            continue
         if any(
-            prior_id not in prior_by_id
-            or prior_by_id[prior_id].story_key != request.story_key
+            len({claim.story_key for claim in prior_by_id[prior_id] if claim.story_key}) != 1
             for prior_id in prior_ids
         ):
-            diagnostics.append(f"operation {index} cites an unknown or cross-story prior fact ID")
+            diagnostics.append(f"operation {index} cites a prior fact with ambiguous story ownership")
             reference_errors = True
             continue
         if operation in {"repeat", "replace", "resolve"} and not prior_ids:
             diagnostics.append(f"operation {index} requires a cited prior fact")
             continue
-        if operation in {"add", "uncertain"} and prior_ids:
+        if operation == "uncertain" and prior_ids:
             diagnostics.append(f"operation {index} must not cite a prior fact")
             continue
         key = (operation, current_id, prior_ids)
@@ -301,6 +306,16 @@ def validate_fact_operations(
             "conflicting operations for current evidence: " + ", ".join(sorted(conflicted))
         )
         parsed = [item for item in parsed if item.current_evidence_id not in conflicted]
+
+    referenced_story_keys = {
+        claim.story_key
+        for item in parsed
+        for prior_id in item.prior_fact_ids
+        for claim in prior_by_id[prior_id]
+        if claim.story_key
+    }
+    if len(referenced_story_keys) > 1:
+        diagnostics.append("operations cite prior facts from multiple stories")
 
     covered_current_ids = {item.current_evidence_id for item in parsed}
     missing_current_ids = request.current_ids.difference(covered_current_ids)

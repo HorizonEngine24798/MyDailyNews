@@ -618,10 +618,8 @@ class BriefGenerator:
                     {
                         "story_key": str(item.get("story_key", ""))[:100],
                         "article_ids": [str(value)[:80] for value in item.get("article_ids", [])[:4]],
-                        "relationship": str(item.get("relationship", "uncertain"))[:30],
                         "change_type": str(item.get("change_type", "uncertain"))[:30],
                         "disposition": str(item.get("disposition", "uncertain"))[:30],
-                        "confidence": item.get("confidence", 0.0),
                         "summary": str(item.get("summary", ""))[:summary_limit],
                         "bullet": str(item.get("bullet", ""))[:summary_limit],
                     }

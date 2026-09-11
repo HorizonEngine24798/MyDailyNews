@@ -217,7 +217,7 @@ class StoryStore:
         decisions = _decisions_by_article(delta_packet)
         validated_operation_packet = bool(
             isinstance(delta_packet, dict)
-            and delta_packet.get("story_delta_version") == "story-cards.v1"
+            and delta_packet.get("story_delta_version") in {"story-cards.v1", "story-cards.v2"}
         )
         groups = _story_group_by_article_id(story_groups or [])
         current_facts_by_article_id = {
