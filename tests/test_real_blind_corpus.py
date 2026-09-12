@@ -27,7 +27,10 @@ def _read_json(path: Path) -> dict:
 
 
 def _sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    # The sealed artifacts are text. Hash their canonical LF form so Git's
+    # Windows checkout policy cannot invalidate an otherwise identical corpus.
+    canonical = path.read_bytes().replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+    return hashlib.sha256(canonical).hexdigest()
 
 
 class RealBlindCorpusTests(unittest.TestCase):

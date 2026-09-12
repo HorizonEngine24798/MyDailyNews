@@ -74,6 +74,7 @@ Use [setup](docs/setup.md) for install, config, first run, GUI, Docker, TTS, and
 ## Docs
 
 - [Setup](docs/setup.md): environment, config, first run, GUI, Docker, TTS, and tests.
+- [Codebase guide](docs/codebase-guide.md): developer reading path, runtime call chain, package map, core data contracts, and investigation pointers.
 - [CLI](docs/cli.md): normal runs, standalone module runs, and common flags.
 - [Configuration](docs/configuration.md): config sections and runtime rules.
 - [Architecture](docs/architecture.md): runtime model and module flow.

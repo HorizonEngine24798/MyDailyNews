@@ -28,6 +28,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--threshold", type=float, default=DEFAULT_CANDIDATE_THRESHOLD)
     parser.add_argument("--limit", type=int, choices=(1, 2, 3), default=3)
+    parser.add_argument("--retention-days", type=int, default=30)
     parser.add_argument("--output", default="", help="Optional JSON output path.")
     return parser
 
@@ -38,6 +39,7 @@ def main() -> int:
         load_corpus(args.corpus),
         threshold=args.threshold,
         limit=args.limit,
+        retention_days=max(0, args.retention_days),
     ).payload()
     rendered = json.dumps(result, ensure_ascii=False, indent=2)
     if args.output:

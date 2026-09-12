@@ -73,6 +73,7 @@ def evaluate_story_store_retrieval(
     *,
     threshold: float = DEFAULT_CANDIDATE_THRESHOLD,
     limit: int = 3,
+    retention_days: int = 30,
 ) -> StoryRetrievalDiagnostics:
     """Measure the source-backed retriever against prior-day story history.
 
@@ -170,6 +171,10 @@ def evaluate_story_store_retrieval(
                     )
                     day_story_ids.add(canonical_key)
 
-                store.update_selected(selected=day_articles, date=day.date)
+                store.update_selected(
+                    selected=day_articles,
+                    date=day.date,
+                    retention_days=retention_days,
+                )
                 seen_before_day.update(day_story_ids)
     return result
