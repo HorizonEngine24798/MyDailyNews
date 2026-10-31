@@ -6,6 +6,7 @@
 
 MyDailyNews is an LLM driven personal news brief generator. It fetches current headlines according to your editable profile then scores, reorders, and aggregates them to give you both the world macro news and focused topics news. With the optional modules enabled, it further examines notable topics, researches it through keyword searches, and gives you an enhanced report that narratively clusters the stories around the most interesting topics of the day. All of this is driven by local LLM, with editable user profiles and memory also being entirely local.
 
+
 To get started, see [docs/setup.md](docs/setup.md).
 
 ## Screenshots
