@@ -147,8 +147,8 @@ def _append_headline_context(prompt: str, headline_context_articles: List[Select
     if stage == "delta":
         instruction = (
             "These are selected articles outside this batch with headline-only context. Treat them as weak awareness "
-            "for avoiding duplicate or contradictory delta framing. Do not create new/escalated/weakened/reframed/"
-            "unchanged entries solely for these headline-only articles; output should be grounded in the full evidence "
+            "for avoiding duplicate or contradictory delta framing. Do not create change decisions or summary entries "
+            "solely for these headline-only articles; output should be grounded in the full evidence "
             "packet and full article excerpts above."
         )
     else:

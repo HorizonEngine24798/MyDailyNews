@@ -48,25 +48,7 @@ def _checkpoint_stage(
     *,
     brief_name: str,
     stage: str,
-    summary: Dict[str, Any],
-    next_stage_input: Dict[str, Any] | None = None,
 ) -> bool:
-    payload = dict(summary)
-    stage_payload_builder = getattr(orchestrator, "_stage_payload", None)
-    if callable(stage_payload_builder):
-        payload = stage_payload_builder(
-            stage=stage,
-            brief_name=brief_name,
-            summary=summary,
-            next_stage_input=next_stage_input,
-        )
-    elif next_stage_input:
-        payload["next_stage_input"] = next_stage_input
-
-    record_stage_artifact = getattr(orchestrator, "_record_stage_artifact", None)
-    if callable(record_stage_artifact):
-        record_stage_artifact(stage=stage, brief_name=brief_name, payload=payload)
-
     stop_requested = getattr(orchestrator, "_stop_requested", None)
     if callable(stop_requested) and stop_requested(stage):
         orchestrator.debug.set_metric(f"brief.{brief_name}.status", "stopped")
@@ -275,7 +257,7 @@ def _select_articles_stage(
     date: str,
     include_enrichment_context: bool,
     coverage_store=None,
-    story_index_store=None,
+    story_store=None,
     learned_preferences=None,
 ) -> SelectionResult:
     warnings: List[str] = []
@@ -289,7 +271,7 @@ def _select_articles_stage(
             user_memory=orchestrator.config.user_memory,
             memory_config=getattr(orchestrator.config, "memory", None),
             coverage_store=coverage_store,
-            story_index_store=story_index_store,
+            story_store=story_store,
             learned_preferences=learned_preferences,
             date=date,
         )
@@ -408,10 +390,12 @@ def _story_grouping_stage(
     selected: List[SelectedArticle],
     include_enrichment_context: bool,
     evidence_config,
+    delta_config=None,
     date: str = "",
 ) -> StoryGroupingStageResult:
     needs_enrichment_grouping = bool(include_enrichment_context)
     needs_evidence_grouping = bool(getattr(evidence_config, "enabled", False))
+    needs_delta_grouping = bool(getattr(delta_config, "enabled", False))
     warning_sink: List[str] = []
 
     def skipped(reason: str) -> StoryGroupingStageResult:
@@ -427,13 +411,14 @@ def _story_grouping_stage(
             selected=len(selected),
             needs_enrichment=needs_enrichment_grouping,
             needs_evidence=needs_evidence_grouping,
+            needs_delta=needs_delta_grouping,
         )
         return result
 
     if not selected:
         return skipped("no_selected_articles")
-    if not needs_enrichment_grouping and not needs_evidence_grouping:
-        return skipped("both_consumers_not_enabled")
+    if not any((needs_enrichment_grouping, needs_evidence_grouping, needs_delta_grouping)):
+        return skipped("no_consumers_enabled")
 
     ai_client = getattr(orchestrator, "summary_ai_client", None)
     if ai_client is None:

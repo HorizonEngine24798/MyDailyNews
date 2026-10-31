@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import Dict, List
+from typing import Dict, List, Sequence
 
 from mydailynews.ai.headline_analyzer import HeadlineAnalyzer
 from mydailynews.domain.headline_selection import limit_candidates_for_ai, union_candidates_by_id
 from mydailynews.app.models import HeadlineDecision, NewsCandidate, RunSourceSnapshot, TopicConfig
+from mydailynews.pipeline.brief_specs import BriefSpec
 from mydailynews.pipeline.snapshot_helpers import merge_topics_for_snapshot, snapshot_candidates_for_brief
 
 
@@ -18,8 +19,7 @@ def score_snapshot_headlines_once(
     *,
     snapshot: RunSourceSnapshot,
     now,
-    general_topics: List[TopicConfig],
-    detailed_topics: List[TopicConfig],
+    briefs: Sequence[BriefSpec],
     config,
     debug,
     summary_ai_client,
@@ -27,47 +27,30 @@ def score_snapshot_headlines_once(
     analyzer_cls=HeadlineAnalyzer,
 ) -> tuple[Dict[str, List[NewsCandidate]], Dict[str, HeadlineDecision], List[str]]:
     with debug.span("headline.shared.total"):
-        general_since = now - timedelta(hours=config.general_filtering.time_window_hours)
-        detailed_since = now - timedelta(hours=config.filtering.time_window_hours)
-        _, _, general_candidates = snapshot_candidates_for_brief(snapshot, general_since)
-        _, _, detailed_candidates = snapshot_candidates_for_brief(snapshot, detailed_since)
-        candidates_by_brief = {
-            "general": limit_candidates_for_ai(
-                general_candidates,
-                general_topics,
-                config.general_filtering,
-                general_since,
+        candidates_by_brief: Dict[str, List[NewsCandidate]] = {}
+        for brief in briefs:
+            since = now - timedelta(hours=brief.filtering.time_window_hours)
+            _, _, candidates = snapshot_candidates_for_brief(snapshot, since)
+            candidates_by_brief[brief.name] = limit_candidates_for_ai(
+                candidates,
+                brief.topics,
+                brief.filtering,
+                since,
                 user_memory=config.user_memory,
                 debug=debug,
-            ),
-            "detailed": limit_candidates_for_ai(
-                detailed_candidates,
-                detailed_topics,
-                config.filtering,
-                detailed_since,
-                user_memory=config.user_memory,
-                debug=debug,
-            ),
-        }
-        shared_candidates = union_candidates_by_id(
-            candidates_by_brief["general"],
-            candidates_by_brief["detailed"],
-        )
-        batch_sizes = [
-            max(1, int(config.general_filtering.max_headlines_per_ai_batch)),
-            max(1, int(config.filtering.max_headlines_per_ai_batch)),
-        ]
-        debug.set_metric("headline.shared.general_candidates", len(candidates_by_brief["general"]))
-        debug.set_metric("headline.shared.detailed_candidates", len(candidates_by_brief["detailed"]))
+            )
+        shared_candidates = union_candidates_by_id(*(candidates_by_brief.values()))
+        batch_sizes = [max(1, int(brief.filtering.max_headlines_per_ai_batch)) for brief in briefs]
+        for name, candidates in candidates_by_brief.items():
+            debug.set_metric(f"headline.shared.{name}_candidates", len(candidates))
         debug.set_metric("headline.shared.union_candidates", len(shared_candidates))
-        debug.set_metric("headline.shared.batch_size", min(batch_sizes))
+        debug.set_metric("headline.shared.batch_size", min(batch_sizes, default=1))
         debug.log(
             "headline.shared",
             "prepared",
-            general_candidates=len(candidates_by_brief["general"]),
-            detailed_candidates=len(candidates_by_brief["detailed"]),
             union_candidates=len(shared_candidates),
-            batch_size=min(batch_sizes),
+            batch_size=min(batch_sizes, default=1),
+            briefs=len(briefs),
         )
         if not shared_candidates:
             debug.set_metric("headline.shared.decisions", 0)
@@ -75,28 +58,23 @@ def score_snapshot_headlines_once(
 
         headline_analyzer = analyzer_cls(
             summary_ai_client,
-            min(batch_sizes),
+            min(batch_sizes, default=1),
             debug,
             cache=synth_cache,
             cache_ttl_seconds=config.cache.synth_fresh_seconds,
             input_token_limit=_max_optional_int(
-                getattr(config.general_filtering, "headline_max_input_tokens", None),
-                getattr(config.filtering, "headline_max_input_tokens", None),
+                *(getattr(brief.filtering, "headline_max_input_tokens", None) for brief in briefs),
             ),
             max_new_tokens=_max_optional_int(
-                getattr(config.general_filtering, "headline_max_new_tokens", None),
-                getattr(config.filtering, "headline_max_new_tokens", None),
+                *(getattr(brief.filtering, "headline_max_new_tokens", None) for brief in briefs),
             ),
             single_replay_max_new_tokens=_max_optional_int(
-                getattr(config.general_filtering, "headline_single_replay_max_new_tokens", None),
-                getattr(config.filtering, "headline_single_replay_max_new_tokens", None),
+                *(getattr(brief.filtering, "headline_single_replay_max_new_tokens", None) for brief in briefs),
             ),
         )
-        shared_topics = merge_topics_for_snapshot(general_topics, detailed_topics)
-        shared_goal = (
-            "Shared headline scoring pass for both brief modes. Score each candidate for usefulness either to the "
-            "general daily brief or to the detailed topic brief. Favor important, relevant, fresh, high-signal "
-            "stories that are worth retrieving and reading in full."
+        shared_topics = merge_topics_for_snapshot(*(brief.topics for brief in briefs))
+        shared_goal = "Shared headline scoring pass. A candidate is useful when it serves any configured brief goal:\n" + "\n".join(
+            f"- {brief.name}: {brief.goal}" for brief in briefs
         )
         decisions = headline_analyzer.analyze(
             shared_candidates,

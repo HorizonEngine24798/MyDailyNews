@@ -1,0 +1,147 @@
+{
+  "schema_version": "real_blind.provenance.v1",
+  "corpus_path": "evals/cases/change_monitoring.real_blind.v1.json",
+  "created_at": "2026-08-30T13:25:55Z",
+  "source_access_checked_through": "2026-08-30",
+  "isolation_protocol": "docs/blind-real-news-evaluation-protocol.md",
+  "provenance_authority": "Every corpus document carries its source publisher, source-page title, absolute source URL, publication timestamp, and a short independently written paraphrase. This manifest binds each document to one whole event family.",
+  "source_policy": {
+    "allowed": [
+      "official public-sector publications",
+      "official intergovernmental and standards-body publications",
+      "official regulator, league, team, broadcaster, or union publications",
+      "short original paraphrases of source-backed facts"
+    ],
+    "excluded": [
+      "wire-service or publisher article text",
+      "Guardian Open Platform content",
+      "BBC article or RSS text beyond discovery metadata",
+      "bulk scraped or copied source text",
+      "unattributed social-media claims"
+    ],
+    "copyright_note": "No source article is reproduced. Bodies and snippets are compact original paraphrases prepared for factual evaluation; source URLs remain the provenance record."
+  },
+  "families": [
+    {
+      "arc_id": "real-blind-starliner-cft",
+      "genre_tags": ["space"],
+      "structural_categories": ["incident_and_recovery", "decision_reversal", "cross_system_resolution", "stale_rewrite", "hard_negative", "long_horizon"],
+      "document_ids": ["rb-star-01", "rb-star-02", "rb-star-03", "rb-star-04", "rb-star-05", "rb-star-06", "rb-star-07", "rb-star-08", "rb-star-09"]
+    },
+    {
+      "arc_id": "real-blind-microsoft-activision-cma",
+      "genre_tags": ["economy_business"],
+      "structural_categories": ["regulatory_lifecycle", "proposal_reframing", "blocked_then_restructured", "resolution", "hard_negative", "long_noisy_source"],
+      "document_ids": ["rb-cma-01", "rb-cma-02", "rb-cma-03", "rb-cma-04", "rb-cma-05", "rb-cma-06", "rb-cma-07"]
+    },
+    {
+      "arc_id": "real-blind-crowdstrike-channel-291",
+      "genre_tags": ["technology"],
+      "structural_categories": ["incident_and_recovery", "root_cause", "cross_source_continuation", "stale_translation", "hard_negative"],
+      "document_ids": ["rb-cs-01", "rb-cs-02", "rb-cs-03", "rb-cs-04", "rb-cs-05", "rb-cs-06"]
+    },
+    {
+      "arc_id": "real-blind-voyager-telemetry",
+      "genre_tags": ["science", "space"],
+      "structural_categories": ["incident_and_recovery", "partial_recovery", "explicit_correction", "incremental_to_resolution", "hard_negative"],
+      "document_ids": ["rb-voy-01", "rb-voy-02", "rb-voy-03", "rb-voy-04", "rb-voy-05", "rb-voy-06", "rb-voy-07", "rb-voy-08"]
+    },
+    {
+      "arc_id": "real-blind-bls-benchmark-2024",
+      "genre_tags": ["economy_business"],
+      "structural_categories": ["preliminary_to_final", "numeric_revision", "explicit_correction", "hard_negative", "long_noisy_source"],
+      "document_ids": ["rb-bls-01", "rb-bls-02", "rb-bls-03", "rb-bls-04", "rb-bls-05"]
+    },
+    {
+      "arc_id": "real-blind-epa-pfas-water-rule",
+      "genre_tags": ["environment"],
+      "structural_categories": ["proposal_to_final", "policy_reversal", "stale_translation", "hard_negative"],
+      "document_ids": ["rb-epa-01", "rb-epa-02", "rb-epa-03", "rb-epa-04", "rb-epa-05", "rb-epa-06"]
+    },
+    {
+      "arc_id": "real-blind-who-mpox-emergencies",
+      "genre_tags": ["science", "health_science"],
+      "structural_categories": ["formal_status_transition", "resolution", "recurrent_distinct_event", "hard_negative", "long_noisy_source"],
+      "document_ids": ["rb-who-01", "rb-who-02", "rb-who-03", "rb-who-04", "rb-who-05", "rb-who-06"]
+    },
+    {
+      "arc_id": "real-blind-apple-dma-proceedings",
+      "genre_tags": ["technology", "economy_business"],
+      "structural_categories": ["regulatory_lifecycle", "preliminary_to_final", "parallel_threads", "same_release_hard_negative", "resolution"],
+      "document_ids": ["rb-dma-01", "rb-dma-02", "rb-dma-03", "rb-dma-04", "rb-dma-05", "rb-dma-06", "rb-dma-07"]
+    },
+    {
+      "arc_id": "real-blind-black-sea-grain-initiative",
+      "genre_tags": ["war_conflict"],
+      "structural_categories": ["agreement_lifecycle", "temporary_reversal", "status_transition", "resolution", "hard_negative", "long_horizon"],
+      "document_ids": ["rb-grain-01", "rb-grain-02", "rb-grain-03", "rb-grain-04", "rb-grain-05", "rb-grain-06", "rb-grain-07", "rb-grain-08"]
+    },
+    {
+      "arc_id": "real-blind-tigray-coha",
+      "genre_tags": ["war_conflict"],
+      "structural_categories": ["agreement_lifecycle", "implementation_gaps", "cross_source_continuation", "hard_negative", "long_horizon", "post_cutoff"],
+      "document_ids": ["rb-coha-01", "rb-coha-02", "rb-coha-03", "rb-coha-04", "rb-coha-05", "rb-coha-06", "rb-coha-07", "rb-coha-08"]
+    },
+    {
+      "arc_id": "real-blind-loss-damage-fund",
+      "genre_tags": ["climate"],
+      "structural_categories": ["policy_to_implementation", "provisional_status", "incremental_checkpoint", "resolution", "hard_negative", "long_noisy_source"],
+      "document_ids": ["rb-loss-01", "rb-loss-02", "rb-loss-03", "rb-loss-04", "rb-loss-05", "rb-loss-06"]
+    },
+    {
+      "arc_id": "real-blind-hurricane-beryl-2024",
+      "genre_tags": ["climate", "weather_extremes"],
+      "structural_categories": ["rapid_state_changes", "forecast_to_observation", "retrospective_correction", "hard_negative", "long_noisy_source"],
+      "document_ids": ["rb-beryl-01", "rb-beryl-02", "rb-beryl-03", "rb-beryl-04", "rb-beryl-05", "rb-beryl-06", "rb-beryl-07", "rb-beryl-08", "rb-beryl-09"]
+    },
+    {
+      "arc_id": "real-blind-eu-ai-act-lifecycle",
+      "genre_tags": ["ai_technology"],
+      "structural_categories": ["legislative_lifecycle", "cross_institution_continuation", "phased_application", "hard_negative", "post_cutoff"],
+      "document_ids": ["rb-aia-01", "rb-aia-02", "rb-aia-03", "rb-aia-04", "rb-aia-05", "rb-aia-06", "rb-aia-07", "rb-aia-08"]
+    },
+    {
+      "arc_id": "real-blind-nist-generative-ai-profile",
+      "genre_tags": ["ai_technology"],
+      "structural_categories": ["draft_to_final", "versioned_guidance", "nested_threads", "same_release_hard_negative", "post_cutoff"],
+      "document_ids": ["rb-nist-01", "rb-nist-02", "rb-nist-03", "rb-nist-04", "rb-nist-05", "rb-nist-06", "rb-nist-07"]
+    },
+    {
+      "arc_id": "real-blind-belgian-gp-2024-result",
+      "genre_tags": ["sports"],
+      "structural_categories": ["provisional_to_final", "explicit_correction", "rapid_sequence", "same_event_hard_negative", "stale_rewrite"],
+      "document_ids": ["rb-spa-01", "rb-spa-02", "rb-spa-03", "rb-spa-04", "rb-spa-05"]
+    },
+    {
+      "arc_id": "real-blind-damar-hamlin-2023",
+      "genre_tags": ["sports"],
+      "structural_categories": ["incident_and_recovery", "medical_and_competition_threads", "resolution", "hard_negative", "sensitive_event"],
+      "document_ids": ["rb-ham-01", "rb-ham-02", "rb-ham-03", "rb-ham-04", "rb-ham-05"]
+    },
+    {
+      "arc_id": "real-blind-eurovision-joost-klein-2024",
+      "genre_tags": ["celebrity_culture"],
+      "structural_categories": ["competition_and_legal_threads", "status_transition", "incremental_checkpoint", "resolution_without_reversal", "multilingual", "same_event_hard_negative"],
+      "document_ids": ["rb-joost-01", "rb-joost-02", "rb-joost-03", "rb-joost-04", "rb-joost-05"]
+    },
+    {
+      "arc_id": "real-blind-sag-aftra-2023-settlement",
+      "genre_tags": ["celebrity_culture"],
+      "structural_categories": ["agreement_lifecycle", "provisional_to_final", "rapid_status_changes", "resolution", "same_organization_hard_negative", "long_noisy_source"],
+      "document_ids": ["rb-sag-01", "rb-sag-02", "rb-sag-03", "rb-sag-04", "rb-sag-05"]
+    }
+  ],
+  "snapshot_notes": [
+    "Some official pages are living status pages. Each corpus document records the publication-time state represented by its timestamp, not the page's current state.",
+    "Where an official correction or amendment changed an earlier release, the corpus preserves separate time-scoped paraphrases and labels the correction relationship; it does not silently replace history.",
+    "Translated and non-English-source cases are independently paraphrased and marked as such; no machine-translated article text is stored.",
+    "Post-cutoff 2026 cases reduce, but cannot eliminate, the possibility that a model knows historical families from pretraining. The set is implementation-blind, not guaranteed pretraining-blind."
+  ],
+  "limitations": [
+    "The collection is deliberately adversarial and structurally balanced, not an estimate of production news prevalence.",
+    "Official-source selection creates an institutional-source bias and underrepresents local and investigative reporting.",
+    "The set is English-heavy despite multilingual and translated-source traps.",
+    "Manual labels encode one documented editorial policy; ambiguity should be surfaced through abstention analysis rather than hidden.",
+    "A strong result on one sealed set does not establish generality; a fresh collection period and unseen families are required for replication."
+  ]
+}

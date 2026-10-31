@@ -20,13 +20,14 @@ from mydailynews.app.models import (
     TopicConfig,
 )
 from mydailynews.domain.article_identity import article_aliases_for_candidate
-from mydailynews.pipeline.stage_artifacts import to_jsonable
+from mydailynews.common.utils import to_jsonable
+from mydailynews.pipeline.brief_specs import DEFAULT_BRIEF_NAMES
 from mydailynews.story_grouping.models import StoryGroup
 from mydailynews.story_grouping.payloads import story_group_artifact
 
 
 BRIEF_HANDOFF_SCHEMA_VERSION = "brief_handoff.v1"
-STRUCTURED_BRIEF_NAMES = ("general", "detailed")
+STRUCTURED_BRIEF_NAMES = DEFAULT_BRIEF_NAMES
 
 
 @dataclass
@@ -257,15 +258,14 @@ def _decision_from_payload(payload: Dict[str, Any], fallback_candidate_id: str) 
         candidate_id=str(payload.get("candidate_id", "") or fallback_candidate_id),
         score=_float(payload.get("score"), 0.0),
         topic=str(payload.get("topic", "") or ""),
-        personal_relevance=_float(payload.get("personal_relevance"), 5.0),
         impact=_float(payload.get("impact"), 5.0),
         novelty=_float(payload.get("novelty"), 5.0),
         urgency=_float(payload.get("urgency"), 5.0),
-        actionability=_float(payload.get("actionability"), 5.0),
-        confidence=_float(payload.get("confidence"), 5.0),
+        novelty_basis=str(payload.get("novelty_basis", "") or ""),
+        impact_basis=str(payload.get("impact_basis", "") or ""),
+        urgency_basis=str(payload.get("urgency_basis", "") or ""),
         reason=str(payload.get("reason", "") or ""),
         skip_reason=payload.get("skip_reason"),
-        angle_type=str(payload.get("angle_type", "") or ""),
         selection_reason_code=str(payload.get("selection_reason_code", "") or ""),
         selection_rank_score=_float(payload.get("selection_rank_score"), 0.0),
         selection_rank_mode=str(payload.get("selection_rank_mode", "") or "score"),

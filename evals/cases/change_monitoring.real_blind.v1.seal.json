@@ -1,0 +1,49 @@
+{
+  "schema_version": "real_blind.seal.v1",
+  "sealed_at": "2026-08-30T13:30:13Z",
+  "status": "sealed_unscored",
+  "hash_algorithm": "sha256",
+  "isolation_protocol": {
+    "path": "docs/blind-real-news-evaluation-protocol.md",
+    "sha256": "1e2347cca1a316f9f497671b1951690b71e77e2d670da273e3660eecbbc10a05"
+  },
+  "artifacts": {
+    "corpus": {
+      "path": "evals/cases/change_monitoring.real_blind.v1.json",
+      "sha256": "b220a3bbe7f50c62d9e0f33cb17e238253b855a4c8918974e3fac851fdab95fa"
+    },
+    "provenance": {
+      "path": "evals/cases/change_monitoring.real_blind.v1.provenance.json",
+      "sha256": "5eb9c8ae5d0e84579ed82f217e44f1f1fc2b2857f74078c97141181a06fba6ef"
+    },
+    "methodology": {
+      "path": "docs/real-blind-corpus-methodology-2026-08-30.md",
+      "sha256": "fb4fb952c2343ba551db1e0329dbb4654beb8340cd1b106dbe5b7e8050db4c58"
+    }
+  },
+  "counts": {
+    "event_families": 18,
+    "documents": 120,
+    "expectations": 120,
+    "chronological_days": 107,
+    "holdout_families": 18
+  },
+  "coverage": {
+    "requested_genres": {
+      "sports": 2,
+      "celebrity_culture": 2,
+      "economy_business": 3,
+      "war_conflict": 2,
+      "climate_extreme_weather": 2,
+      "science_health_science": 2,
+      "ai_technology": 2,
+      "space": 2,
+      "general_technology": 2
+    },
+    "official_named_sources": 38,
+    "source_domains": 32,
+    "source_years": [2022, 2023, 2024, 2025, 2026]
+  },
+  "first_blind_run": null,
+  "unseal_rule": "Do not expose documents, source metadata, labels, label distributions, or scores until semantic code, prompts, model/configuration, thresholds, abstention policy, and evaluator hashes are frozen. The first report must be immutable; inspected failures require a new untouched corpus for any later blind claim."
+}

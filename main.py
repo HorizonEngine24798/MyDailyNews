@@ -3,7 +3,13 @@ from pathlib import Path
 
 from mydailynews.app.config import load_config
 from mydailynews.app.runtime_config import find_runtime_config_issues, format_runtime_config_issues
-from mydailynews.pipeline.stages import ALL_STAGE_ORDER, PIPELINE_MODULE_CHOICES, PIPELINE_MODULES, PipelineRunOptions
+from mydailynews.pipeline.stages import (
+    ALL_STAGE_ORDER,
+    PIPELINE_BRIEFS,
+    PIPELINE_MODULE_CHOICES,
+    PIPELINE_MODULES,
+    PipelineRunOptions,
+)
 from mydailynews.diagnostics.reporting import CliReporter
 from mydailynews.memory.cli import MEMORY_ACTIONS
 
@@ -39,33 +45,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--brief",
         default="both",
-        choices=("general", "detailed", "both"),
+        choices=(*PIPELINE_BRIEFS, "both"),
         help="Run only one brief mode or both.",
     )
     parser.add_argument(
         "--stop-after-stage",
         default="",
         help=f"Stop the run after a stage checkpoint. Supported: {', '.join(ALL_STAGE_ORDER)}",
-    )
-    parser.add_argument(
-        "--dump-stage-artifacts",
-        action="store_true",
-        help="Write replay-oriented JSON artifacts for each executed stage.",
-    )
-    parser.add_argument(
-        "--save-intermediate",
-        action="store_true",
-        help="Write stage artifacts even when the run is not stopped at a checkpoint.",
-    )
-    parser.add_argument(
-        "--no-save-intermediate",
-        action="store_true",
-        help="Disable the --save-intermediate artifact-writing trigger.",
-    )
-    parser.add_argument(
-        "--stage-artifact-dir",
-        default="",
-        help="Optional directory for stage checkpoint JSON files.",
     )
     parser.add_argument(
         "--list-stages",
@@ -132,10 +118,6 @@ def main() -> int:
             markdown_path=args.markdown_path,
             skip_modules=skip_modules,
             stop_after_stage=args.stop_after_stage,
-            save_intermediate=args.save_intermediate,
-            no_save_intermediate=args.no_save_intermediate,
-            dump_stage_artifacts=args.dump_stage_artifacts,
-            stage_artifact_dir=args.stage_artifact_dir,
         )
     except ValueError as exc:
         print(f"Invalid run option: {exc}")
@@ -173,7 +155,6 @@ def main() -> int:
             reporter.debug_summary(
                 debug=orchestrator.debug,
                 output_dir=config.output_dir,
-                artifact_paths=orchestrator.stage_artifact_paths,
             )
         if isinstance(run_error, RuntimeError):
             print(f"Run failed: {run_error}")
@@ -181,9 +162,7 @@ def main() -> int:
         raise run_error
 
     if orchestrator.stopped_after_stage:
-        reporter.stopped(orchestrator.stopped_after_stage, orchestrator.stage_artifact_paths)
-    else:
-        reporter.stage_artifacts(orchestrator.stage_artifact_paths)
+        reporter.stopped(orchestrator.stopped_after_stage)
 
     if result is None:
         print("Run failed: no result returned.")
@@ -194,7 +173,6 @@ def main() -> int:
         reporter.debug_summary(
             debug=orchestrator.debug,
             output_dir=config.output_dir,
-            artifact_paths=orchestrator.stage_artifact_paths,
         )
     return 0
 

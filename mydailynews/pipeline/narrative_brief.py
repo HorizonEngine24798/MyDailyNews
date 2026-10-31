@@ -14,11 +14,13 @@ from mydailynews.briefing.narrative import (
     write_narrative_outputs,
 )
 from mydailynews.common.warnings import extend_warnings
+from mydailynews.domain.text_similarity import normalized_word_text
 from mydailynews.memory.config import memory_enabled
 from mydailynews.memory.recall import combined_recall_packet_for_narrative
+from mydailynews.pipeline.brief_specs import DEFAULT_BRIEF_NAMES
 
 
-NARRATIVE_SOURCE_BRIEF_NAMES = ("general", "detailed")
+NARRATIVE_SOURCE_BRIEF_NAMES = DEFAULT_BRIEF_NAMES
 
 
 def run_narrative_brief(
@@ -120,43 +122,6 @@ def run_narrative_brief(
         with orchestrator.debug.span("brief.narrative.write_output"):
             markdown_path, json_path = write_narrative_outputs(output_dir, date, narrative_brief)
 
-        perspectives_used = bool(narrative_brief.get("metadata", {}).get("perspectives_used"))
-        orchestrator._record_stage_artifact(
-            stage="narrative_brief",
-            brief_name="pipeline",
-            payload=orchestrator._stage_payload(
-                stage="narrative_brief",
-                brief_name="pipeline",
-                summary={
-                    "source_briefs": source_names,
-                    "enrichment_used": enrichment_used,
-                    "enrichment_json_path": enrichment_json_path if enrichment_used else "",
-                    "recall_guidance_used": bool(recall_packet.get("coverage_guidance")),
-                    "claim_cards_available": len(claim_cards),
-                    "perspectives_used": perspectives_used,
-                    "perspectives_json_path": perspectives_json_path if perspectives_used else "",
-                    "markdown_path": str(markdown_path),
-                    "json_path": str(json_path),
-                    "segments": len(narrative_brief.get("segments", [])),
-                    "markdown_chars": len(markdown_path.read_text(encoding="utf-8")),
-                    "warnings": len(run_warnings),
-                },
-                next_stage_input={
-                    "narrative_brief": narrative_brief,
-                    "source_briefs": [
-                        {
-                            "name": source.name,
-                            "json_path": source.json_path,
-                        }
-                        for source in source_briefs
-                    ],
-                    "enrichment_json_path": enrichment_json_path if enrichment_used else "",
-                    "perspectives_json_path": perspectives_json_path if perspectives_used else "",
-                    "markdown_path": str(markdown_path),
-                    "json_path": str(json_path),
-                },
-            ),
-        )
         orchestrator.debug.set_metric("brief.narrative.status", "completed")
         orchestrator.debug.log(
             "narrative_brief.run",
@@ -278,7 +243,7 @@ def _rank_claim_cards(cards: list[dict]) -> list[dict]:
     kept: list[dict] = []
     normalized_claims: list[str] = []
     for card in ranked:
-        claim = " ".join(re.findall(r"[a-z0-9]+", str(card.get("claim") or card.get("title") or "").lower()))
+        claim = normalized_word_text(card.get("claim") or card.get("title") or "")
         if not claim:
             continue
         # ponytail: quadratic comparison is bounded by the tiny per-run card set; index it only if card volume grows.

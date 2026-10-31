@@ -1,21 +1,20 @@
 from __future__ import annotations
 
 from collections import Counter
-import json
 from pathlib import Path
-from typing import Any, Iterable, List
+from typing import Any, Iterable
 
-from mydailynews.memory.feedback import FEEDBACK_ACTIONS
+from mydailynews.memory.feedback import FeedbackStore
 
 
 def memory_health_checks(
     *,
     state_dir: Path | str,
-    story_index: Iterable[Any],
+    story_store: Iterable[Any],
     coverage_records: Iterable[Any],
     feedback_events: Iterable[Any],
 ) -> dict[str, Any]:
-    stories = list(story_index)
+    stories = list(story_store)
     coverage = list(coverage_records)
     feedback = list(feedback_events)
 
@@ -29,12 +28,12 @@ def memory_health_checks(
         if _field(record, "story_key") and not _field(record, "last_seen")
     )
 
-    indexed_story_keys = set(story_keys)
+    stored_story_keys = set(story_keys)
     coverage_without_story = sorted(
         {
             _field(record, "story_key")
             for record in coverage
-            if _field(record, "story_key") and _field(record, "story_key") not in indexed_story_keys
+            if _field(record, "story_key") and _field(record, "story_key") not in stored_story_keys
         }
     )
 
@@ -44,7 +43,7 @@ def memory_health_checks(
         if not any(_field(event, key) for key in ("article_id", "story_key", "source", "topic"))
     ]
 
-    feedback_stats = feedback_jsonl_stats(Path(state_dir) / "feedback_events.jsonl")
+    feedback_stats = FeedbackStore.from_state_dir(state_dir).migration_stats()
     warnings: list[dict[str, Any]] = []
     if feedback_stats["invalid_rows"]:
         warnings.append(
@@ -88,12 +87,12 @@ def memory_health_checks(
     if coverage_without_story:
         warnings.append(
             _warning(
-                "coverage_story_key_missing_from_index",
+                "coverage_story_key_missing_from_store",
                 len(coverage_without_story),
                 _plural(
                     len(coverage_without_story),
-                    "coverage story key is absent from the story index",
-                    "coverage story keys are absent from the story index",
+                    "coverage story key is absent from the story store",
+                    "coverage story keys are absent from the story store",
                 ),
                 story_keys=coverage_without_story[:20],
             )
@@ -119,37 +118,9 @@ def memory_health_checks(
             "invalid_feedback_rows": int(feedback_stats["invalid_rows"]),
             "duplicate_story_keys": len(duplicate_keys),
             "story_records_missing_last_seen": len(stories_missing_last_seen),
-            "coverage_story_key_missing_from_index": len(coverage_without_story),
+            "coverage_story_key_missing_from_store": len(coverage_without_story),
             "feedback_rows_missing_identity": len(feedback_without_identity),
         },
-    }
-
-
-def feedback_jsonl_stats(path: Path | str) -> dict[str, Any]:
-    jsonl_path = Path(path)
-    if not jsonl_path.exists():
-        return {"path": str(jsonl_path), "rows": 0, "invalid_rows": 0, "line_numbers": []}
-    rows = 0
-    invalid_rows = 0
-    line_numbers: List[int] = []
-    for line_number, line in enumerate(jsonl_path.read_text(encoding="utf-8-sig").splitlines(), start=1):
-        if not line.strip():
-            continue
-        rows += 1
-        try:
-            raw = json.loads(line)
-        except json.JSONDecodeError:
-            invalid_rows += 1
-            line_numbers.append(line_number)
-            continue
-        if not isinstance(raw, dict) or str(raw.get("action", "") or "").strip() not in FEEDBACK_ACTIONS:
-            invalid_rows += 1
-            line_numbers.append(line_number)
-    return {
-        "path": str(jsonl_path),
-        "rows": rows,
-        "invalid_rows": invalid_rows,
-        "line_numbers": line_numbers[:50],
     }
 
 

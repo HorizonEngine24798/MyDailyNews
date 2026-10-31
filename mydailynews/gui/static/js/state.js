@@ -6,7 +6,7 @@ export const state = {
   configDraft: null,
   userMemoryDraft: null,
   memory: null,
-  storyIndexDraft: null,
+  storyStoreDraft: null,
   learned: null,
   learnedDraft: null,
   runs: [],
@@ -51,6 +51,6 @@ export const monthNames = [
   "December",
 ];
 
-export function defaultStoryIndex() {
+export function defaultStoryStore() {
   return { schema_version: 1, stories: [] };
 }

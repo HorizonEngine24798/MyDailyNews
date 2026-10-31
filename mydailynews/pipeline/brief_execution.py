@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+from copy import deepcopy
+from dataclasses import dataclass, replace
 from datetime import timedelta
 from pathlib import Path
 from typing import Dict, List
 
-from mydailynews.analysis.rollout import resolve_analysis_stage_configs
-from mydailynews.briefing.generator import BriefGenerator, brief_metadata
+from mydailynews.analysis.policy_filter import (
+    filter_delta_packet_for_articles,
+    filter_evidence_packet_for_articles,
+    filter_prior_reports_for_articles,
+)
+from mydailynews.briefing.generator import BriefGenerator, brief_metadata, no_material_changes_brief
 from mydailynews.pipeline.brief_analysis_stages import _run_delta_stage, _run_evidence_stage
 from mydailynews.pipeline.brief_stages import (
     _checkpoint_stage,
@@ -18,15 +24,128 @@ from mydailynews.pipeline.brief_stages import (
     _story_grouping_stage,
 )
 from mydailynews.pipeline.handoff import write_brief_handoff
-from mydailynews.domain.headline_selection import selection_rationale_rows
 from mydailynews.app.models import BriefOutput, HeadlineDecision, NewsCandidate, PriorReport, RunSourceSnapshot, TopicConfig
 from mydailynews.briefing.output import write_json, write_markdown
+from mydailynews.common.storage import open_database
 from mydailynews.common.warnings import extend_warnings
 from mydailynews.memory.config import memory_enabled, memory_state_dir
 from mydailynews.memory.coverage import CoverageMemoryStore
 from mydailynews.memory.learned_preferences import LearnedPreferencesStore
-from mydailynews.memory.recall import apply_delta_signals_to_selected, build_recall_packet, save_recall_packet
-from mydailynews.memory.story_index import StoryIndexStore
+from mydailynews.memory.recall import (
+    apply_delta_signals_to_selected,
+    build_recall_packet,
+    partition_selected_for_brief,
+    recall_packet_for_selected,
+    save_recall_packet,
+    selected_articles_represented_in_brief,
+)
+from mydailynews.memory.story_store import StoryStore
+
+
+@dataclass
+class PendingMemoryWrite:
+    """Memory update captured after a brief, then committed after all briefs analyze."""
+
+    brief_name: str
+    date: str
+    memory_config: object
+    coverage_store: CoverageMemoryStore
+    story_store: StoryStore
+    selected: list
+    rendered_selected: list
+    story_groups: list
+    delta_packet: dict
+    warnings: List[str]
+
+
+def capture_pending_memory_write(
+    *,
+    brief_name: str,
+    date: str,
+    memory_config: object,
+    coverage_store: CoverageMemoryStore,
+    story_store: StoryStore,
+    selected: list,
+    rendered_selected: list,
+    story_groups: list,
+    delta_packet: dict,
+    warnings: List[str],
+) -> PendingMemoryWrite:
+    """Snapshot mutable brief state for commit after all delta reads finish."""
+
+    return PendingMemoryWrite(
+        brief_name=brief_name,
+        date=date,
+        memory_config=memory_config,
+        coverage_store=coverage_store,
+        story_store=story_store,
+        selected=deepcopy(selected),
+        rendered_selected=deepcopy(rendered_selected),
+        story_groups=deepcopy(story_groups),
+        delta_packet=deepcopy(delta_packet),
+        warnings=warnings,
+    )
+
+
+def write_pending_memory(pending: PendingMemoryWrite, debug) -> dict:
+    """Commit one brief's memory update without changing another brief's baseline."""
+
+    try:
+        # Analysis uses an intentionally frozen pre-run view. Commit through a
+        # new instance so each queued brief starts from the preceding commit,
+        # rather than replacing it with that brief's stale cached snapshot.
+        story_store = StoryStore(
+            pending.story_store.path,
+            legacy_index_path=pending.story_store.legacy_index_path,
+            legacy_ledger_path=pending.story_store.legacy_ledger_path,
+            database_path=pending.story_store.database_path,
+        )
+        coverage_store = CoverageMemoryStore(
+            pending.coverage_store.path,
+            database_path=pending.coverage_store.database_path,
+        )
+        if story_store.database_path != coverage_store.database_path:
+            raise ValueError("Story and coverage memory must share one SQLite database.")
+        # Complete any one-time imports before taking the write lock. The
+        # transaction itself re-reads live rows after BEGIN IMMEDIATE.
+        story_store.records()
+        coverage_store.read_records()
+        with open_database(story_store.database_path, immediate=True) as database:
+            story_records = story_store.update_selected(
+                selected=pending.selected,
+                date=pending.date,
+                visible_article_ids=[article.candidate.id for article in pending.rendered_selected],
+                story_groups=pending.story_groups,
+                delta_packet=pending.delta_packet,
+                stale_after_days=int(getattr(pending.memory_config, "story_stale_after_days", 7)),
+                retention_days=int(getattr(pending.memory_config, "story_retention_days", 30)),
+                database=database,
+            )
+            coverage_records = coverage_store.write_selected(
+                date=pending.date,
+                brief_name=pending.brief_name,
+                selected=pending.rendered_selected,
+                database=database,
+            )
+            coverage_rows_pruned = coverage_store.prune(
+                as_of_date=pending.date,
+                retention_days=int(getattr(pending.memory_config, "coverage_retention_days", 30)),
+                database=database,
+            )
+        summary = {
+            "coverage_rows_written": len(coverage_records),
+            "coverage_rows_pruned": coverage_rows_pruned,
+            "story_store_records": len(story_records),
+            "story_store_stale_records": sum(1 for record in story_records if record.status == "stale"),
+            "story_store_source_facts": sum(len(record.facts) for record in story_records),
+        }
+        for metric, value in summary.items():
+            debug.set_metric(f"brief.{pending.brief_name}.memory.{metric}", value)
+        return summary
+    except Exception as exc:
+        error = f"{type(exc).__name__}: {exc}"
+        pending.warnings.append(f"{pending.brief_name}: memory writeback failed ({error}).")
+        return {"write_error": error}
 
 
 def run_brief(
@@ -43,6 +162,7 @@ def run_brief(
     brief_goal: str,
     limited_candidates_override: List[NewsCandidate] | None = None,
     shared_decisions: Dict[str, HeadlineDecision] | None = None,
+    pending_memory_writes: List[PendingMemoryWrite] | None = None,
 ) -> BriefOutput | None:
     with orchestrator.debug.span(f"brief.{name}.total"):
         since = now - timedelta(hours=filtering.time_window_hours)
@@ -54,7 +174,7 @@ def run_brief(
         save_recall_packets = memory_is_enabled and bool(getattr(memory_config, "save_recall_packets", True))
         memory_dir = memory_state_dir(orchestrator.config) if memory_is_enabled else None
         coverage_store = CoverageMemoryStore.from_state_dir(memory_dir) if memory_dir is not None else None
-        story_index_store = StoryIndexStore.from_state_dir(memory_dir) if memory_dir is not None else None
+        story_store = StoryStore.from_state_dir(memory_dir) if memory_dir is not None else None
         learned_preferences = (
             LearnedPreferencesStore.from_state_dir(memory_dir).read()
             if memory_dir is not None
@@ -101,23 +221,6 @@ def run_brief(
                 orchestrator,
                 brief_name=name,
                 stage="candidate_prepare",
-                summary={
-                    "raw_candidates": candidate_result.raw_count,
-                    "rss_candidates": candidate_result.rss_count,
-                    "topic_candidates": candidate_result.topic_count,
-                    "unique_candidates": len(unique_candidates),
-                    "unique_candidate_ids": [candidate.id for candidate in unique_candidates],
-                },
-                next_stage_input={
-                    "rss_candidates": candidate_result.rss_candidates,
-                    "topic_candidates": candidate_result.topic_candidates,
-                    "unique_candidates": unique_candidates,
-                    "prior_reports": prior_reports,
-                    "topics": topics,
-                    "filtering": filtering,
-                    "brief_goal": brief_goal,
-                    "since": since,
-                },
             ):
                 return None
 
@@ -138,20 +241,6 @@ def run_brief(
                 orchestrator,
                 brief_name=name,
                 stage="headline_limit",
-                summary={
-                    "limited_candidates": len(limited_candidates),
-                    "limited_candidate_ids": [candidate.id for candidate in limited_candidates],
-                    "limited_sources": headline_limit.limited_sources,
-                },
-                next_stage_input={
-                    "limited_candidates": limited_candidates,
-                    "unique_candidates": unique_candidates,
-                    "topics": topics,
-                    "filtering": filtering,
-                    "brief_goal": brief_goal,
-                    "shared_decisions": shared_decisions or {},
-                    "since": since,
-                },
             ):
                 return None
 
@@ -170,20 +259,6 @@ def run_brief(
                 orchestrator,
                 brief_name=name,
                 stage="headline_decisions",
-                summary={
-                    "decisions": len(decisions),
-                    "decision_ids": list(decisions.keys()),
-                    "missing_decisions": max(0, len(limited_candidates) - len(decisions)),
-                },
-                next_stage_input={
-                    "decisions": decisions,
-                    "limited_candidates": limited_candidates,
-                    "topics": topics,
-                    "filtering": filtering,
-                    "prior_reports": prior_reports,
-                    "brief_goal": brief_goal,
-                    "include_enrichment_context": False,
-                },
             ):
                 return None
 
@@ -200,38 +275,16 @@ def run_brief(
                 date=date,
                 include_enrichment_context=include_enrichment_context,
                 coverage_store=coverage_store,
-                story_index_store=story_index_store,
+                story_store=story_store,
                 learned_preferences=learned_preferences,
             )
             extend_warnings(run_warnings, selection_result.warnings)
             selected = selection_result.selected
             selection_counts = selection_result.selection_counts
-            selected_reason_counts = selection_counts.get("selected", {})
-            skipped_reason_counts = selection_counts.get("skipped", {})
             if _checkpoint_stage(
                 orchestrator,
                 brief_name=name,
                 stage="headline_select",
-                summary={
-                    "selected": len(selected),
-                    "selected_article_ids": [article.candidate.id for article in selected],
-                    "selected_sources": selection_result.selected_sources,
-                    "selected_reason_codes": selected_reason_counts,
-                    "skipped_reason_codes": skipped_reason_counts,
-                    "composite_ranking_enabled": bool(getattr(filtering, "use_multifactor_composite_ranking", False)),
-                    "memory": selection_result.memory_summary,
-                },
-                next_stage_input={
-                    "selected": selected,
-                    "decisions": decisions,
-                    "limited_candidates": limited_candidates,
-                    "topics": topics,
-                    "filtering": filtering,
-                    "prior_reports": prior_reports,
-                    "brief_goal": brief_goal,
-                    "include_enrichment_context": include_enrichment_context,
-                    "selection_rationale": selection_rationale_rows(limited_candidates, decisions),
-                },
             ):
                 return None
             if not selected:
@@ -249,27 +302,13 @@ def run_brief(
             )
             extend_warnings(run_warnings, article_fetch_result.warnings)
             selected = article_fetch_result.selected
-            evidence_config, delta_config, analysis_rollout_meta = resolve_analysis_stage_configs(
-                orchestrator.config.analysis,
-                name,
-            )
+            brief_analysis_config = getattr(orchestrator.config.analysis, name)
+            evidence_config = brief_analysis_config.evidence_distillation
+            delta_config = brief_analysis_config.delta_extraction
             if _checkpoint_stage(
                 orchestrator,
                 brief_name=name,
                 stage="article_fetch",
-                summary={
-                    "selected": len(selected),
-                    "article_ids": [article.candidate.id for article in selected],
-                    "extraction_status_counts": article_fetch_result.status_counts,
-                },
-                next_stage_input={
-                    "selected": selected,
-                    "filtering": filtering,
-                    "include_enrichment_context": include_enrichment_context,
-                    "evidence_config": evidence_config,
-                    "delta_config": delta_config,
-                    "analysis_rollout_meta": analysis_rollout_meta,
-                },
             ):
                 return None
 
@@ -279,6 +318,7 @@ def run_brief(
                 selected=selected,
                 include_enrichment_context=include_enrichment_context,
                 evidence_config=evidence_config,
+                delta_config=delta_config,
                 date=date,
             )
             extend_warnings(run_warnings, story_grouping_result.warnings)
@@ -289,30 +329,6 @@ def run_brief(
                 orchestrator,
                 brief_name=name,
                 stage="story_grouping",
-                summary={
-                    "enabled": bool(story_grouping_result.artifact.get("enabled", False)),
-                    "status": str(story_grouping_result.artifact.get("status", "")),
-                    "skipped_reason": str(story_grouping_result.artifact.get("skipped_reason", "")),
-                    "shared_grouping_ran": shared_story_grouping_ran,
-                    "selected": len(selected),
-                    "story_groups": len(story_groups),
-                    "fallback_groups": len(story_grouping_result.artifact.get("fallback_groups", [])),
-                    "split_requests": bool(story_grouping_result.artifact.get("split_requests", False)),
-                    "cache_hit": bool(story_grouping_result.artifact.get("cache_hit", False)),
-                    "story_grouping": story_grouping_result.artifact,
-                },
-                next_stage_input={
-                    "selected": selected,
-                    "story_groups": story_groups,
-                    "story_grouping": story_grouping_result.artifact,
-                    "topics": topics,
-                    "prior_reports": prior_reports,
-                    "brief_goal": brief_goal,
-                    "include_enrichment_context": include_enrichment_context,
-                    "evidence_config": evidence_config,
-                    "delta_config": delta_config,
-                    "analysis_rollout_meta": analysis_rollout_meta,
-                },
             ):
                 return None
 
@@ -326,7 +342,6 @@ def run_brief(
                 date=date,
                 include_enrichment_context=include_enrichment_context,
                 evidence_config=evidence_config,
-                analysis_rollout_meta=analysis_rollout_meta,
                 story_groups=shared_story_groups,
             )
             extend_warnings(run_warnings, evidence_result.warnings)
@@ -335,28 +350,6 @@ def run_brief(
                 orchestrator,
                 brief_name=name,
                 stage="evidence_distillation",
-                summary={
-                    "enabled": bool(evidence_config.enabled),
-                    "requested_enabled": bool(analysis_rollout_meta.get("evidence_requested_enabled", False)),
-                    "rollout_profile": str(analysis_rollout_meta.get("rollout_profile", "")),
-                    "story_clusters": len(evidence_packet.get("story_clusters", [])) if evidence_packet else 0,
-                    "reader_qa": len(evidence_packet.get("reader_qa", [])) if evidence_packet else 0,
-                    "global_watch_signals": len(evidence_packet.get("global_watch_signals", [])) if evidence_packet else 0,
-                },
-                next_stage_input={
-                    "selected": selected,
-                    "evidence_packet": evidence_packet,
-                    "topics": topics,
-                    "prior_reports": prior_reports,
-                    "brief_goal": brief_goal,
-                    "include_enrichment_context": include_enrichment_context,
-                    "evidence_config": evidence_config,
-                    "delta_config": delta_config,
-                    "analysis_rollout_meta": analysis_rollout_meta,
-                    "story_groups": story_groups,
-                    "shared_story_grouping_ran": shared_story_grouping_ran,
-                    "story_grouping": story_grouping_result.artifact,
-                },
             ):
                 return None
 
@@ -364,23 +357,40 @@ def run_brief(
                 orchestrator,
                 brief_name=name,
                 selected=selected,
-                topics=topics,
                 prior_reports=prior_reports,
                 brief_goal=brief_goal,
                 date=date,
-                evidence_packet=evidence_packet,
                 evidence_config=evidence_config,
                 delta_config=delta_config,
-                analysis_rollout_meta=analysis_rollout_meta,
                 story_groups=story_groups,
-                story_index_store=story_index_store,
+                story_store=story_store,
                 coverage_store=coverage_store,
                 coverage_window_days=int(getattr(memory_config, "coverage_window_days", 10)),
             )
             extend_warnings(run_warnings, delta_result.warnings)
             delta_packet = delta_result.delta_packet
+            apply_delta_signals_to_selected(selected=selected, delta_packet=delta_packet)
+            brief_selected, delta_omitted = partition_selected_for_brief(
+                selected=selected,
+                delta_packet=delta_packet,
+            )
+            allowed_article_ids = [article.candidate.id for article in brief_selected]
+            brief_delta_packet = filter_delta_packet_for_articles(
+                delta_packet,
+                allowed_article_ids=allowed_article_ids,
+                omitted_count=len(delta_omitted),
+            )
+            brief_evidence_packet = filter_evidence_packet_for_articles(
+                evidence_packet,
+                allowed_article_ids=allowed_article_ids,
+                omitted_count=len(delta_omitted),
+            )
+            brief_prior_reports = filter_prior_reports_for_articles(
+                prior_reports,
+                selected=brief_selected,
+                omitted_count=len(delta_omitted),
+            )
             if memory_is_enabled:
-                apply_delta_signals_to_selected(selected=selected, delta_packet=delta_packet)
                 if recall_prompt_enabled or save_recall_packets:
                     recall_packet = build_recall_packet(
                         date=date,
@@ -388,7 +398,11 @@ def run_brief(
                         candidates=limited_candidates,
                         decisions=decisions,
                     )
-                prompt_recall_packet = recall_packet if recall_prompt_enabled else {}
+                prompt_recall_packet = (
+                    recall_packet_for_selected(recall_packet, brief_selected)
+                    if recall_prompt_enabled
+                    else {}
+                )
                 if save_recall_packets and recall_packet and memory_dir is not None:
                     try:
                         recall_packet_path = str(
@@ -407,32 +421,6 @@ def run_brief(
                 orchestrator,
                 brief_name=name,
                 stage="delta_extraction",
-                summary={
-                    "enabled": bool(delta_config.enabled),
-                    "requested_enabled": bool(analysis_rollout_meta.get("delta_requested_enabled", False)),
-                    "rollout_profile": str(analysis_rollout_meta.get("rollout_profile", "")),
-                    "new_items": len(delta_packet.get("new", [])) if delta_packet else 0,
-                    "escalated_items": len(delta_packet.get("escalated", [])) if delta_packet else 0,
-                    "reframed_items": len(delta_packet.get("reframed", [])) if delta_packet else 0,
-                    "evidence_gaps": len(delta_packet.get("evidence_gaps", [])) if delta_packet else 0,
-                    "deterministic_scaffold": bool(delta_packet.get("deterministic_scaffold")) if delta_packet else False,
-                    "recall_guidance": len(prompt_recall_packet.get("coverage_guidance", [])) if prompt_recall_packet else 0,
-                    "recall_packet_saved": bool(recall_packet_path),
-                },
-                next_stage_input={
-                    "selected": selected,
-                    "delta_packet": delta_packet,
-                    "evidence_packet": evidence_packet,
-                    "prior_reports": prior_reports,
-                    "topics": topics,
-                    "brief_goal": brief_goal,
-                    "include_enrichment_context": include_enrichment_context,
-                    "evidence_config": evidence_config,
-                    "delta_config": delta_config,
-                    "analysis_rollout_meta": analysis_rollout_meta,
-                    "recall_packet": recall_packet,
-                    "prompt_recall_packet": prompt_recall_packet,
-                },
             ):
                 return None
 
@@ -449,18 +437,40 @@ def run_brief(
                 debug=orchestrator.debug,
             )
             with orchestrator.debug.span(f"brief.{name}.final_brief"):
-                brief = brief_generator.generate(
-                    selected,
-                    orchestrator.config.user_memory,
-                    topics,
-                    prior_reports,
-                    brief_goal,
-                    date,
-                    evidence_packet=evidence_packet,
-                    delta_packet=delta_packet,
-                    recall_packet=prompt_recall_packet,
-                    brief_name=name,
-                )
+                if brief_selected:
+                    brief = brief_generator.generate(
+                        brief_selected,
+                        orchestrator.config.user_memory,
+                        topics,
+                        brief_prior_reports,
+                        brief_goal,
+                        date,
+                        evidence_packet=brief_evidence_packet,
+                        delta_packet=brief_delta_packet,
+                        recall_packet=prompt_recall_packet,
+                        brief_name=name,
+                    )
+                else:
+                    brief = no_material_changes_brief(date)
+                    orchestrator.debug.log(
+                        "brief.ai",
+                        "skipped_no_material_changes",
+                        brief_name=name,
+                        omitted=len(delta_omitted),
+                    )
+            rendered_selected = selected_articles_represented_in_brief(brief_selected, brief)
+            generation_omitted_count = max(0, len(brief_selected) - len(rendered_selected))
+            rendered_article_ids = [article.candidate.id for article in rendered_selected]
+            rendered_evidence_packet = filter_evidence_packet_for_articles(
+                brief_evidence_packet,
+                allowed_article_ids=rendered_article_ids,
+                omitted_count=generation_omitted_count,
+            )
+            rendered_delta_packet = filter_delta_packet_for_articles(
+                brief_delta_packet,
+                allowed_article_ids=rendered_article_ids,
+                omitted_count=generation_omitted_count,
+            )
             output_dir = Path(orchestrator.config.output_dir)
             markdown_path = output_dir / f"{date}_{output_suffix}_brief.md"
             json_path = output_dir / f"{date}_{output_suffix}_brief.json"
@@ -471,144 +481,82 @@ def run_brief(
                 model=f"{orchestrator.config.ai_summary.backend}:{orchestrator.config.ai_summary.effective_model_label} -> "
                 f"{orchestrator.config.ai_final.backend}:{orchestrator.config.ai_final.effective_model_label}",
                 candidate_count=len(unique_candidates),
-                selected_count=len(selected),
+                selected_count=len(rendered_selected),
                 topics=[topic.name for topic in topics],
-                prior_reports_count=len(prior_reports),
+                prior_reports_count=len(brief_prior_reports),
                 brief_name=name,
                 warnings=run_warnings,
             )
             brief["metadata"]["selection_reason_codes"] = selection_counts
-            brief["metadata"]["composite_ranking_enabled"] = bool(
-                getattr(filtering, "use_multifactor_composite_ranking", False)
-            )
+            brief["metadata"]["pre_delta_selected_count"] = len(selected)
+            brief["metadata"]["delta_omitted_count"] = len(delta_omitted)
+            brief["metadata"]["prompt_selected_count"] = len(brief_selected)
+            brief["metadata"]["final_generation_skipped_no_material_changes"] = not bool(brief_selected)
             brief["metadata"]["memory"] = {
                 "enabled": memory_is_enabled,
                 "recall_prompt_enabled": recall_prompt_enabled,
                 "save_recall_packets": save_recall_packets,
                 "coverage_guidance_used": bool(prompt_recall_packet.get("coverage_guidance", [])),
                 "recall_packet_path": recall_packet_path,
-                "recall_packet": recall_packet if memory_is_enabled else {},
+                "recall_packet": prompt_recall_packet if memory_is_enabled else {},
                 **(selection_result.memory_summary if memory_is_enabled else {}),
             }
-            brief["metadata"]["analysis_rollout"] = {
-                "enabled": bool(analysis_rollout_meta.get("rollout_enabled", False)),
-                "profile": str(analysis_rollout_meta.get("rollout_profile", "")),
-                "mode": str(analysis_rollout_meta.get("rollout_mode", name)),
-                "evidence_requested_enabled": bool(analysis_rollout_meta.get("evidence_requested_enabled", False)),
+            brief["metadata"]["analysis"] = {
+                "brief": name,
                 "evidence_enabled": bool(evidence_config.enabled),
-                "delta_requested_enabled": bool(analysis_rollout_meta.get("delta_requested_enabled", False)),
                 "delta_enabled": bool(delta_config.enabled),
             }
-            if evidence_packet:
+            if rendered_evidence_packet:
                 brief.setdefault("analysis", {})
-                brief["analysis"]["evidence_packet"] = evidence_packet
+                brief["analysis"]["evidence_packet"] = rendered_evidence_packet
                 brief["analysis"]["evidence_model_role"] = evidence_config.model_role
-            if delta_packet:
+            if rendered_delta_packet:
                 brief.setdefault("analysis", {})
-                brief["analysis"]["delta_packet"] = delta_packet
-                brief["analysis"]["delta_model_role"] = (
-                    "deterministic_scaffold"
-                    if bool(delta_packet.get("deterministic_scaffold"))
-                    else delta_config.model_role
-                )
+                brief["analysis"]["delta_packet"] = rendered_delta_packet
+                brief["analysis"]["delta_model_role"] = delta_config.model_role
 
             if _checkpoint_stage(
                 orchestrator,
                 brief_name=name,
                 stage="final_brief",
-                summary={
-                    "title": str(brief.get("title", "")),
-                    "topic_reports": len(brief.get("topic_reports", [])),
-                    "sections": len(brief.get("sections", [])),
-                    "knowns": len(brief.get("knowns", [])),
-                    "unknowns": len(brief.get("unknowns", [])),
-                    "watch_signals": len(brief.get("watch_signals", [])),
-                    "warnings": len(run_warnings),
-                },
-                next_stage_input={
-                    "brief": brief,
-                    "selected": selected,
-                    "topics": topics,
-                    "prior_reports": prior_reports,
-                    "evidence_packet": evidence_packet,
-                    "delta_packet": delta_packet,
-                    "brief_goal": brief_goal,
-                    "brief_name": name,
-                    "recall_packet": recall_packet,
-                    "markdown_path": str(markdown_path),
-                    "json_path": str(json_path),
-                },
             ):
                 return None
 
             with orchestrator.debug.span(f"brief.{name}.write_output"):
                 write_markdown(markdown_path, brief)
                 write_json(json_path, brief)
-            memory_write_summary = {}
-            if memory_is_enabled and coverage_store is not None and story_index_store is not None:
-                try:
-                    story_records = story_index_store.update_selected(
-                        selected=selected,
-                        date=date,
-                        story_groups=story_groups,
-                        delta_packet=delta_packet,
-                        stale_after_days=int(getattr(memory_config, "story_stale_after_days", 7)),
-                        retention_days=int(getattr(memory_config, "story_retention_days", 30)),
-                    )
-                    coverage_records = coverage_store.write_selected(
-                        date=date,
-                        brief_name=name,
-                        selected=selected,
-                    )
-                    coverage_rows_pruned = coverage_store.prune(
-                        as_of_date=date,
-                        retention_days=int(getattr(memory_config, "coverage_retention_days", 30)),
-                    )
-                    memory_write_summary = {
-                        "coverage_rows_written": len(coverage_records),
-                        "coverage_rows_pruned": coverage_rows_pruned,
-                        "story_index_records": len(story_records),
-                        "story_index_stale_records": sum(1 for record in story_records if record.status == "stale"),
-                    }
-                    orchestrator.debug.set_metric(
-                        f"brief.{name}.memory.coverage_rows_written",
-                        len(coverage_records),
-                    )
-                    orchestrator.debug.set_metric(
-                        f"brief.{name}.memory.coverage_rows_pruned",
-                        coverage_rows_pruned,
-                    )
-                    orchestrator.debug.set_metric(
-                        f"brief.{name}.memory.story_index_records",
-                        len(story_records),
-                    )
-                    orchestrator.debug.set_metric(
-                        f"brief.{name}.memory.story_index_stale_records",
-                        memory_write_summary["story_index_stale_records"],
-                    )
-                except Exception as exc:
-                    memory_write_summary = {"write_error": f"{type(exc).__name__}: {exc}"}
-                    run_warnings.append(f"{name}: memory writeback failed ({type(exc).__name__}: {exc}).")
+            if memory_is_enabled and coverage_store is not None and story_store is not None:
+                pending_write = capture_pending_memory_write(
+                    brief_name=name,
+                    date=date,
+                    memory_config=memory_config,
+                    coverage_store=coverage_store,
+                    story_store=story_store,
+                    selected=selected,
+                    rendered_selected=rendered_selected,
+                    story_groups=story_groups,
+                    delta_packet=delta_packet,
+                    warnings=run_warnings,
+                )
+                if pending_memory_writes is None:
+                    write_pending_memory(pending_write, orchestrator.debug)
+                else:
+                    pending_memory_writes.append(pending_write)
             if _checkpoint_stage(
                 orchestrator,
                 brief_name=name,
                 stage="write_output",
-                summary={
-                    "markdown_path": str(markdown_path),
-                    "json_path": str(json_path),
-                    "candidate_count": len(unique_candidates),
-                    "selected_count": len(selected),
-                    "memory": memory_write_summary,
-                },
-                next_stage_input={
-                    "brief": brief,
-                    "selected": selected,
-                    "memory": memory_write_summary,
-                    "markdown_path": str(markdown_path),
-                    "json_path": str(json_path),
-                },
             ):
                 return None
+            rendered_ids = {article.candidate.id for article in rendered_selected}
+            handoff_story_groups = [
+                replace(
+                    group,
+                    article_ids=[article_id for article_id in group.article_ids if article_id in rendered_ids],
+                )
+                for group in story_groups
+                if any(article_id in rendered_ids for article_id in group.article_ids)
+            ]
             handoff_written_path = write_brief_handoff(
                 output_dir=output_dir,
                 date=date,
@@ -616,26 +564,16 @@ def run_brief(
                 json_path=json_path,
                 markdown_path=markdown_path,
                 topics=topics,
-                prior_reports=prior_reports,
+                prior_reports=brief_prior_reports,
                 brief_goal=brief_goal,
                 filtering=filtering,
-                selected_articles=selected,
-                story_groups=story_groups,
+                selected_articles=rendered_selected,
+                story_groups=handoff_story_groups,
             )
             _checkpoint_stage(
                 orchestrator,
                 brief_name=name,
                 stage="write_handoff",
-                summary={
-                    "handoff_path": str(handoff_written_path),
-                    "selected_count": len(selected),
-                    "schema_version": "brief_handoff.v1",
-                },
-                next_stage_input={
-                    "handoff_path": str(handoff_written_path),
-                    "source_json_path": str(json_path),
-                    "selected": selected,
-                },
             )
             _promote_run_warnings()
             orchestrator.debug.set_metric(f"brief.{name}.warnings", len(run_warnings))
@@ -647,7 +585,7 @@ def run_brief(
                 markdown_path=str(markdown_path),
                 json_path=str(json_path),
                 candidate_count=len(unique_candidates),
-                selected_count=len(selected),
+                selected_count=len(rendered_selected),
                 warnings=run_warnings,
                 handoff_path=str(handoff_written_path),
             )

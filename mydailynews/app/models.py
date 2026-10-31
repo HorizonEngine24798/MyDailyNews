@@ -20,7 +20,6 @@ class AIConfig:
     response_format: str = "auto"
     request_timeout_seconds: int = 300
     token_estimation_chars_per_token: float = 4.0
-    enable_thinking: bool = False
     manage_server: bool = False
     server_executable: str = ""
     server_model_path: str = ""
@@ -50,7 +49,6 @@ class FilteringConfig:
     fill_selected_articles: bool = False
     article_text_max_chars: int = 6000
     max_selected_per_source: int = 2
-    use_multifactor_composite_ranking: bool = False
     min_novelty_for_selection: float = 0.0
     source_preference_bonus: float = 0.35
     source_avoid_penalty: float = 1.25
@@ -64,9 +62,9 @@ class MemoryConfig:
     coverage_retention_days: int = 30
     story_stale_after_days: int = 7
     story_retention_days: int = 30
+    story_candidate_threshold: float = 0.25
     recent_story_penalty: float = 0.6
     recent_lead_penalty: float = 1.1
-    material_update_boost: float = 0.9
     max_selected_per_story: int = 1
     max_selected_per_story_family: int = 2
     recall_prompt_enabled: bool = True
@@ -87,7 +85,7 @@ def default_general_filtering_config() -> FilteringConfig:
 
 @dataclass
 class EnrichmentConfig:
-    enabled: bool = True
+    enabled: bool = False
     mode: str = "story_llm"
     max_context_chars_per_article: int = 3200
     max_story_threads: int = 10
@@ -179,7 +177,7 @@ class PerspectivesReportConfig:
 
 @dataclass
 class PipelineConfig:
-    default_series: List[str] = field(default_factory=lambda: ["briefs", "enrichment", "narrative_brief"])
+    default_series: List[str] = field(default_factory=lambda: ["briefs", "narrative_brief"])
 
 
 @dataclass
@@ -201,50 +199,24 @@ class EvidenceDistillationConfig:
 class DeltaExtractionConfig:
     enabled: bool = False
     model_role: str = "summary"
-    input_source: str = "evidence_or_articles"
-    require_prior_reports: bool = False
     max_input_tokens: int = 8000
     max_new_tokens: int = 1000
     max_articles: int = 8
-    max_articles_per_batch: int = 4
-    max_articles_dropped_to_avoid_split: int = 2
     max_article_chars: int = 600
     max_prior_reports: int = 4
     cache_ttl_seconds: int = 604800
 
 
 @dataclass
-class AnalysisRolloutModeConfig:
-    evidence_enabled: Optional[bool] = None
-    delta_enabled: Optional[bool] = None
-    evidence_max_input_tokens: Optional[int] = None
-    evidence_max_new_tokens: Optional[int] = None
-    evidence_max_articles: Optional[int] = None
-    evidence_max_articles_per_batch: Optional[int] = None
-    evidence_max_articles_dropped_to_avoid_split: Optional[int] = None
-    evidence_max_article_chars: Optional[int] = None
-    delta_max_input_tokens: Optional[int] = None
-    delta_max_new_tokens: Optional[int] = None
-    delta_max_articles: Optional[int] = None
-    delta_max_articles_per_batch: Optional[int] = None
-    delta_max_articles_dropped_to_avoid_split: Optional[int] = None
-    delta_max_article_chars: Optional[int] = None
-    delta_max_prior_reports: Optional[int] = None
-
-
-@dataclass
-class AnalysisRolloutConfig:
-    enabled: bool = False
-    profile: str = "safe_local"
-    general: AnalysisRolloutModeConfig = field(default_factory=AnalysisRolloutModeConfig)
-    detailed: AnalysisRolloutModeConfig = field(default_factory=AnalysisRolloutModeConfig)
+class BriefAnalysisConfig:
+    evidence_distillation: EvidenceDistillationConfig = field(default_factory=EvidenceDistillationConfig)
+    delta_extraction: DeltaExtractionConfig = field(default_factory=DeltaExtractionConfig)
 
 
 @dataclass
 class AnalysisConfig:
-    evidence_distillation: EvidenceDistillationConfig = field(default_factory=EvidenceDistillationConfig)
-    delta_extraction: DeltaExtractionConfig = field(default_factory=DeltaExtractionConfig)
-    rollout: AnalysisRolloutConfig = field(default_factory=AnalysisRolloutConfig)
+    general: BriefAnalysisConfig = field(default_factory=BriefAnalysisConfig)
+    detailed: BriefAnalysisConfig = field(default_factory=BriefAnalysisConfig)
 
 
 @dataclass
@@ -477,15 +449,14 @@ class HeadlineDecision:
     candidate_id: str
     score: float
     topic: str = ""
-    personal_relevance: float = 5.0
     impact: float = 5.0
     novelty: float = 5.0
     urgency: float = 5.0
-    actionability: float = 5.0
-    confidence: float = 5.0
+    novelty_basis: str = ""
+    impact_basis: str = ""
+    urgency_basis: str = ""
     reason: str = ""
     skip_reason: Optional[str] = None
-    angle_type: str = ""
     selection_reason_code: str = ""
     selection_rank_score: float = 0.0
     selection_rank_mode: str = "score"

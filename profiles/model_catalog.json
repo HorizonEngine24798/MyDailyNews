@@ -112,8 +112,7 @@
         "evidence_max_articles_per_batch": 2,
         "delta_max_input_tokens": 2600,
         "delta_max_new_tokens": 384,
-        "delta_max_articles": 3,
-        "delta_max_articles_per_batch": 2
+        "delta_max_articles": 3
       }
     },
     {
@@ -169,8 +168,7 @@
         "evidence_max_articles_per_batch": 3,
         "delta_max_input_tokens": 4200,
         "delta_max_new_tokens": 640,
-        "delta_max_articles": 5,
-        "delta_max_articles_per_batch": 3
+        "delta_max_articles": 5
       }
     },
     {
@@ -226,8 +224,7 @@
         "evidence_max_articles_per_batch": 4,
         "delta_max_input_tokens": 8000,
         "delta_max_new_tokens": 1000,
-        "delta_max_articles": 6,
-        "delta_max_articles_per_batch": 3
+        "delta_max_articles": 6
       }
     },
     {
@@ -283,8 +280,7 @@
         "evidence_max_articles_per_batch": 8,
         "delta_max_input_tokens": 14000,
         "delta_max_new_tokens": 1600,
-        "delta_max_articles": 12,
-        "delta_max_articles_per_batch": 6
+        "delta_max_articles": 12
       }
     },
     {
@@ -339,8 +335,7 @@
         "evidence_max_articles_per_batch": 9,
         "delta_max_input_tokens": 16000,
         "delta_max_new_tokens": 1800,
-        "delta_max_articles": 14,
-        "delta_max_articles_per_batch": 7
+        "delta_max_articles": 14
       }
     }
   ]

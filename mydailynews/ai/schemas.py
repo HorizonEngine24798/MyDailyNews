@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .base import JSONSchemaSpec
+from mydailynews.analysis.claim_delta import FACT_OPERATIONS
 
 
 HEADLINE_ANALYSIS_JSON_SCHEMA = JSONSchemaSpec(
@@ -14,30 +15,28 @@ HEADLINE_ANALYSIS_JSON_SCHEMA = JSONSchemaSpec(
                     "type": "object",
                     "properties": {
                         "id": {"type": "string"},
-                        "score": {"type": "number"},
-                        "personal_relevance": {"type": "number"},
-                        "impact": {"type": "number"},
-                        "novelty": {"type": "number"},
-                        "urgency": {"type": "number"},
-                        "actionability": {"type": "number"},
-                        "confidence": {"type": "number"},
-                        "angle_type": {"type": "string"},
+                        "novelty": {"type": "integer", "minimum": 0, "maximum": 3},
+                        "novelty_basis": {"type": "string", "maxLength": 120},
+                        "impact": {"type": "integer", "minimum": 0, "maximum": 3},
+                        "impact_basis": {"type": "string", "maxLength": 120},
+                        "urgency": {"type": "integer", "minimum": 0, "maximum": 3},
+                        "urgency_basis": {"type": "string", "maxLength": 120},
                     },
                     "required": [
                         "id",
-                        "score",
-                        "personal_relevance",
-                        "impact",
                         "novelty",
+                        "novelty_basis",
+                        "impact",
+                        "impact_basis",
                         "urgency",
-                        "actionability",
-                        "confidence",
-                        "angle_type",
+                        "urgency_basis",
                     ],
+                    "additionalProperties": False,
                 },
             }
         },
         "required": ["decisions"],
+        "additionalProperties": False,
     },
 )
 
@@ -303,116 +302,62 @@ EVIDENCE_DISTILLATION_JSON_SCHEMA = JSONSchemaSpec(
 )
 
 
-DELTA_EXTRACTION_JSON_SCHEMA = JSONSchemaSpec(
-    name="delta_extraction",
+FACT_OPERATION_JSON_SCHEMA = JSONSchemaSpec(
+    name="fact_operations",
     schema={
         "type": "object",
         "properties": {
-            "baseline_coverage_note": {"type": "string"},
-            "new": {
+            "story_key": {"type": "string"},
+            "operations": {
                 "type": "array",
+                "maxItems": 16,
                 "items": {
                     "type": "object",
                     "properties": {
-                        "item": {"type": "string"},
-                        "summary": {"type": "string"},
-                        "article_ids": {"type": "array", "items": {"type": "string"}},
+                        "operation": {"type": "string", "enum": list(FACT_OPERATIONS)},
+                        "current_evidence_id": {"type": "string"},
+                        "prior_fact_ids": {
+                            "type": "array",
+                            "maxItems": 8,
+                            "items": {"type": "string"},
+                        },
                     },
-                    "required": ["item", "summary", "article_ids"],
-                },
-            },
-            "escalated": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "item": {"type": "string"},
-                        "summary": {"type": "string"},
-                        "article_ids": {"type": "array", "items": {"type": "string"}},
-                    },
-                    "required": ["item", "summary", "article_ids"],
-                },
-            },
-            "weakened": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "item": {"type": "string"},
-                        "summary": {"type": "string"},
-                        "article_ids": {"type": "array", "items": {"type": "string"}},
-                    },
-                    "required": ["item", "summary", "article_ids"],
-                },
-            },
-            "reframed": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "item": {"type": "string"},
-                        "summary": {"type": "string"},
-                        "article_ids": {"type": "array", "items": {"type": "string"}},
-                    },
-                    "required": ["item", "summary", "article_ids"],
-                },
-            },
-            "unchanged_but_important": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "item": {"type": "string"},
-                        "summary": {"type": "string"},
-                        "article_ids": {"type": "array", "items": {"type": "string"}},
-                    },
-                    "required": ["item", "summary", "article_ids"],
-                },
-            },
-            "story_decisions": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "story_key": {"type": "string"},
-                        "article_ids": {"type": "array", "items": {"type": "string"}},
-                        "prior_story_key": {"type": "string"},
-                        "relationship": {"type": "string", "enum": ["same_story", "related_theme", "distinct_story", "uncertain"]},
-                        "change_type": {"type": "string", "enum": ["new", "escalated", "weakened", "reframed", "unchanged", "uncertain"]},
-                        "materiality": {"type": "number"},
-                        "confidence": {"type": "number"},
-                        "disposition": {"type": "string", "enum": ["full_report", "continuing_bullet", "omit", "uncertain"]},
-                        "summary": {"type": "string"},
-                        "bullet": {"type": "string"},
-                        "reason": {"type": "string"},
-                        "knowns": {"type": "array", "items": {"type": "string"}},
-                        "unknowns": {"type": "array", "items": {"type": "string"}},
-                        "watch_signals": {"type": "array", "items": {"type": "string"}},
-                    },
-                    "required": ["story_key", "article_ids", "relationship", "change_type", "materiality", "confidence", "disposition", "summary", "bullet", "reason"],
-                },
-            },
-            "evidence_gaps": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "gap": {"type": "string"},
-                        "why_it_matters": {"type": "string"},
-                    },
-                    "required": ["gap", "why_it_matters"],
+                    "required": ["operation", "current_evidence_id", "prior_fact_ids"],
+                    "additionalProperties": False,
                 },
             },
         },
-        "required": [
-            "baseline_coverage_note",
-            "new",
-            "escalated",
-            "weakened",
-            "reframed",
-            "unchanged_but_important",
-            "story_decisions",
-            "evidence_gaps",
-        ],
+        "required": ["story_key", "operations"],
+        "additionalProperties": False,
+    },
+)
+
+
+STORY_EDITOR_JSON_SCHEMA = JSONSchemaSpec(
+    name="story_editor_selection",
+    schema={
+        "type": "object",
+        "properties": {
+            "decisions": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "card_id": {"type": "string"},
+                        "disposition": {
+                            "type": "string",
+                            "enum": ["full_report", "continuing_bullet", "omit"],
+                        },
+                        "materiality": {"type": "integer", "minimum": 0, "maximum": 3},
+                        "summary": {"type": "string", "maxLength": 200},
+                        "basis": {"type": "string", "maxLength": 200},
+                    },
+                    "required": ["card_id", "disposition", "materiality", "summary", "basis"],
+                    "additionalProperties": False,
+                },
+            },
+        },
+        "required": ["decisions"],
+        "additionalProperties": False,
     },
 )

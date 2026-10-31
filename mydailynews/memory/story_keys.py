@@ -5,6 +5,7 @@ import re
 from typing import Any, Iterable, List
 
 from mydailynews.app.models import NewsCandidate
+from mydailynews.domain.text_similarity import compare_token_sets, unique_tokens, word_tokens
 
 
 WEAK_TERMS = {
@@ -117,22 +118,13 @@ def story_tokens_for_candidate(candidate: NewsCandidate) -> List[str]:
 
 
 def token_overlap_confidence(left: Iterable[str], right: Iterable[str]) -> float:
-    left_set = {str(item) for item in left if str(item)}
-    right_set = {str(item) for item in right if str(item)}
-    if not left_set or not right_set:
-        return 0.0
-    overlap = len(left_set.intersection(right_set))
-    if overlap <= 0:
-        return 0.0
-    containment = overlap / max(1, min(len(left_set), len(right_set)))
-    jaccard = overlap / max(1, len(left_set.union(right_set)))
-    return round(max(containment * 0.78, jaccard), 4)
+    return compare_token_sets(left, right).confidence
 
 
 def slugify_tokens(tokens: Iterable[str], *, max_tokens: int = 6) -> str:
     cleaned = []
     for token in tokens:
-        normalized = re.sub(r"[^a-z0-9]+", "", str(token or "").lower())
+        normalized = "".join(character for character in str(token or "").casefold() if character.isalnum())
         if not normalized:
             continue
         cleaned.append(normalized)
@@ -146,20 +138,11 @@ def slugify_text(text: str, *, max_tokens: int = 6) -> str:
 
 
 def _tokens(text: Any) -> List[str]:
-    raw = re.findall(r"[a-z0-9]{3,}", str(text or "").lower())
-    return [token for token in raw if token not in STOPWORDS and not token.isdigit()]
+    return word_tokens(text, stopwords=STOPWORDS, min_alpha_chars=2, keep_numbers=True)
 
 
 def _dedupe(tokens: Iterable[str]) -> List[str]:
-    output: List[str] = []
-    seen: set[str] = set()
-    for token in tokens:
-        normalized = str(token or "").strip().lower()
-        if not normalized or normalized in seen:
-            continue
-        seen.add(normalized)
-        output.append(normalized)
-    return output
+    return unique_tokens(tokens)
 
 
 def _clean_title(title: str) -> str:

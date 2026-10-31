@@ -1,7 +1,7 @@
 import { api, clone } from "./api.js";
 import { byId, escapeHtml, setStatus } from "./dom.js";
 import { renderForm } from "./forms.js";
-import { defaultStoryIndex, state } from "./state.js";
+import { defaultStoryStore, state } from "./state.js";
 
 export function renderMemory() {
   if (!state.memory) {
@@ -11,9 +11,9 @@ export function renderMemory() {
   const summary = state.memory.summary || {};
   const cells = [
     ["Coverage", summary.coverage_records],
-    ["Stories", summary.story_index_records],
-    ["Active", summary.story_index_active],
-    ["Stale", summary.story_index_stale],
+    ["Stories", summary.story_store_records],
+    ["Active", summary.story_store_active],
+    ["Stale", summary.story_store_stale],
     ["Feedback", summary.feedback_events],
     ["Warnings", summary.health_warnings || 0],
     ["Enabled", summary.memory_enabled ? "Yes" : "No"],
@@ -23,10 +23,10 @@ export function renderMemory() {
     .map(([label, value]) => `<div class="summary-cell"><span class="muted small">${label}</span><strong>${escapeHtml(value)}</strong></div>`)
     .join("");
 
-  renderForm("storyIndexForm", () => state.storyIndexDraft);
+  renderForm("storyStoreForm", () => state.storyStoreDraft);
   renderTable(
     "storyTable",
-    filterStories(state.memory.story_index || []),
+    filterStories(state.memory.story_store || []),
     [
       ["title", "Title"],
       ["topic", "Topic"],
@@ -224,7 +224,7 @@ async function repairMemory(payload, label) {
       body: JSON.stringify({ ...payload, confirm: true }),
     });
     state.memory = result.memory;
-    state.storyIndexDraft = clone(state.memory.story_index_file || defaultStoryIndex());
+    state.storyStoreDraft = clone(state.memory.story_store_file || defaultStoryStore());
     renderMemory();
     const backup = result.repair?.backup?.path || "";
     setStatus(backup ? `${label} complete; backup ${backup}` : `${label} complete`);

@@ -26,7 +26,7 @@ flowchart LR
     BRIEFS --> BRIEF_CALLS["LLM calls:<br/>score, group, evidence,<br/>delta, final brief"]
     BRIEF_CALLS --> STRUCTURED["structured briefs<br/>Markdown + JSON"]
     BRIEF_CALLS --> HANDOFF["handoff<br/>selected articles + story boundaries"]
-    HANDOFF --> ENRICH["enrichment module"]
+    HANDOFF --> ENRICH["optional enrichment module"]
     ENRICH --> ENRICH_CALLS["LLM calls:<br/>plan threads + synthesize<br/>per enriched story"]
     ENRICH_CALLS --> ENRICHED["enrichment context<br/>Markdown + JSON"]
     STRUCTURED --> NARRATIVE["narrative brief<br/>1 LLM call"]
@@ -49,7 +49,7 @@ flowchart TD
     SNAPSHOT["source snapshot<br/>feeds + searches + prior reports"] --> SCORE["headline scoring"]
     SUMMARY["summary_ai_client"] --> SCORE_CALL["LLM: headline scoring<br/>ceil(candidates / batch_size)<br/>plus single-item replays on bad JSON"]
     SCORE_CALL --> SCORE
-    SCORE --> SELECT["deterministic selection<br/>caps, novelty, learned prefs"]
+    SCORE --> SELECT["deterministic selection<br/>caps, priority, learned prefs"]
     MEMORY["state/memory"] --> SELECT
     SELECT --> FETCH["article text fetch"]
     FETCH --> GROUP["story grouping"]
@@ -59,10 +59,19 @@ flowchart TD
     FETCH --> EVIDENCE
     ANALYSIS["analysis client<br/>summary or final"] --> EVIDENCE_CALL["LLM: evidence<br/>0..N article batches"]
     EVIDENCE_CALL --> EVIDENCE
-    EVIDENCE --> DELTA["delta extraction"]
-    SNAPSHOT --> DELTA
-    ANALYSIS --> DELTA_CALL["LLM: delta<br/>0..N article/prior batches"]
-    DELTA_CALL --> DELTA
+    GROUP --> HISTORY["deterministic bounded<br/>history retrieval<br/>up to 3 candidates per story"]
+    FETCH --> HISTORY
+    MEMORY --> HISTORY
+    GROUP --> OPERATIONS["per-story fact-operation comparison<br/>bounded facts from all retrieved candidates"]
+    FETCH --> OPERATIONS
+    HISTORY --> OPERATIONS
+    ANALYSIS --> OPERATION_CALL["LLM: fact operations<br/>0..1 comparison per story"]
+    OPERATION_CALL --> OPERATIONS
+    OPERATIONS --> VALIDATE["structural validation<br/>IDs, ownership, coverage, conflicts"]
+    VALIDATE --> CARDS["validated current<br/>story cards"]
+    ANALYSIS --> EDITOR_CALL["LLM: selection editor<br/>one bounded comparative call"]
+    CARDS --> EDITOR_CALL
+    EDITOR_CALL --> DELTA["editorial story decisions"]
     EVIDENCE --> FINAL_BRIEF["final brief generation"]
     DELTA --> FINAL_BRIEF
     MEMORY --> FINAL_BRIEF
@@ -70,11 +79,13 @@ flowchart TD
     FINAL_CALL --> FINAL_BRIEF
     FINAL_BRIEF --> REPORTS["general + detailed<br/>Markdown/JSON"]
     FINAL_BRIEF --> HANDOFF["handoff JSON"]
-    FINAL_BRIEF --> MEMORY
+    FINAL_BRIEF --> MEMORY_QUEUE["deferred memory writes<br/>after every brief is analyzed"]
+    MEMORY_QUEUE --> MEMORY
     SCORE_CALL --> AI_CACHE["AI synth cache"]
     GROUP_CALL --> AI_CACHE
     EVIDENCE_CALL --> AI_CACHE
-    DELTA_CALL --> AI_CACHE
+    OPERATION_CALL --> AI_CACHE
+    EDITOR_CALL --> AI_CACHE
     FETCH --> HTTP_CACHE["HTTP/article cache"]
     REPORTS --> OUTPUT["output/"]
     HANDOFF --> OUTPUT
@@ -104,35 +115,35 @@ flowchart TD
     ENRICHED --> OUTPUT["output/"]
 ```
 
-LLM call groups: headline scoring is batched, story grouping and enrichment planning can split into multiple planner calls, evidence and delta are optional batched analysis calls, final brief is normally one call per structured brief, narrative brief is normally one call, and enrichment synthesis is one call per enriched story thread. Cache hits skip eligible calls; JSON/transport retries can add attempts.
+LLM call groups: headline scoring is batched; story grouping and enrichment planning can split into multiple planner calls; evidence is an optional batched analysis call. Enabled delta analysis deterministically retrieves up to three prior candidates for each grouped current story. When retrieved prior facts exist, it makes at most one fact-operation call per story over the current facts and bounded facts from every retrieved candidate; stories without prior facts receive deterministic `add` operations and skip that call. The result is structurally validated before one bounded selection-editor call compares the validated card set. Every story receives a decision; cards excluded by configured or token limits fail open. Final brief is normally one call per structured brief, narrative brief is normally one call, and enrichment synthesis is one call per enriched story thread. Cache hits skip eligible calls; JSON/transport retries can add attempts.
 
 AI roles: `summary_ai_client` scores and plans; the configurable analysis client runs evidence/delta; `final_ai_client` writes final and narrative briefs.
 
-Storage roles: `.cache/mydailynews/` stores network/article/enrichment fetches, `.cache/mydailynews/synth` stores reusable AI responses, `state/memory/` stores durable coverage/preferences, and `output/` stores reports, handoffs, diagnostics, and stage artifacts.
+Storage roles: `.cache/mydailynews/cache.sqlite3` stores network, article, enrichment, and reusable AI cache entries; `state/memory/memory.sqlite3` stores durable story, coverage, and feedback data; `state/memory/learned_preferences.json` remains human-editable; and `output/` stores reports, handoffs, and diagnostics.
 
 ## Module Flow
 
 The default module series is:
 
 ```text
-briefs -> enrichment -> narrative_brief
+briefs -> narrative_brief
 ```
 
-`tts` and `perspectives_report` are available but disabled by default. When perspectives is enabled, it runs before `narrative_brief` so validated claim cards are available to the narrative; TTS remains last.
+`enrichment`, `tts`, and `perspectives_report` are available but disabled by default. When perspectives is enabled, it runs before `narrative_brief` so validated claim cards are available to the narrative; TTS remains last.
 
 Modules:
 
 - `briefs`: fetches candidates, scores headlines, selects articles, fetches article text, runs analysis, writes general and detailed briefs.
-- `enrichment`: groups selected articles into story threads, retrieves related context, and writes enrichment artifacts.
+- `enrichment`: optional, explicit-opt-in research that groups selected articles into story threads, retrieves related context, and writes enrichment artifacts.
 - `narrative_brief`: turns structured brief and enrichment JSON into a narrative Markdown brief.
 - `tts`: turns each configured module target's Markdown artifact into WAV audio and audio metadata.
 - `perspectives_report`: performs shared broad retrieval, bounded claim verification, and one claim-led framing synthesis per eligible story, then writes combined JSON and reader-facing Markdown.
 
 ## State Boundaries
 
-- `output/`: generated Markdown, JSON, WAV, diagnostics, and stage artifacts.
-- `state/memory/`: durable coverage, story, feedback, learned-preference, recall, and backup files.
-- `.cache/mydailynews/`: discovery, article text, enrichment retrieval, and AI synthesis caches.
+- `output/`: generated Markdown, JSON, WAV, and diagnostics.
+- `state/memory/`: `memory.sqlite3` plus learned preferences, recall artifacts, and backups.
+- `.cache/mydailynews/`: `cache.sqlite3` for discovery, article text, enrichment retrieval, and AI synthesis values.
 
 Deleting `output/` removes generated reports. Deleting `state/memory/` resets local memory. Deleting `.cache/mydailynews/` only forces refetching or regeneration.
 

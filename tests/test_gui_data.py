@@ -8,6 +8,7 @@ import uuid
 
 from gui import build_parser as build_gui_parser
 from mydailynews.gui.data import GuiDataService
+from mydailynews.memory.coverage import CoverageMemoryStore
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -252,7 +253,7 @@ class GuiDataServiceTests(unittest.TestCase):
         self.assertEqual(learned["preferences"]["source_weights"]["Example News"], -3.0)
         self.assertEqual(service.read_config()["config"]["user_memory"].get("role", ""), original_role)
 
-    def test_learned_preferences_and_story_index_edits_are_normalized(self) -> None:
+    def test_learned_preferences_and_story_store_edits_are_normalized(self) -> None:
         root = self._temp_root()
         self._write_config(root)
         service = GuiDataService(root, "config.local.json")
@@ -270,7 +271,7 @@ class GuiDataServiceTests(unittest.TestCase):
         self.assertEqual(prefs["topic_weights"]["AI"], 3.0)
         self.assertEqual(prefs["source_weights"]["Example News"], -3.0)
 
-        memory = service.save_story_index(
+        memory = service.save_story_store(
             {
                 "stories": [
                     {
@@ -284,23 +285,38 @@ class GuiDataServiceTests(unittest.TestCase):
                         "title": "Story A",
                         "tokens": ["A"],
                         "status": "stale",
+                        "source_document_ids": ["source-a"],
+                        "facts": [
+                            {
+                                "fact_id": "fact:a",
+                                "text": "Story A was confirmed by its source.",
+                                "source_id": "source-a",
+                                "tokens": ["story", "confirmed"],
+                                "user_visible": True,
+                            }
+                        ],
                     },
                 ]
             }
         )
 
-        keys = [item["story_key"] for item in memory["story_index"]]
+        keys = [item["story_key"] for item in memory["story_store"]]
         self.assertEqual(keys, ["story-a", "story-b"])
-        status_by_key = {item["story_key"]: item["status"] for item in memory["story_index"]}
+        status_by_key = {item["story_key"]: item["status"] for item in memory["story_store"]}
         self.assertEqual(status_by_key["story-a"], "stale")
         self.assertEqual(status_by_key["story-b"], "active")
+        story_a_file = next(
+            item for item in memory["story_store_file"]["stories"] if item["story_key"] == "story-a"
+        )
+        self.assertEqual(story_a_file["source_document_ids"], ["source-a"])
+        self.assertEqual(story_a_file["facts"][0]["fact_id"], "fact:a")
 
     def test_memory_snapshot_exposes_display_rows_recall_packets_and_health(self) -> None:
         root = self._temp_root()
         self._write_config(root)
         state_dir = root / "state" / "memory"
         state_dir.mkdir(parents=True, exist_ok=True)
-        (state_dir / "story_index.json").write_text(
+        (state_dir / "story_store.json").write_text(
             json.dumps(
                 {
                     "schema_version": 1,
@@ -399,10 +415,10 @@ class GuiDataServiceTests(unittest.TestCase):
 
         snapshot = service.memory_snapshot()
 
-        story_a = next(item for item in snapshot["story_index"] if item["story_key"] == "story-a")
+        story_a = next(item for item in snapshot["story_store"] if item["story_key"] == "story-a")
         self.assertEqual(story_a["family"], "family-a")
         self.assertEqual(story_a["coverage_count"], 1)
-        self.assertEqual(snapshot["coverage_records"][0]["story_key"], "story-a")
+        self.assertIn("story-a", {row["story_key"] for row in snapshot["coverage_records"]})
         self.assertEqual(snapshot["feedback_events"][0]["created_date"], "2026-06-28")
         self.assertEqual(snapshot["learned_preferences_summary"]["topic_weights"], 1)
         self.assertTrue(snapshot["recall_packets"]["exists"])
@@ -410,7 +426,7 @@ class GuiDataServiceTests(unittest.TestCase):
         codes = {warning["code"] for warning in snapshot["health"]["warnings"]}
         self.assertIn("invalid_feedback_jsonl_rows", codes)
         self.assertIn("story_records_missing_last_seen", codes)
-        self.assertIn("coverage_story_key_missing_from_index", codes)
+        self.assertIn("coverage_story_key_missing_from_store", codes)
         self.assertIn("feedback_rows_missing_identity", codes)
         self.assertEqual(snapshot["summary"]["health_warnings"], len(snapshot["health"]["warnings"]))
 
@@ -419,7 +435,7 @@ class GuiDataServiceTests(unittest.TestCase):
         self._write_config(root)
         state_dir = root / "state" / "memory"
         state_dir.mkdir(parents=True, exist_ok=True)
-        (state_dir / "story_index.json").write_text(
+        (state_dir / "story_store.json").write_text(
             json.dumps(
                 {
                     "schema_version": 1,
@@ -463,7 +479,8 @@ class GuiDataServiceTests(unittest.TestCase):
         self.assertEqual(result["repair"]["coverage_rows_archived"], 1)
         self.assertEqual(result["memory"]["summary"]["coverage_records"], 0)
         self.assertTrue(Path(result["repair"]["backup"]["path"]).exists())
-        self.assertIn("story-a", (state_dir / "coverage_log.archive.jsonl").read_text(encoding="utf-8"))
+        archived = CoverageMemoryStore.from_state_dir(state_dir).read_archive_records()
+        self.assertEqual([row["story_key"] for row in archived], ["story-a"])
 
     def test_run_manager_rejects_unknown_kind_and_runs_memory_inspect(self) -> None:
         root = self._temp_root()

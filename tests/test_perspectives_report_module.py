@@ -647,8 +647,6 @@ class PerspectivesReportModuleTests(unittest.TestCase):
             reporter=FakeReporter(),
             debug=DebugLogger(False),
             final_ai_client=narrative_ai,
-            _stage_payload=lambda **kwargs: kwargs,
-            _record_stage_artifact=lambda **_kwargs: None,
         )
         narrative_output = run_narrative_brief(
             narrative_orchestrator,

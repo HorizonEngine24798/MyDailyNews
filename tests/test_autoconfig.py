@@ -153,7 +153,7 @@ class AutoconfigTests(unittest.TestCase):
         self.assertEqual(recommended["ai_final"]["max_new_tokens"], 1024)
         self.assertEqual(recommended["general_filtering"]["max_headlines_per_ai_batch"], 6)
         self.assertEqual(recommended["filtering"]["max_selected_articles"], 5)
-        self.assertTrue(recommended["enrichment"]["enabled"])
+        self.assertFalse(recommended["enrichment"]["enabled"])
         self.assertEqual(recommended["enrichment"]["max_story_threads"], 8)
         self.assertEqual(recommended["enrichment"]["planner_max_questions_per_story"], 3)
         self.assertEqual(recommended["enrichment"]["max_fetched_research_pages_per_story"], 4)
@@ -174,12 +174,14 @@ class AutoconfigTests(unittest.TestCase):
         self.assertEqual(recommended["perspectives_report"]["verification_documents_per_claim"], 4)
         self.assertNotIn("coverage_languages", recommended["perspectives_report"])
         self.assertNotIn("minimum_languages", recommended["perspectives_report"])
-        self.assertEqual(recommended["pipeline"]["default_series"], ["briefs", "enrichment", "narrative_brief"])
-        self.assertEqual(recommended["analysis"]["evidence_distillation"]["max_input_tokens"], 5000)
+        self.assertEqual(recommended["pipeline"]["default_series"], ["briefs", "narrative_brief"])
+        self.assertEqual(recommended["analysis"]["general"]["evidence_distillation"]["max_input_tokens"], 5000)
+        self.assertEqual(recommended["analysis"]["detailed"]["evidence_distillation"]["max_input_tokens"], 5000)
         self.assertTrue(recommended["memory"]["enabled"])
         self.assertEqual(recommended["memory"]["coverage_retention_days"], 30)
         self.assertEqual(recommended["memory"]["story_stale_after_days"], 7)
         self.assertEqual(recommended["memory"]["story_retention_days"], 30)
+        self.assertEqual(recommended["memory"]["story_candidate_threshold"], 0.25)
         self.assertTrue(recommended["memory"]["recall_prompt_enabled"])
         self.assertTrue(recommended["memory"]["save_recall_packets"])
         self.assertTrue(recommended["memory"]["feedback_enabled"])
@@ -196,7 +198,7 @@ class AutoconfigTests(unittest.TestCase):
 
         recommended = autoconfig.build_recommended_config(source, tier, model)
 
-        self.assertTrue(recommended["enrichment"]["enabled"])
+        self.assertFalse(recommended["enrichment"]["enabled"])
         self.assertEqual(recommended["enrichment"]["mode"], "story_llm")
         self.assertNotIn("max_entities", recommended["enrichment"])
         self.assertNotIn("max_enrichment_workers", recommended["runtime"])
@@ -208,17 +210,51 @@ class AutoconfigTests(unittest.TestCase):
         path.write_text(json.dumps(recommended, ensure_ascii=False, indent=2), encoding="utf-8")
         load_config(path)
 
-    def test_recommended_config_writes_current_memory_section(self) -> None:
+    def test_recommended_config_removes_retired_ai_backend_options(self) -> None:
         catalog = self._catalog()
         source = self._example_config()
-        source.pop("memory", None)
-        source["memory"] = {"recall_packet_enabled": False}
+        retired = {
+            "enable_thinking": False,
+            "codex_executable": "codex",
+            "codex_model": "codex-mini-latest",
+            "codex_workdir": ".",
+            "codex_sandbox": "read-only",
+            "codex_ephemeral": True,
+        }
+        source["ai_summary"].update(retired)
+        source["ai_final"].update(retired)
         tier = next(item for item in catalog["tiers"] if item["id"] == "nvidia_8gb")
         model = autoconfig.model_for_tier(catalog, tier)
 
         recommended = autoconfig.build_recommended_config(source, tier, model)
 
+        for section_name in ("ai_summary", "ai_final"):
+            self.assertTrue(retired.keys().isdisjoint(recommended[section_name]))
+            self.assertEqual(recommended[section_name]["backend"], "llama_cpp_server")
+
+    def test_recommended_config_writes_current_memory_section(self) -> None:
+        catalog = self._catalog()
+        source = self._example_config()
+        source.pop("memory", None)
+        source["memory"] = {
+            "material_update_boost": 0.9,
+            "recall_packet_enabled": False,
+            "story_reranker_enabled": True,
+            "story_reranker_model_path": "old-model",
+            "story_reranker_threshold": 0.7,
+            "story_reranker_hard_rejection": True,
+        }
+        tier = next(item for item in catalog["tiers"] if item["id"] == "nvidia_8gb")
+        model = autoconfig.model_for_tier(catalog, tier)
+
+        recommended = autoconfig.build_recommended_config(source, tier, model)
+
+        self.assertNotIn("material_update_boost", recommended["memory"])
         self.assertNotIn("recall_packet_enabled", recommended["memory"])
+        self.assertNotIn("story_reranker_enabled", recommended["memory"])
+        self.assertNotIn("story_reranker_model_path", recommended["memory"])
+        self.assertNotIn("story_reranker_threshold", recommended["memory"])
+        self.assertNotIn("story_reranker_hard_rejection", recommended["memory"])
         self.assertTrue(recommended["memory"]["enabled"])
         self.assertEqual(recommended["memory"]["coverage_retention_days"], 30)
         self.assertEqual(recommended["memory"]["story_stale_after_days"], 7)
@@ -230,6 +266,19 @@ class AutoconfigTests(unittest.TestCase):
         path = self._temp_dir() / "recommended_memory.json"
         path.write_text(json.dumps(recommended, ensure_ascii=False, indent=2), encoding="utf-8")
         load_config(path)
+
+    def test_recommended_config_removes_retired_headline_ranking_switch(self) -> None:
+        catalog = self._catalog()
+        source = self._example_config()
+        source["general_filtering"]["use_multifactor_composite_ranking"] = True
+        source["filtering"]["use_multifactor_composite_ranking"] = True
+        tier = next(item for item in catalog["tiers"] if item["id"] == "nvidia_8gb")
+        model = autoconfig.model_for_tier(catalog, tier)
+
+        recommended = autoconfig.build_recommended_config(source, tier, model)
+
+        self.assertNotIn("use_multifactor_composite_ranking", recommended["general_filtering"])
+        self.assertNotIn("use_multifactor_composite_ranking", recommended["filtering"])
 
     def test_recommended_config_preserves_explicit_enrichment_opt_in(self) -> None:
         catalog = self._catalog()
@@ -258,17 +307,31 @@ class AutoconfigTests(unittest.TestCase):
         self.assertEqual(recommended["enrichment"]["mode"], "story_llm")
         self.assertEqual(recommended["enrichment"]["max_story_threads"], 8)
 
-    def test_default_pipeline_preferences_preserve_generated_defaults(self) -> None:
+    def test_default_pipeline_preferences_keep_enrichment_off(self) -> None:
         catalog = self._catalog()
         source = self._example_config()
         tier = next(item for item in catalog["tiers"] if item["id"] == "nvidia_8gb")
         model = autoconfig.model_for_tier(catalog, tier)
         recommended = autoconfig.build_recommended_config(source, tier, model)
-        before = deepcopy(recommended)
-
         autoconfig.apply_pipeline_preferences(recommended, autoconfig.PipelinePreferences())
 
-        self.assertEqual(recommended, before)
+        self.assertFalse(recommended["enrichment"]["enabled"])
+        self.assertEqual(recommended["pipeline"]["default_series"], ["briefs", "narrative_brief"])
+
+    def test_research_workflow_can_explicitly_enable_enrichment(self) -> None:
+        catalog = self._catalog()
+        source = self._example_config()
+        tier = next(item for item in catalog["tiers"] if item["id"] == "nvidia_8gb")
+        model = autoconfig.model_for_tier(catalog, tier)
+        recommended = autoconfig.build_recommended_config(source, tier, model)
+
+        autoconfig.apply_pipeline_preferences(
+            recommended,
+            autoconfig.PipelinePreferences(workflow="research"),
+        )
+
+        self.assertTrue(recommended["enrichment"]["enabled"])
+        self.assertEqual(recommended["pipeline"]["default_series"], ["briefs", "enrichment"])
 
     def test_apply_pipeline_preferences_rewrites_user_workflow_shape(self) -> None:
         catalog = self._catalog()
@@ -293,9 +356,9 @@ class AutoconfigTests(unittest.TestCase):
         self.assertTrue(recommended["narrative_briefing"]["enabled"])
         self.assertEqual(recommended["narrative_briefing"]["target_words"], 1000)
         self.assertLess(recommended["filtering"]["max_selected_articles"], original_selected)
-        self.assertEqual(recommended["analysis"]["rollout"]["enabled"], False)
-        self.assertEqual(recommended["analysis"]["evidence_distillation"]["enabled"], False)
-        self.assertEqual(recommended["analysis"]["delta_extraction"]["enabled"], False)
+        for brief_name in ("general", "detailed"):
+            self.assertFalse(recommended["analysis"][brief_name]["evidence_distillation"]["enabled"])
+            self.assertFalse(recommended["analysis"][brief_name]["delta_extraction"]["enabled"])
         self.assertFalse(recommended["ai_summary"]["manage_server"])
         self.assertFalse(recommended["ai_summary"]["server_auto_stop"])
         self.assertFalse(recommended["ai_final"]["manage_server"])
@@ -343,7 +406,7 @@ class AutoconfigTests(unittest.TestCase):
 
         self.assertEqual(
             config["pipeline"]["default_series"],
-            ["briefs", "enrichment", "perspectives_report", "narrative_brief", "tts"],
+            ["briefs", "perspectives_report", "narrative_brief", "tts"],
         )
 
     def test_prompt_pipeline_preferences_accepts_names_and_numbers(self) -> None:
@@ -472,11 +535,11 @@ class AutoconfigTests(unittest.TestCase):
         written = json.loads(target_path.read_text(encoding="utf-8"))
         self.assertEqual(written["ai_summary"]["server_model"], "Qwen3-30B-A3B-Q4_K_M")
         self.assertEqual(written["ai_summary"]["context_window_tokens"], 32768)
-        self.assertTrue(written["enrichment"]["enabled"])
+        self.assertFalse(written["enrichment"]["enabled"])
         self.assertEqual(written["enrichment"]["max_story_threads"], 16)
         self.assertEqual(written["enrichment"]["max_fetched_research_pages_per_story"], 10)
         self.assertEqual(written["enrichment"]["max_research_excerpt_chars"], 4000)
-        self.assertEqual(written["pipeline"]["default_series"], ["briefs", "enrichment", "narrative_brief"])
+        self.assertEqual(written["pipeline"]["default_series"], ["briefs", "narrative_brief"])
 
 
 if __name__ == "__main__":

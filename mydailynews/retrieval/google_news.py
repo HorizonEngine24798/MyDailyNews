@@ -120,7 +120,7 @@ class GoogleNewsQueryRetriever:
             self.debug.log("google_news.query", "failed", topic=topic.name, status=response.status_code)
             return []
 
-        parsed = feedparser.parse(response.text)
+        parsed = feedparser.parse(self._utf8_xml(response.text))
         candidates: List[NewsCandidate] = []
         for entry in parsed.entries:
             if len(candidates) >= limit:
@@ -178,9 +178,20 @@ class GoogleNewsQueryRetriever:
 
     def _with_window(self, query: str) -> str:
         text = query.strip()
-        if "when:" in text:
+        lowered = text.lower()
+        if any(operator in lowered for operator in ("when:", "after:", "before:")):
             return text
         return f"{text} when:{self.config.days}d"
+
+    @staticmethod
+    def _utf8_xml(text: str) -> str:
+        """Repair requests' ISO-8859-1 fallback for explicitly UTF-8 XML."""
+        if "encoding=\"UTF-8\"" not in (text or "")[:120]:
+            return text
+        try:
+            return text.encode("latin-1").decode("utf-8")
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            return text
 
     @staticmethod
     def _entry_source(entry) -> str:

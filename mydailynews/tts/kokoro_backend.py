@@ -4,11 +4,20 @@ from datetime import datetime
 import json
 from pathlib import Path
 import re
+import struct
 from typing import Any, Iterable, List
-
-import soundfile as sf
+import wave
 
 from mydailynews.app.models import TTSConfig, TTSOutput
+
+
+try:
+    import soundfile as sf
+except ImportError:
+    class _UnavailableSoundFileModule:
+        SoundFile = None
+
+    sf = _UnavailableSoundFileModule()
 
 
 TTS_OUTPUT_SCHEMA_VERSION = "tts_audio.v1"
@@ -149,11 +158,25 @@ def _write_wav(path: Path, sample_rate: int, audio_chunks: Iterable[Any]) -> int
         return 0
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    with sf.SoundFile(str(path), mode="w", samplerate=int(sample_rate), channels=1, subtype="PCM_16") as handle:
-        handle.write(_audio_array(first))
+    if sf.SoundFile is not None:
+        with sf.SoundFile(str(path), mode="w", samplerate=int(sample_rate), channels=1, subtype="PCM_16") as handle:
+            handle.write(_audio_array(first))
+            count = 1
+            for audio in iterator:
+                handle.write(_audio_array(audio))
+                count += 1
+        return count
+
+    # Keep non-TTS workflows and lightweight tests usable without the optional
+    # libsndfile dependency. Kokoro's mono float samples map directly to PCM16.
+    with wave.open(str(path), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(int(sample_rate))
+        handle.writeframes(_pcm16_bytes(first))
         count = 1
         for audio in iterator:
-            handle.write(_audio_array(audio))
+            handle.writeframes(_pcm16_bytes(audio))
             count += 1
     return count
 
@@ -166,6 +189,22 @@ def _audio_array(audio: Any) -> Any:
     if hasattr(audio, "numpy"):
         audio = audio.numpy()
     return audio
+
+
+def _pcm16_bytes(audio: Any) -> bytes:
+    values = _audio_array(audio)
+    if hasattr(values, "tolist"):
+        values = values.tolist()
+    if isinstance(values, (int, float)):
+        values = [values]
+    flattened: List[float] = []
+    for value in values:
+        if isinstance(value, (list, tuple)):
+            flattened.extend(float(item) for item in value)
+        else:
+            flattened.append(float(value))
+    samples = [max(-32768, min(32767, int(round(max(-1.0, min(1.0, value)) * 32767.0)))) for value in flattened]
+    return struct.pack(f"<{len(samples)}h", *samples) if samples else b""
 
 
 def _paragraph_units(paragraph: str, max_chars: int) -> List[str]:

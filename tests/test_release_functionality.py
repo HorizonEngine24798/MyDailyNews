@@ -18,11 +18,6 @@ from mydailynews.app.models import AIConfig
 from mydailynews.diagnostics.debug import DebugLogger
 from mydailynews.app.runtime_config import find_runtime_config_issues
 from mydailynews.pipeline.stages import PipelineRunOptions
-from mydailynews.pipeline.stage_artifacts import (
-    STAGE_ARTIFACT_SCHEMA_VERSION,
-    build_stage_artifact,
-    build_stage_payload,
-)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -55,23 +50,27 @@ class ReleaseSmokeTests(unittest.TestCase):
         self.assertEqual(config.ai_summary.context_window_tokens, 16384)
         self.assertLessEqual(config.ai_summary.max_input_tokens + config.ai_summary.max_new_tokens, 16384)
         self.assertFalse(hasattr(config.ai_summary, "preset"))
+        self.assertFalse(hasattr(config.ai_summary, "enable_thinking"))
+        self.assertFalse(hasattr(config.ai_summary, "codex_model"))
         self.assertTrue(config.general_topics)
         self.assertTrue(config.topics_to_examine)
         self.assertTrue(config.rss_sources)
         self.assertEqual(config.cache.discovery_mode, "network_first")
         self.assertEqual(config.cache.article_text_retention_days, 3)
         self.assertEqual(config.cache.enrichment_retention_days, 30)
-        self.assertTrue(config.enrichment.enabled)
+        self.assertFalse(config.enrichment.enabled)
         self.assertEqual(config.enrichment.omitted_article_policy, "skip")
         self.assertEqual(config.enrichment.excerpt_strategy, "relevant_windows")
         self.assertFalse(config.enrichment.enrich_misc_story)
         self.assertTrue(config.narrative_briefing.enabled)
         self.assertEqual(config.narrative_briefing.target_words, 1800)
-        self.assertEqual(config.pipeline.default_series, ["briefs", "enrichment", "narrative_brief"])
+        self.assertEqual(config.pipeline.default_series, ["briefs", "narrative_brief"])
         self.assertTrue(config.memory.enabled)
         self.assertEqual(config.memory.coverage_retention_days, 30)
         self.assertEqual(config.memory.story_stale_after_days, 7)
+        self.assertFalse(hasattr(config.memory, "story_reranker_enabled"))
         self.assertEqual(config.memory.story_retention_days, 30)
+        self.assertEqual(config.memory.story_candidate_threshold, 0.25)
         self.assertTrue(config.memory.recall_prompt_enabled)
         self.assertTrue(config.memory.save_recall_packets)
         self.assertTrue(config.memory.feedback_enabled)
@@ -297,6 +296,16 @@ class ReleaseSmokeTests(unittest.TestCase):
             ):
                 load_config(old_memory_path)
 
+        with self.subTest("removed story reranker config"):
+            old_reranker_payload = deepcopy(payload)
+            old_reranker_payload["memory"]["story_reranker_enabled"] = True
+            old_reranker_path = self._write_config_payload(TEMP_ROOT, old_reranker_payload, "old_story_reranker")
+            with self.assertRaisesRegex(
+                ValueError,
+                r"Config section memory has unrecognized key\(s\): story_reranker_enabled",
+            ):
+                load_config(old_reranker_path)
+
         with self.subTest("duplicate pipeline module"):
             duplicate_pipeline_payload = deepcopy(payload)
             duplicate_pipeline_payload["pipeline"] = {"default_series": ["briefs", "briefs"]}
@@ -317,6 +326,23 @@ class ReleaseSmokeTests(unittest.TestCase):
             alias_path = self._write_config_payload(TEMP_ROOT, alias_payload, "backend_alias")
             with self.assertRaisesRegex(ValueError, "Unsupported ai_summary.backend 'auto'"):
                 load_config(alias_path)
+
+        with self.subTest("removed codex backend"):
+            codex_payload = deepcopy(payload)
+            codex_payload["ai_summary"]["backend"] = "codex_agent"
+            codex_path = self._write_config_payload(TEMP_ROOT, codex_payload, "codex_backend")
+            with self.assertRaisesRegex(ValueError, "Unsupported ai_summary.backend 'codex_agent'"):
+                load_config(codex_path)
+
+        with self.subTest("removed thinking option"):
+            thinking_payload = deepcopy(payload)
+            thinking_payload["ai_summary"]["enable_thinking"] = False
+            thinking_path = self._write_config_payload(TEMP_ROOT, thinking_payload, "thinking_option")
+            with self.assertRaisesRegex(
+                ValueError,
+                r"Config section ai_summary has unrecognized key\(s\): enable_thinking",
+            ):
+                load_config(thinking_path)
 
         with self.subTest("canonical backend spelling only"):
             hyphen_payload = deepcopy(payload)
@@ -531,39 +557,14 @@ class ReleaseSmokeTests(unittest.TestCase):
         self.assertIn("cp config.example.json config.local.json", result.stdout)
         self.assertIn("tools/autoconfig.py", result.stdout)
 
-    def test_stage_options_and_artifacts_are_replay_ready(self) -> None:
+    def test_stop_after_stage_normalizes_checkpoint_name(self) -> None:
         options = PipelineRunOptions.from_cli(
             brief="general",
             stop_after_stage="article-fetch",
-            save_intermediate=False,
-            no_save_intermediate=False,
-            dump_stage_artifacts=True,
-            stage_artifact_dir="output/stages",
-        )
-        payload = build_stage_payload(
-            stage="headline_select",
-            brief="general",
-            summary={"selected": 1},
-            next_stage_input={"selected": [{"id": "candidate-1"}]},
-        )
-        artifact = build_stage_artifact(
-            run_label="20260611_000000",
-            brief="general",
-            stage="headline_select",
-            generated_at="2026-06-11T00:00:00+00:00",
-            summary=payload["summary"],
-            next_stage_input=payload["next_stage_input"],
         )
 
         self.assertEqual(options.briefs, ("general",))
         self.assertEqual(options.stop_after_stage, "article_fetch")
-        self.assertTrue(options.save_intermediate)
-        self.assertTrue(options.dump_stage_artifacts)
-        self.assertEqual(artifact["schema_version"], STAGE_ARTIFACT_SCHEMA_VERSION)
-        self.assertEqual(artifact["next_stage"], "article_fetch")
-        self.assertEqual(artifact["next_stage_input"]["selected"][0]["id"], "candidate-1")
-        self.assertNotIn("payload", artifact)
-        self.assertNotIn("intermediate", artifact)
 
     def test_date_option_is_limited_to_standalone_disk_modules(self) -> None:
         with self.assertRaisesRegex(ValueError, "--date can only be used with standalone modules"):

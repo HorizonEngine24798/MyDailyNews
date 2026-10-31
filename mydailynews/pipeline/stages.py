@@ -3,7 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date as date_type
 
-PIPELINE_BRIEFS = ("general", "detailed")
+from mydailynews.pipeline.brief_specs import DEFAULT_BRIEF_NAMES
+
+
+PIPELINE_BRIEFS = DEFAULT_BRIEF_NAMES
 PIPELINE_MODULES = ("briefs", "enrichment", "narrative_brief", "perspectives_report", "tts")
 PIPELINE_MODULE_CHOICES = PIPELINE_MODULES + ("series",)
 
@@ -57,7 +60,7 @@ def normalize_brief_selection(value: str) -> tuple[str, ...]:
         return PIPELINE_BRIEFS
     if selected in PIPELINE_BRIEFS:
         return (selected,)
-    supported = "general, detailed, both"
+    supported = ", ".join((*PIPELINE_BRIEFS, "both"))
     raise ValueError(f"Unsupported brief '{value}'. Supported values: {supported}")
 
 
@@ -118,9 +121,6 @@ class PipelineRunOptions:
     markdown_path: str = ""
     skip_modules: tuple[str, ...] = ()
     stop_after_stage: str = ""
-    save_intermediate: bool = False
-    dump_stage_artifacts: bool = False
-    stage_artifact_dir: str = ""
 
     @classmethod
     def from_cli(
@@ -132,19 +132,12 @@ class PipelineRunOptions:
         markdown_path: str = "",
         skip_modules: tuple[str, ...] | list[str] | None = None,
         stop_after_stage: str = "",
-        save_intermediate: bool = False,
-        no_save_intermediate: bool = False,
-        dump_stage_artifacts: bool = False,
-        stage_artifact_dir: str = "",
     ) -> "PipelineRunOptions":
         normalized_module = normalize_module_name(module)
         normalized_date = normalize_run_date(date)
         validate_run_date_usage(normalized_module, normalized_date)
         validate_markdown_path_usage(normalized_module, markdown_path)
         normalized_stop = normalize_stage_name(stop_after_stage)
-        should_save_intermediate = bool(save_intermediate or normalized_stop)
-        if no_save_intermediate:
-            should_save_intermediate = False
         return cls(
             briefs=normalize_brief_selection(brief),
             module=normalized_module,
@@ -152,7 +145,4 @@ class PipelineRunOptions:
             markdown_path=str(markdown_path or "").strip(),
             skip_modules=normalize_skip_modules(skip_modules),
             stop_after_stage=normalized_stop,
-            save_intermediate=should_save_intermediate,
-            dump_stage_artifacts=bool(dump_stage_artifacts),
-            stage_artifact_dir=str(stage_artifact_dir or "").strip(),
         )

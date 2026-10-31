@@ -1,8 +1,9 @@
-HEADLINE_ANALYSIS_SYSTEM = """You are an editorial triage scorer for a personal news briefing.
+HEADLINE_ANALYSIS_SYSTEM = """You make three independent editorial judgments for a personal news briefing.
 Return exactly one valid JSON object.
 Do not use markdown fences.
 Use only supplied reader memory, brief goal, topics, and candidate headlines.
-Return one decision for every candidate id."""
+Return one decision for every candidate id.
+Do not produce an overall score; application code calculates priority."""
 
 GENERIC_JSON_RETRY_USER = """Retry instruction: your previous answer could not be parsed as one valid JSON object.
 Return exactly one JSON object only.
@@ -23,47 +24,55 @@ Topics:
 Candidate headlines:
 {items}
 
-Score each candidate from 0.0 to 10.0 for whether it is worth retrieving in full for this brief.
-Apply this rubric:
-1. Personal relevance to the reader profile and brief goal.
-2. Impact (who/what is materially affected).
-3. Novelty (new signal vs repetition).
-4. Actionability (supports concrete decisions, risk monitoring, or planning).
-5. Urgency (cost of waiting until tomorrow).
+Judge exactly three axes. Use only integer levels 0, 1, 2, or 3 and a distinct,
+source-grounded basis of at most 12 words for each axis.
 
-Use regret framing:
-Would this reader regret missing this today?
-- Strong "yes" => score higher.
-- Weak or "no" => score lower.
+NOVELTY — How far is the event from nominal common sense and ordinary world experience?
+This is world-rarity, not novelty versus previous coverage and not how recently it was published.
+- 0: sadly/routinely recurring or an expected instance of a familiar event.
+- 1: somewhat unusual detail within a familiar kind of event.
+- 2: rare, surprising, or meaningfully outside normal expectations.
+- 3: extraordinary first, discovery, reversal of established knowledge, or historic anomaly.
+A school shooting is tragic but not inherently novel. Credible discovery of life on Mars is novel.
 
-Explicit penalties:
-- Routine market or political noise without reader-specific stake.
-- Minor incremental updates that do not materially change understanding.
-- Rewrites of the same event with no meaningful new information.
-- Topic keyword match with low impact or low urgency.
+IMPACT — If true, how broad, severe, and durable are the consequences for the tracked domain?
+- 0: negligible consequence or curiosity only.
+- 1: narrow, modest, or readily reversible consequence.
+- 2: meaningful consequence for a group, sector, institution, or important decision.
+- 3: broad, severe, systemic, or durable consequence.
 
-Examples:
-- High-value must-know (8-10): major policy shift, surprise escalation, large strategic move, or a development with immediate decision impact.
-- Mid-value monitor (5-7): relevant update with some signal but limited urgency or actionability.
-- Low-value noise (0-4): repetitive recap, small incremental change, promotional/clickbait framing, or weakly relevant topic mention.
+URGENCY — What is lost if the reader waits 24 hours before learning this?
+- 0: essentially nothing.
+- 1: useful soon, but waiting carries little cost.
+- 2: monitoring or action is materially better today.
+- 3: active hazard, immediate deadline, or rapidly closing decision window.
 
-Decision fields:
-- Return exactly these fields for every candidate: `id`, `score`, `personal_relevance`, `impact`, `novelty`, `urgency`, `actionability`, `confidence`, `angle_type`.
-- Use a short snake_case label for `angle_type`.
+Independence rules:
+- Score each axis from its own definition; never infer one score from another.
+- Tragedy or impact does not imply novelty. Novelty does not imply impact.
+- Impact does not imply urgency. Breaking publication does not imply urgency.
+- Equal levels are allowed only when each separate basis supports them.
+- Do not force a distribution across the batch; homogeneous batches can be real.
+- Treat promotional, speculative, vague, or weakly supported claims conservatively.
+
+Contrastive calibration:
+- Credible life discovered on Mars: novelty 3, impact 3, urgency depends on immediate consequences.
+- A school shooting: novelty 0, impact and urgency may be high.
+- A law enacted today but effective next year: novelty 1-2, impact 2-3, urgency 0-1.
+- An actively exploited software flaw: novelty 1-2, impact 2-3, urgency 3.
+- An exotic consumer novelty with no consequence: novelty 2-3, impact 0, urgency 0.
 
 Return:
 {{
   "decisions": [
     {{
       "id": "candidate id",
-      "score": 8.0,
-      "personal_relevance": 8.0,
-      "impact": 7.5,
-      "novelty": 6.5,
-      "urgency": 7.0,
-      "actionability": 6.0,
-      "confidence": 7.5,
-      "angle_type": "policy_change"
+      "novelty": 2,
+      "novelty_basis": "rare outcome outside ordinary expectations",
+      "impact": 3,
+      "impact_basis": "durable consequences across the tracked sector",
+      "urgency": 1,
+      "urgency_basis": "no action or deadline within 24 hours"
     }}
   ]
 }}"""
@@ -209,10 +218,12 @@ Work to perform:
    - topic framing fields: short, concrete sentences.
    - list fields: concise bullets, no filler.
 5. Use evidence and delta packets when provided, but do not overstate uncertain points.
-6. Use coverage guidance to avoid making recently dominant continuing stories the core narrative unless today's supplied evidence shows a material new phase. If a story remains important but repetitive, cover it compactly and leave room for other material developments.
-7. Populate explicit `knowns`, `unknowns`, and `watch_signals` slots.
-8. Do not generate a references/sources section.
-9. Do not include URLs or markdown links in generated text fields.
+6. Follow validated delta `story_decisions` dispositions: give `full_report` normal treatment and
+   limit each `continuing_bullet` story to one compact sentence. Omitted stories are intentionally absent.
+7. Use coverage guidance to avoid making recently dominant continuing stories the core narrative unless today's supplied evidence shows a material new phase.
+8. Populate explicit `knowns`, `unknowns`, and `watch_signals` slots.
+9. Do not generate a references/sources section.
+10. Do not include URLs or markdown links in generated text fields.
 
 Return:
 {{
@@ -231,7 +242,7 @@ Return:
       "narrative_changes": [
         {{
           "narrative": "short label",
-          "status": "new | continuing | escalating | weakening | challenged | unresolved",
+          "status": "new | continuing | material_update | status_change | correction | resolved | reframed | unchanged | uncertain",
           "summary": "what changed"
         }}
       ],
@@ -378,105 +389,54 @@ Return:
 }}"""
 
 
-DELTA_EXTRACTION_SYSTEM = """You extract structured narrative deltas between prior reports and current evidence.
-Return exactly one valid JSON object.
-Do not use markdown fences.
-Do not invent facts. Only use supplied article/context/prior-report evidence.
-If prior evidence is insufficient, state that directly in baseline_coverage_note and keep lists concise."""
+FACT_OPERATION_SYSTEM = """You compare one grouped current story-day with bounded retrieved story history.
+Return exactly one JSON object matching the supplied schema.
+Use only the supplied evidence IDs; copy them exactly and never construct an ID.
+Classify current facts only; do not return a same-story/new-story verdict.
+Do not decide materiality, publication, or editorial prose.
+Preserve attribution, negation, quantities, modality, and time.
+Judge the relationship by meaning, including paraphrase and negation; do not require cue words.
+Omission from current evidence never retracts or replaces a prior fact."""
 
-DELTA_EXTRACTION_USER = """Reader profile and style:
+
+FACT_OPERATION_USER = """Story comparison:
+{comparison}
+
+Return source-backed fact operations:
+- add: a current proposition not represented by a prior fact. Cite a prior fact only when it
+  anchors this addition to one continuing historical story; otherwise cite no prior fact.
+- repeat: an equivalent or weaker current proposition; cite the represented prior fact.
+- replace: current evidence explicitly corrects, contradicts, or supersedes the cited prior fact.
+- resolve: current evidence closes the cited central open issue or uncertainty.
+- uncertain: evidence is insufficient; cite no prior fact.
+
+Return exactly one operation for every current evidence ID. Do not use replace for ordinary
+temporal progression, added detail, or omission. Copy the supplied story_key and evidence IDs exactly."""
+
+
+STORY_EDITOR_SYSTEM = """You are the selection editor for a personal news brief.
+Return exactly one JSON object matching the supplied schema.
+You receive every validated current story card. Select coverage; do not alter fact operations.
+An omitted story is stashed for memory, not deleted."""
+
+
+STORY_EDITOR_USER = """Reader memory and style:
 {memory}
 
 Brief mode:
 {brief_goal}
 
-Extract narrative deltas for {date}.
+Validated story cards:
+{story_cards}
 
-Topics:
-{topics}
+Return exactly one decision for every supplied card_id. Use full_report for at most five cards:
+- full_report: reserve for the five most consequential, urgent, or genuinely novel stories at most.
+- continuing_bullet: a useful but secondary delta worth one compact mention.
+- omit: low-value, repeated, or deferrable today; it remains stashed in story memory.
 
-Previous reports:
-{prior_reports}
-
-Current evidence packet:
-{evidence_packet}
-
-Story memory (bounded and story-specific; candidate history, not proof of identity):
-{story_memory}
-
-Fallback selected article evidence:
-{articles}
-
-Work to perform:
-1. For every current story thread, decide whether it is the same concrete story, a related theme, distinct, or uncertain relative to the supplied baselines.
-2. If it is the same story, identify whether it is new, escalated, weakened, reframed, unchanged, or uncertain, and copy the matched baseline's supplied story_key into prior_story_key.
-3. Keep entries evidence-grounded and link article ids. Never infer same-story identity from topic overlap alone. A same-story unchanged item should be omitted unless it is critical safety information; a non-material continuation should be a continuing bullet, not a full report.
-4. Use uncertain when the baseline is weak or evidence conflicts; do not suppress uncertain stories.
-5. Flag evidence gaps that limit confidence.
-
-Return:
-{{
-  "baseline_coverage_note": "how strong prior coverage was for this comparison",
-  "new": [
-    {{
-      "item": "new development label",
-      "summary": "what is newly observed",
-      "article_ids": ["article id"]
-    }}
-  ],
-  "escalated": [
-    {{
-      "item": "escalating development label",
-      "summary": "how/why it intensified",
-      "article_ids": ["article id"]
-    }}
-  ],
-  "weakened": [
-    {{
-      "item": "weakening development label",
-      "summary": "how/why momentum declined",
-      "article_ids": ["article id"]
-    }}
-  ],
-  "reframed": [
-    {{
-      "item": "reframed narrative label",
-      "summary": "what changed in interpretation",
-      "article_ids": ["article id"]
-    }}
-  ],
-  "unchanged_but_important": [
-    {{
-      "item": "still-important development label",
-      "summary": "why it remains important",
-      "article_ids": ["article id"]
-    }}
-  ],
-  "story_decisions": [
-    {{
-      "story_key": "current story key",
-      "article_ids": ["article id"],
-      "prior_story_key": "matched prior key or empty",
-      "relationship": "same_story | related_theme | distinct_story | uncertain",
-      "change_type": "new | escalated | weakened | reframed | unchanged | uncertain",
-      "materiality": 0.0,
-      "confidence": 0.0,
-      "disposition": "full_report | continuing_bullet | omit | uncertain",
-      "summary": "evidence-grounded decision summary",
-      "bullet": "short continuing bullet when applicable",
-      "reason": "why this identity and change decision was made",
-      "knowns": ["known baseline fact"],
-      "unknowns": ["important unresolved point"],
-      "watch_signals": ["future signal to monitor"]
-    }}
-  ],
-  "evidence_gaps": [
-    {{
-      "gap": "missing evidence or unresolved uncertainty",
-      "why_it_matters": "impact of this gap"
-    }}
-  ]
-}}"""
+Judge cards against each other, not in isolation. Do not omit an unsafe operation result.
+Materiality is an integer 0-3. Summary states the supported delta in at most
+16 words; basis explains the coverage choice in at most 16 words."""
 
 
 PERSPECTIVES_PLANNER_SYSTEM = """You plan bounded broad story retrieval and focused claim verification using English queries.

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from typing import Any, Dict, List
 
 from .base import AIClient, AIJsonError, write_ai_json_artifact
@@ -11,10 +10,12 @@ from mydailynews.common.cache import JSONCache
 from mydailynews.diagnostics.debug import DebugLogger
 from mydailynews.app.models import HeadlineDecision, NewsCandidate, TopicConfig, UserMemory
 from mydailynews.common.utils import compact_json, datetime_to_iso
+from mydailynews.domain.text_similarity import word_tokens
 
-HEADLINE_DECISION_CACHE_FINGERPRINT_VERSION = 10
+HEADLINE_DECISION_CACHE_FINGERPRINT_VERSION = 11
 _HEADLINE_OUTPUT_BASE_TOKENS = 64
 _HEADLINE_OUTPUT_TOKENS_PER_DECISION = 128
+_PRIORITY_WEIGHTS = {"novelty": 0.25, "impact": 0.45, "urgency": 0.30}
 
 
 class HeadlineAnalyzer:
@@ -38,9 +39,9 @@ class HeadlineAnalyzer:
         self.max_new_tokens = max_new_tokens
         self.single_replay_max_new_tokens = single_replay_max_new_tokens
         self.warnings: List[str] = []
-        self._multifactor_totals: Dict[str, float] = {}
-        self._multifactor_presence: Dict[str, int] = {}
-        self._multifactor_count: int = 0
+        self._axis_totals: Dict[str, float] = {}
+        self._axis_presence: Dict[str, int] = {}
+        self._axis_count: int = 0
 
     def analyze(
         self,
@@ -51,7 +52,7 @@ class HeadlineAnalyzer:
         brief_name: str = "",
     ) -> Dict[str, HeadlineDecision]:
         self.warnings = []
-        self._reset_multifactor_stats()
+        self._reset_axis_stats()
         if not candidates:
             return {}
 
@@ -76,7 +77,7 @@ class HeadlineAnalyzer:
                     len(batches),
                 )
             )
-        self._emit_multifactor_metrics()
+        self._emit_axis_metrics()
         return decisions
 
     def _analyze_batch(
@@ -205,35 +206,35 @@ class HeadlineAnalyzer:
             candidate = candidate_by_id.get(candidate_id)
             if candidate is None:
                 continue
-            score = self._clamp_0_to_10(raw.get("score"), default=0.0)
-            personal_relevance = self._clamp_0_to_10(raw.get("personal_relevance"), default=5.0)
-            impact = self._clamp_0_to_10(raw.get("impact"), default=5.0)
-            novelty = self._clamp_0_to_10(raw.get("novelty"), default=5.0)
-            urgency = self._clamp_0_to_10(raw.get("urgency"), default=5.0)
-            actionability = self._clamp_0_to_10(raw.get("actionability"), default=5.0)
-            confidence = self._clamp_0_to_10(raw.get("confidence"), default=5.0)
-            angle_type = self._short_text(raw.get("angle_type"), max_chars=60)
+            levels = {
+                "novelty": self._clamp_level(raw.get("novelty")),
+                "impact": self._clamp_level(raw.get("impact")),
+                "urgency": self._clamp_level(raw.get("urgency")),
+            }
+            # Keep the established 0-10 internal scale so existing cutoffs and
+            # memory policy remain stable; the model itself only chooses 0-3.
+            scores = {key: round(value * (10.0 / 3.0), 4) for key, value in levels.items()}
+            score = self.priority_score(**levels)
+            bases = {
+                key: self._short_text(raw.get(f"{key}_basis"), max_chars=120)
+                for key in levels
+            }
             decisions[candidate_id] = HeadlineDecision(
                 candidate_id=candidate_id,
                 score=score,
                 topic=self.best_topic_for_candidate(candidate, topics),
-                personal_relevance=personal_relevance,
-                impact=impact,
-                novelty=novelty,
-                urgency=urgency,
-                actionability=actionability,
-                confidence=confidence,
-                angle_type=angle_type,
+                impact=scores["impact"],
+                novelty=scores["novelty"],
+                urgency=scores["urgency"],
+                novelty_basis=bases["novelty"],
+                impact_basis=bases["impact"],
+                urgency_basis=bases["urgency"],
             )
-            self._record_multifactor_row(
+            self._record_axis_row(
                 raw=raw,
-                personal_relevance=personal_relevance,
-                impact=impact,
-                novelty=novelty,
-                urgency=urgency,
-                actionability=actionability,
-                confidence=confidence,
-                angle_type=angle_type,
+                impact=scores["impact"],
+                novelty=scores["novelty"],
+                urgency=scores["urgency"],
             )
 
         missing = [item for item in candidates if item.id not in decisions]
@@ -472,79 +473,81 @@ class HeadlineAnalyzer:
 
     @staticmethod
     def _topic_match_score(item: NewsCandidate, topic: TopicConfig) -> float:
-        text = f"{item.title or ''} {item.snippet or ''}".lower()
-        text_tokens = set(re.findall(r"[a-z0-9]{3,}", text))
+        text = f"{item.title or ''} {item.snippet or ''}"
+        text_tokens = set(word_tokens(text, min_alpha_chars=2, keep_numbers=True))
         if not text_tokens:
             return 0.0
-        topic_tokens = set(re.findall(r"[a-z0-9]{3,}", topic.name.lower()))
-        topic_tokens.update(re.findall(r"[a-z0-9]{3,}", topic.description.lower()))
+        topic_tokens = set(word_tokens(topic.name, min_alpha_chars=2, keep_numbers=True))
+        topic_tokens.update(word_tokens(topic.description, min_alpha_chars=2, keep_numbers=True))
         for query in topic.queries or []:
-            topic_tokens.update(re.findall(r"[a-z0-9]{3,}", query.lower()))
+            topic_tokens.update(word_tokens(query, min_alpha_chars=2, keep_numbers=True))
         if not topic_tokens:
             return 0.0
         return len(text_tokens.intersection(topic_tokens)) / max(3, len(topic_tokens))
 
-    def _reset_multifactor_stats(self) -> None:
-        numeric_dims = [
-            "personal_relevance",
-            "impact",
-            "novelty",
-            "urgency",
-            "actionability",
-            "confidence",
-        ]
-        self._multifactor_totals = {name: 0.0 for name in numeric_dims}
-        self._multifactor_presence = {name: 0 for name in numeric_dims}
-        self._multifactor_presence["angle_type"] = 0
-        self._multifactor_count = 0
+    def _reset_axis_stats(self) -> None:
+        numeric_dims = ["novelty", "impact", "urgency"]
+        self._axis_totals = {name: 0.0 for name in numeric_dims}
+        self._axis_presence = {name: 0 for name in numeric_dims}
+        self._axis_count = 0
+        self._axis_all_equal_count = 0
 
-    def _record_multifactor_row(
+    def _record_axis_row(
         self,
         *,
         raw: Dict[str, Any],
-        personal_relevance: float,
         impact: float,
         novelty: float,
         urgency: float,
-        actionability: float,
-        confidence: float,
-        angle_type: str,
     ) -> None:
-        self._multifactor_count += 1
+        self._axis_count += 1
         numeric_values = {
-            "personal_relevance": personal_relevance,
             "impact": impact,
             "novelty": novelty,
             "urgency": urgency,
-            "actionability": actionability,
-            "confidence": confidence,
         }
+        if len(set(numeric_values.values())) == 1:
+            self._axis_all_equal_count += 1
         for key, value in numeric_values.items():
-            self._multifactor_totals[key] += float(value)
+            self._axis_totals[key] += float(value)
             if key in raw and raw.get(key) is not None:
-                self._multifactor_presence[key] += 1
-        if angle_type:
-            self._multifactor_presence["angle_type"] += 1
+                self._axis_presence[key] += 1
 
-    def _emit_multifactor_metrics(self) -> None:
-        if self._multifactor_count <= 0:
+    def _emit_axis_metrics(self) -> None:
+        if self._axis_count <= 0:
             return
-        self.debug.set_metric("headline.multifactor.decisions", self._multifactor_count)
-        for key, total in self._multifactor_totals.items():
-            self.debug.set_metric(f"headline.multifactor.avg.{key}", round(total / self._multifactor_count, 4))
-        for key, present in self._multifactor_presence.items():
+        self.debug.set_metric("headline.axes.decisions", self._axis_count)
+        self.debug.set_metric(
+            "headline.axes.all_equal_ratio",
+            round(float(self._axis_all_equal_count) / float(self._axis_count), 4),
+        )
+        for key, total in self._axis_totals.items():
+            self.debug.set_metric(f"headline.axes.avg.{key}", round(total / self._axis_count, 4))
+        for key, present in self._axis_presence.items():
             self.debug.set_metric(
-                f"headline.multifactor.present_ratio.{key}",
-                round(float(present) / float(self._multifactor_count), 4),
+                f"headline.axes.present_ratio.{key}",
+                round(float(present) / float(self._axis_count), 4),
             )
 
     @staticmethod
-    def _clamp_0_to_10(value: Any, *, default: float) -> float:
+    def _clamp_level(value: Any) -> int:
         try:
-            numeric = float(value)
+            numeric = int(value)
         except (TypeError, ValueError):
-            numeric = float(default)
-        return max(0.0, min(10.0, numeric))
+            return 0
+        return max(0, min(3, numeric))
+
+    @staticmethod
+    def priority_score(*, novelty: int, impact: int, urgency: int) -> float:
+        weighted_level = sum(
+            float(value) * _PRIORITY_WEIGHTS[key]
+            for key, value in {
+                "novelty": novelty,
+                "impact": impact,
+                "urgency": urgency,
+            }.items()
+        )
+        return round(weighted_level * (10.0 / 3.0), 4)
 
     @staticmethod
     def _short_text(value: Any, *, max_chars: int) -> str:

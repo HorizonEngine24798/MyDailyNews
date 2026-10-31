@@ -1,0 +1,2378 @@
+{
+  "schema_version": "change_monitor.eval.v1",
+  "name": "Real-news blind change monitoring v1",
+  "description": "A sealed holdout of paraphrased evidence from real public primary sources. Entire event families are held out together. Labels were assigned independently of the production semantic implementation and must not be used for tuning.",
+  "arcs": [
+    {
+      "id": "real-blind-starliner-cft",
+      "split": "holdout",
+      "tags": ["real_primary_sources", "genre_space", "cross_vehicle_resolution", "translated_duplicate", "same_program_hard_negative", "long_horizon"],
+      "profile": {
+        "role": "Human-spaceflight programme risk analyst",
+        "wants": ["Boeing Starliner crew flight test", "NASA commercial crew mission outcomes", "astronaut return plans"],
+        "beats": {"NASA commercial crew": 3.0, "spaceflight safety": 2.8},
+        "briefing_style": "Report decisions, mission-state changes, and outcomes; suppress source-language duplicates."
+      },
+      "fact_catalog": {
+        "star_f1": "Starliner launched its first crewed test with Butch Wilmore and Suni Williams on June 5, 2024.",
+        "star_f2": "NASA and Boeing postponed Starliner's planned return while evaluating thruster behavior and helium leaks.",
+        "star_f3": "NASA decided Starliner would return without its crew and moved Wilmore and Williams to the Crew-9 return plan.",
+        "star_f4": "A Spanish NASA release restated the uncrewed-return decision without a later operational development.",
+        "star_f5": "The uncrewed Starliner landed at White Sands on September 7, completing the spacecraft flight test.",
+        "star_f6": "Crew-8, a separate SpaceX rotation with different astronauts, splashed down in October 2024.",
+        "star_f7": "Wilmore and Williams returned to Earth aboard Crew-9 on March 18, 2025.",
+        "star_f8": "A later NASA feature recapped the already-reported Crew-9 return without a new mission event.",
+        "star_f9": "NASA's 2026 investigation found combined hardware, qualification, leadership, and cultural failures and classified the flight as a Type A mishap."
+      },
+      "days": [
+        {
+          "date": "2024-06-05",
+          "documents": [
+            {
+              "id": "rb-star-01",
+              "source": "NASA",
+              "title": "LIFTOFF! NASA Astronauts Pilot First Starliner Crewed Test to Station",
+              "url": "https://www.nasa.gov/news-release/liftoff-nasa-astronauts-pilot-first-starliner-crewed-test-to-station/",
+              "snippet": "NASA says Starliner's first astronaut flight launched for an end-to-end station test.",
+              "body": "NASA reported that Boeing Starliner lifted off on June 5 with astronauts Butch Wilmore and Suni Williams for the spacecraft's first crewed flight. The plan was to dock with the International Space Station, spend roughly a week testing systems, and return the astronauts aboard Starliner. The release also discusses launch coverage, certification goals, earlier uncrewed tests, station crew assignments, and planned in-orbit demonstrations.",
+              "published_at": "2024-06-05T12:00:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased", "long_source"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-star-01", "canonical_story_id": "starliner-crew-flight-test-return", "relationship": "new_story", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["star_f1"], "forbidden_fact_ids": ["star_f3", "star_f7"]}
+          ]
+        },
+        {
+          "date": "2024-06-21",
+          "documents": [
+            {
+              "id": "rb-star-02",
+              "source": "NASA Space Station Blog",
+              "title": "NASA, Boeing Adjust Timeline for Starliner Return",
+              "url": "https://www.nasa.gov/blogs/spacestation/2024/06/21/nasa-boeing-adjust-timeline-for-starliner-return/",
+              "snippet": "The return schedule is moved while teams review propulsion-system data.",
+              "body": "NASA and Boeing said they were no longer targeting the previously discussed June return date. Engineers wanted additional time to review helium-system leaks and thruster performance seen during the flight and to complete ground testing. Wilmore and Williams remained safe aboard the station and continued flight-test work. The update did not decide whether Starliner would return with or without them.",
+              "published_at": "2024-06-21T20:13:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-star-02", "canonical_story_id": "starliner-crew-flight-test-return", "relationship": "same_story", "delta_type": "material_update", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["star_f2"], "forbidden_fact_ids": ["star_f3", "star_f7"]}
+          ]
+        },
+        {
+          "date": "2024-08-24",
+          "documents": [
+            {
+              "id": "rb-star-03",
+              "source": "NASA",
+              "title": "NASA Decides to Bring Starliner Spacecraft Back to Earth Without Crew",
+              "url": "https://www.nasa.gov/news-release/nasa-decides-to-bring-starliner-spacecraft-back-to-earth-without-crew/",
+              "snippet": "NASA changes the return plan after its safety review.",
+              "body": "NASA announced a binding change to the Crew Flight Test plan: Starliner would leave the station and land without Wilmore and Williams. Agency leaders said uncertainty over the propulsion system and the absence of engineering consensus made a crewed return too risky. The astronauts would remain on the station and return with SpaceX Crew-9. The release contains extensive programme background, testing discussion, crew biographies, and future schedule details.",
+              "published_at": "2024-08-24T18:00:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased", "long_source"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-star-03", "canonical_story_id": "starliner-crew-flight-test-return", "relationship": "same_story", "delta_type": "status_change", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["star_f3"], "forbidden_fact_ids": ["star_f5", "star_f7"]}
+          ]
+        },
+        {
+          "date": "2024-08-26",
+          "documents": [
+            {
+              "id": "rb-star-04",
+              "source": "NASA en español",
+              "title": "La NASA decide traer de vuelta la nave Starliner a la Tierra sin tripulación",
+              "url": "https://www.nasa.gov/news-release/la-nasa-decide-traer-de-vuelta-la-nave-starliner-a-la-tierra-sin-tripulacion/",
+              "snippet": "The Spanish-language release conveys the same return decision.",
+              "body": "Esta publicación de la NASA en español vuelve a informar que Starliner regresará sin Wilmore y Williams, y que los astronautas volverán en Crew-9. Resume las mismas razones de seguridad y los mismos antecedentes operativos de la publicación inglesa; no anuncia un aterrizaje ni una decisión posterior.",
+              "published_at": "2024-08-26T12:00:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased", "translated_release"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-star-04", "canonical_story_id": "starliner-crew-flight-test-return", "relationship": "same_story", "delta_type": "unchanged", "material": false, "display": "omit", "profile_relevance": "must_select", "should_select": false, "required_fact_ids": [], "forbidden_fact_ids": ["star_f5", "star_f7"]}
+          ]
+        },
+        {
+          "date": "2024-09-07",
+          "documents": [
+            {
+              "id": "rb-star-05",
+              "source": "NASA Space Station Blog",
+              "title": "Starliner Lands in New Mexico",
+              "url": "https://www.nasa.gov/blogs/spacestation/2024/09/07/starliner-lands-in-new-mexico/",
+              "snippet": "The spacecraft completes its uncrewed return.",
+              "body": "NASA reported that Starliner touched down at White Sands Space Harbor shortly after midnight on September 7. It returned without its two flight-test astronauts, as NASA had decided in August. The landing completed the spacecraft portion of the Crew Flight Test, while Wilmore and Williams remained aboard the station awaiting a different ride home.",
+              "published_at": "2024-09-07T04:06:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-star-05", "canonical_story_id": "starliner-crew-flight-test-return", "relationship": "same_story", "delta_type": "material_update", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["star_f5"], "forbidden_fact_ids": ["star_f7"]}
+          ]
+        },
+        {
+          "date": "2024-10-25",
+          "documents": [
+            {
+              "id": "rb-star-06",
+              "source": "NASA",
+              "title": "Back on Earth: NASA's SpaceX Crew-8 Mission Splashes Down Off Florida",
+              "url": "https://www.nasa.gov/news-release/back-on-earth-nasas-spacex-crew-8-mission-splashes-down-off-florida/",
+              "snippet": "A different commercial-crew rotation returns four other crewmembers.",
+              "body": "NASA announced the splashdown of SpaceX Crew-8 after a nearly eight-month station mission. The returning crew were Matthew Dominick, Michael Barratt, Jeanette Epps, and Alexander Grebenkin. Although the release shares NASA, SpaceX, station, splashdown, and commercial-crew vocabulary with the Starliner thread, it is a separate rotation and did not return Wilmore or Williams.",
+              "published_at": "2024-10-25T12:00:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-star-06", "canonical_story_id": "nasa-spacex-crew-8-return", "relationship": "related_theme", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "eligible", "should_select": true, "required_fact_ids": ["star_f6"], "forbidden_fact_ids": ["star_f3", "star_f7"]}
+          ]
+        },
+        {
+          "date": "2025-03-18",
+          "documents": [
+            {
+              "id": "rb-star-07",
+              "source": "NASA",
+              "title": "Welcome Home! NASA's SpaceX Crew-9 Back on Earth After Science Mission",
+              "url": "https://www.nasa.gov/news-release/welcome-home-nasas-spacex-crew-9-back-on-earth-after-science-mission/",
+              "snippet": "Crew-9 brings the two Starliner test astronauts home.",
+              "body": "NASA said Crew-9 splashed down with Nick Hague, Aleksandr Gorbunov, Suni Williams, and Butch Wilmore. Williams and Wilmore had launched on Starliner in June 2024 but were reassigned to Crew-9 after the uncrewed-return decision. Their March 18 landing ended the open astronaut-return portion of the Starliner Crew Flight Test story. Much of the release covers station science, mission distances, spacecraft history, and the broader commercial-crew programme.",
+              "published_at": "2025-03-18T22:00:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased", "cross_vehicle", "long_source"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-star-07", "canonical_story_id": "starliner-crew-flight-test-return", "relationship": "same_story", "delta_type": "resolved", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["star_f7"], "forbidden_fact_ids": ["star_f6"]}
+          ]
+        },
+        {
+          "date": "2025-04-07",
+          "documents": [
+            {
+              "id": "rb-star-08",
+              "source": "NASA Johnson Space Center",
+              "title": "Back to Earth, Forward to the Future: NASA's SpaceX Crew-9 Returns",
+              "url": "https://www.nasa.gov/centers-and-facilities/johnson/back-to-earth-forward-to-the-future-nasas-spacex-crew-9-returns/",
+              "snippet": "A feature retells the completed Crew-9 return weeks later.",
+              "body": "This NASA feature looks back on the March 18 Crew-9 splashdown and again explains that Williams and Wilmore had first flown on Starliner before NASA reassigned their return. It adds colour about the crew's research and homecoming but no later Starliner decision, landing, or astronaut-return event.",
+              "published_at": "2025-04-07T12:00:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased", "retrospective"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-star-08", "canonical_story_id": "starliner-crew-flight-test-return", "relationship": "same_story", "delta_type": "unchanged", "material": false, "display": "omit", "profile_relevance": "must_select", "should_select": false, "required_fact_ids": [], "forbidden_fact_ids": ["star_f6"]}
+          ]
+        },
+        {
+          "date": "2026-02-19",
+          "documents": [
+            {
+              "id": "rb-star-09",
+              "source": "NASA",
+              "title": "NASA Releases Report on Starliner Crewed Flight Test Investigation",
+              "url": "https://www.nasa.gov/news-release/nasa-releases-report-on-starliner-crewed-flight-test-investigation/",
+              "snippet": "A formal investigation adds organizational findings and the agency's highest mishap classification.",
+              "body": "NASA released the final Program Investigation Team report on the 2024 Crew Flight Test. Investigators found interacting hardware failures, qualification gaps, leadership mistakes, and cultural breakdowns that created unacceptable risk. NASA classified the event as a Type A mishap and said corrective actions were required before another Starliner flight. The release recaps the launch, uncrewed spacecraft return, and Crew-9 astronaut return, but those historical outcomes are not its new claim.",
+              "published_at": "2026-02-19T12:00:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased", "post_training_candidate", "long_source"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-star-09", "canonical_story_id": "starliner-crew-flight-test-return", "relationship": "same_story", "delta_type": "material_update", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["star_f9"], "forbidden_fact_ids": ["star_f6"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "real-blind-microsoft-activision-cma",
+      "split": "holdout",
+      "tags": ["real_primary_sources", "genre_economy_business", "regulatory_reframing", "blocked_then_restructured", "same_regulator_actor_hard_negative", "long_noisy_case_page"],
+      "profile": {
+        "role": "UK competition and games-market analyst",
+        "wants": ["Microsoft Activision merger review", "CMA technology merger decisions", "cloud gaming remedies"],
+        "beats": {"UK competition enforcement": 3.0, "gaming mergers": 3.0},
+        "briefing_style": "Distinguish provisional views, final decisions, revised transactions, and unrelated Microsoft cases."
+      },
+      "fact_catalog": {
+        "cma_f1": "The CMA provisionally identified both console-gaming and cloud-gaming competition concerns.",
+        "cma_f2": "New evidence removed the CMA's provisional console-gaming concern, while its cloud-gaming concern remained.",
+        "cma_f3": "The CMA blocked the original Microsoft-Activision transaction over cloud-gaming concerns.",
+        "cma_f4": "Microsoft submitted a restructured transaction that excluded non-EEA cloud-streaming rights and assigned them to Ubisoft.",
+        "cma_f5": "The CMA provisionally found the restructured deal and proposed protections addressed its concerns.",
+        "cma_f6": "The CMA gave final clearance to the restructured Microsoft-Activision deal on October 13, 2023.",
+        "cma_f7": "A later CMA decision cleared Microsoft's separate arrangements with Inflection AI."
+      },
+      "days": [
+        {
+          "date": "2023-02-08",
+          "documents": [
+            {
+              "id": "rb-cma-01",
+              "source": "UK Competition and Markets Authority",
+              "title": "Microsoft-Activision deal could harm UK gamers",
+              "url": "https://www.gov.uk/government/news/microsoft-activision-deal-could-harm-uk-gamers",
+              "snippet": "The CMA publishes provisional concerns about console and cloud gaming.",
+              "body": "The CMA's provisional findings said Microsoft's proposed acquisition of Activision could substantially lessen competition in UK console gaming and cloud gaming. The regulator had not reached a final decision and invited evidence and possible remedies. The release also gives market background, deal values, consultation mechanics, and examples of Activision games.",
+              "published_at": "2023-02-08T12:00:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased", "long_source"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-cma-01", "canonical_story_id": "microsoft-activision-cma-review", "relationship": "new_story", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["cma_f1"], "forbidden_fact_ids": ["cma_f3", "cma_f6"]}
+          ]
+        },
+        {
+          "date": "2023-03-24",
+          "documents": [
+            {
+              "id": "rb-cma-02",
+              "source": "UK Competition and Markets Authority",
+              "title": "CMA narrows scope of concerns in Microsoft-Activision review",
+              "url": "https://www.gov.uk/government/news/cma-narrows-scope-of-concerns-in-microsoft-activision-review",
+              "snippet": "The provisional theory changes after new evidence, but one concern survives.",
+              "body": "After reviewing new evidence, the CMA provisionally concluded the acquisition would not substantially lessen competition in UK console gaming. It left its separate provisional cloud-gaming concern unchanged. The investigation remained open and a final report was still due in April; the update was neither an approval nor a rejection of the transaction.",
+              "published_at": "2023-03-24T12:00:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-cma-02", "canonical_story_id": "microsoft-activision-cma-review", "relationship": "same_story", "delta_type": "reframed", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["cma_f2"], "forbidden_fact_ids": ["cma_f3", "cma_f6"]}
+          ]
+        },
+        {
+          "date": "2023-04-26",
+          "documents": [
+            {
+              "id": "rb-cma-03",
+              "source": "UK Competition and Markets Authority",
+              "title": "Microsoft-Activision deal prevented to protect innovation and choice in cloud gaming",
+              "url": "https://www.gov.uk/government/news/microsoft-activision-deal-prevented-to-protect-innovation-and-choice-in-cloud-gaming",
+              "snippet": "The regulator issues its final decision on the original deal.",
+              "body": "The CMA published a final report prohibiting the transaction as originally proposed. It concluded that Microsoft's offered remedy did not adequately address the loss of competition in cloud gaming. The final decision resolved the original application against Microsoft, although later legal or commercial developments could produce a different transaction.",
+              "published_at": "2023-04-26T12:00:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-cma-03", "canonical_story_id": "microsoft-activision-cma-review", "relationship": "same_story", "delta_type": "resolved", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["cma_f3"], "forbidden_fact_ids": ["cma_f5", "cma_f6"]}
+          ]
+        },
+        {
+          "date": "2023-08-22",
+          "documents": [
+            {
+              "id": "rb-cma-04",
+              "source": "UK Competition and Markets Authority",
+              "title": "Microsoft submits new deal for review after CMA confirms original deal is blocked",
+              "url": "https://www.gov.uk/government/news/microsoft-submits-new-deal-for-review-after-cma-confirms-original-deal-is-blocked",
+              "snippet": "The original deal stays prohibited while a materially restructured deal begins a fresh review.",
+              "body": "The CMA confirmed that its prohibition of the original acquisition remained in force. Separately, Microsoft notified a restructured acquisition under which Ubisoft, rather than Microsoft, would receive Activision's non-EEA cloud-streaming rights for current games and games released over the next fifteen years. The CMA opened a fresh phase-one investigation and emphasized that submission was not approval. The source contains substantial procedural history and remedy detail.",
+              "published_at": "2023-08-22T12:00:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased", "long_source"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-cma-04", "canonical_story_id": "microsoft-activision-cma-review", "relationship": "same_story", "delta_type": "reframed", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["cma_f4"], "forbidden_fact_ids": ["cma_f6"]}
+          ]
+        },
+        {
+          "date": "2023-09-22",
+          "documents": [
+            {
+              "id": "rb-cma-05",
+              "source": "UK Competition and Markets Authority",
+              "title": "New Microsoft-Activision deal addresses previous CMA concerns in cloud gaming",
+              "url": "https://www.gov.uk/government/news/new-microsoft-activision-deal-addresses-previous-cma-concerns-in-cloud-gaming",
+              "snippet": "The revised transaction moves toward clearance, subject to consultation and protections.",
+              "body": "The CMA said the Ubisoft rights transfer substantially addressed the cloud-gaming concern that had caused the earlier prohibition. It provisionally accepted additional protections offered by Microsoft and opened a consultation before a final decision. This was a major change in regulatory posture, but it was still provisional and did not itself clear the deal.",
+              "published_at": "2023-09-22T12:00:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-cma-05", "canonical_story_id": "microsoft-activision-cma-review", "relationship": "same_story", "delta_type": "status_change", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["cma_f5"], "forbidden_fact_ids": ["cma_f6"]}
+          ]
+        },
+        {
+          "date": "2023-10-13",
+          "documents": [
+            {
+              "id": "rb-cma-06",
+              "source": "UK Competition and Markets Authority",
+              "title": "Microsoft concession a gamechanger that will promote competition",
+              "url": "https://www.gov.uk/government/news/microsoft-concession-a-gamechanger-that-will-promote-competition",
+              "snippet": "The CMA gives final clearance to the restructured transaction.",
+              "body": "The CMA cleared Microsoft's restructured acquisition of Activision. It concluded that transferring cloud-streaming rights to Ubisoft, backed by enforceable protections, addressed the competition problem. This final decision ended the UK review of the revised transaction; it did not reverse the historical fact that the original version had been prohibited.",
+              "published_at": "2023-10-13T12:00:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-cma-06", "canonical_story_id": "microsoft-activision-cma-review", "relationship": "same_story", "delta_type": "resolved", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["cma_f6"], "forbidden_fact_ids": []}
+          ]
+        },
+        {
+          "date": "2024-09-04",
+          "documents": [
+            {
+              "id": "rb-cma-07",
+              "source": "UK Competition and Markets Authority",
+              "title": "Microsoft / Inflection inquiry: clearance decision",
+              "url": "https://www.gov.uk/cma-cases/microsoft-slash-inflection-ai-inquiry",
+              "snippet": "The same regulator clears a different Microsoft transaction involving an AI company.",
+              "body": "The CMA cleared Microsoft's hiring of former Inflection AI employees and associated arrangements. This case involved a different counterparty, conduct, product context, evidentiary record, and decision from the Activision acquisition. The shared Microsoft and CMA names do not make it another update to the games-merger thread.",
+              "published_at": "2024-09-04T12:00:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased", "case_page"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-cma-07", "canonical_story_id": "microsoft-inflection-cma-review", "relationship": "related_theme", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "eligible", "should_select": true, "required_fact_ids": ["cma_f7"], "forbidden_fact_ids": ["cma_f4", "cma_f6"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "real-blind-crowdstrike-channel-291",
+      "split": "holdout",
+      "tags": ["real_primary_sources", "genre_technology", "incident_to_root_cause", "cross_publisher_same_event", "translated_duplicate", "cyber_theme_hard_negative"],
+      "profile": {
+        "role": "Enterprise Windows resilience lead",
+        "wants": ["large Windows availability incidents", "CrowdStrike Falcon remediation", "root-cause and prevention updates"],
+        "beats": {"enterprise resilience": 3.0, "endpoint security": 2.5},
+        "briefing_style": "Separate outages from general cyber guidance and distinguish mitigation from causal findings."
+      },
+      "fact_catalog": {
+        "cs_f1": "CISA published general network-access security guidance unrelated to the later CrowdStrike outage.",
+        "cs_f2": "A defective CrowdStrike Falcon content update caused widespread Windows crashes on July 19, 2024; it was not malicious activity.",
+        "cs_f3": "Microsoft released and expanded a recovery tool for affected Windows endpoints.",
+        "cs_f4": "A Japanese Microsoft post translated and repeated the existing outage and recovery guidance.",
+        "cs_f5": "CrowdStrike's preliminary review identified a validator bug that allowed problematic Rapid Response Content to pass checks.",
+        "cs_f6": "CrowdStrike's full root-cause analysis detailed the Channel File 291 failure and committed additional validation, testing, and deployment controls."
+      },
+      "days": [
+        {
+          "date": "2024-06-18",
+          "documents": [
+            {
+              "id": "rb-cs-01",
+              "source": "US Cybersecurity and Infrastructure Security Agency",
+              "title": "CISA and Partners Release Guidance for Modern Approaches to Network Access Security",
+              "url": "https://www.cisa.gov/news-events/alerts/2024/06/18/cisa-and-partners-release-guidance-modern-approaches-network-access-security",
+              "snippet": "A general advisory recommends stronger remote-access architecture.",
+              "body": "CISA and international partners recommended that organizations move toward zero-trust and secure-access approaches for remote connectivity. The advisory discussed VPN exposure, visibility, and configuration risk. It did not report a CrowdStrike update, Windows blue screens, a global availability incident, or recovery from one.",
+              "published_at": "2024-06-18T12:00:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-cs-01", "canonical_story_id": "cisa-network-access-guidance", "relationship": "new_story", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "eligible", "should_select": true, "required_fact_ids": ["cs_f1"], "forbidden_fact_ids": ["cs_f2", "cs_f5"]}
+          ]
+        },
+        {
+          "date": "2024-07-19",
+          "documents": [
+            {
+              "id": "rb-cs-02",
+              "source": "CrowdStrike",
+              "title": "To Our Customers and Partners",
+              "url": "https://www.crowdstrike.com/en-us/blog/to-our-customers-and-partners/",
+              "snippet": "CrowdStrike attributes the Windows outage to its content update, not a cyberattack.",
+              "body": "CrowdStrike acknowledged that a defect in a Falcon content update for Windows hosts caused crashes and disruption. It said Mac and Linux systems were unaffected and stressed that the event was not a security incident or cyberattack. The faulty change had been identified and reverted, while affected machines could still require remediation.",
+              "published_at": "2024-07-19T12:00:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-cs-02", "canonical_story_id": "crowdstrike-channel-291-outage", "relationship": "related_theme", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["cs_f2"], "forbidden_fact_ids": ["cs_f1", "cs_f5"]}
+          ]
+        },
+        {
+          "date": "2024-07-21",
+          "documents": [
+            {
+              "id": "rb-cs-03",
+              "source": "Microsoft Windows Release Health",
+              "title": "CrowdStrike issue impacting Windows endpoints: updated recovery tool",
+              "url": "https://learn.microsoft.com/en-us/windows/release-health/resolved-issues-windows-11-23H2",
+              "snippet": "Microsoft expands tooling for administrators recovering affected endpoints.",
+              "body": "Microsoft's Windows release-health record said affected Falcon endpoints could repeatedly restart and need recovery operations. By July 21 Microsoft had updated its signed recovery tool with Windows PE and safe-mode options, following earlier client and server guidance. The tool changed the available remediation path; it did not yet provide CrowdStrike's full root-cause analysis.",
+              "published_at": "2024-07-21T12:00:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased", "updated_status_page"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-cs-03", "canonical_story_id": "crowdstrike-channel-291-outage", "relationship": "same_story", "delta_type": "material_update", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["cs_f3"], "forbidden_fact_ids": ["cs_f5", "cs_f6"]}
+          ]
+        },
+        {
+          "date": "2024-07-22",
+          "documents": [
+            {
+              "id": "rb-cs-04",
+              "source": "Microsoft News Center Japan",
+              "title": "CrowdStrike の障害の影響を受けたお客様への支援について",
+              "url": "https://news.microsoft.com/ja-jp/2024/07/22/240722-helping-our-customers-through-the-crowdstrike-outage/",
+              "snippet": "A translated Microsoft post repeats the incident and customer-support response.",
+              "body": "この日本語版は、米国時間7月20日の Microsoft の投稿を基に、CrowdStrike の更新が Windows 環境に障害を起こしたことと、顧客の復旧を支援していることを説明する。前日に公開済みの復旧手段を越える新しい原因分析や新たな復旧完了は示していない。",
+              "published_at": "2024-07-22T12:00:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased", "translated_release"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-cs-04", "canonical_story_id": "crowdstrike-channel-291-outage", "relationship": "same_story", "delta_type": "unchanged", "material": false, "display": "omit", "profile_relevance": "must_select", "should_select": false, "required_fact_ids": [], "forbidden_fact_ids": ["cs_f5", "cs_f6"]}
+          ]
+        },
+        {
+          "date": "2024-07-24",
+          "documents": [
+            {
+              "id": "rb-cs-05",
+              "source": "CrowdStrike",
+              "title": "Preliminary Post Incident Review: Falcon content configuration update",
+              "url": "https://www.crowdstrike.com/en-us/blog/falcon-content-update-preliminary-post-incident-report/",
+              "snippet": "The vendor publishes a preliminary causal account and planned safeguards.",
+              "body": "CrowdStrike's preliminary review said a Rapid Response Content instance was deployed at 04:09 UTC and reverted at 05:27 UTC on July 19. A bug in its Content Validator allowed problematic data to pass validation. The report distinguished this dynamic content from a Falcon sensor release and outlined preliminary testing and rollout changes, while promising a fuller root-cause analysis.",
+              "published_at": "2024-07-24T12:00:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased", "long_source"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-cs-05", "canonical_story_id": "crowdstrike-channel-291-outage", "relationship": "same_story", "delta_type": "material_update", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["cs_f5"], "forbidden_fact_ids": ["cs_f1"]}
+          ]
+        },
+        {
+          "date": "2024-08-06",
+          "documents": [
+            {
+              "id": "rb-cs-06",
+              "source": "CrowdStrike",
+              "title": "Channel File 291 Incident: Root Cause Analysis is Available",
+              "url": "https://www.crowdstrike.com/en-us/blog/channel-file-291-rca-available/",
+              "snippet": "The promised full analysis adds technical failure detail and concrete control changes.",
+              "body": "CrowdStrike released its external technical root-cause analysis for Channel File 291. It traced how an input-count mismatch and insufficient bounds checking could produce an out-of-bounds read and Windows crash after bad content passed the validator. The company listed additional validation, testing, staged deployment, customer-control, and interpreter checks. This deepened the preliminary causal account rather than announcing a second outage.",
+              "published_at": "2024-08-06T12:00:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased", "long_source"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-cs-06", "canonical_story_id": "crowdstrike-channel-291-outage", "relationship": "same_story", "delta_type": "material_update", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["cs_f6"], "forbidden_fact_ids": ["cs_f1"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "real-blind-voyager-telemetry",
+      "split": "holdout",
+      "tags": ["real_primary_sources", "genre_science", "genre_space", "explicit_editor_correction", "same_program_different_spacecraft", "partial_recovery", "incremental_to_resolution"],
+      "profile": {
+        "role": "Deep-space mission operations analyst",
+        "wants": ["Voyager 1 and Voyager 2 health", "telemetry recovery", "instrument operations"],
+        "beats": {"Voyager mission": 3.0, "deep-space operations": 2.5},
+        "briefing_style": "Track each spacecraft and distinguish diagnosis, partial recovery, and full recovery."
+      },
+      "fact_catalog": {
+        "voy_f1": "A command inadvertently pointed Voyager 2's antenna away from Earth, interrupting communication.",
+        "voy_f2": "NASA restored full communication with Voyager 2 on August 4, 2023.",
+        "voy_f3": "Voyager 1 stopped returning usable science and engineering data because of an FDS-to-TMU problem.",
+        "voy_f4": "NASA corrected the TMU expansion from telecommunications unit to telemetry modulation unit.",
+        "voy_f5": "NASA traced Voyager 1's data problem to corrupted FDS memory, probably involving one failed chip.",
+        "voy_f6": "Voyager 1 resumed returning usable engineering data in April 2024.",
+        "voy_f7": "Two of Voyager 1's four science instruments resumed data in May 2024.",
+        "voy_f8": "All four Voyager 1 science instruments were returning usable data by June 13, 2024."
+      },
+      "days": [
+        {
+          "date": "2023-07-28",
+          "documents": [
+            {
+              "id": "rb-voy-01",
+              "source": "NASA Science",
+              "title": "Mission Update: Voyager 2 Communications Pause",
+              "url": "https://science.nasa.gov/blogs/the-sun-spot/2023/07/28/mission-update-voyager-2-communications-pause/",
+              "snippet": "Voyager 2 loses contact after an antenna-pointing command.",
+              "body": "NASA said a planned command sent to Voyager 2 had inadvertently turned its antenna about two degrees away from Earth. The spacecraft could not exchange data or commands with the Deep Space Network, although it was expected to stay on course. At this source snapshot, the team hoped a later orientation reset would restore communications.",
+              "published_at": "2023-07-28T15:05:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased", "source_snapshot"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-voy-01", "canonical_story_id": "voyager-2-antenna-communications", "relationship": "new_story", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["voy_f1"], "forbidden_fact_ids": ["voy_f3", "voy_f5"]}
+          ]
+        },
+        {
+          "date": "2023-08-04",
+          "documents": [
+            {
+              "id": "rb-voy-02",
+              "source": "NASA Science",
+              "title": "Mission Update: Voyager 2 Communications Pause (August 4 update)",
+              "url": "https://science.nasa.gov/blogs/the-sun-spot/2023/07/28/mission-update-voyager-2-communications-pause/",
+              "snippet": "An update on the same official page reports restored contact.",
+              "body": "NASA updated its Voyager 2 post to say the Deep Space Network sent a powerful command that reoriented the spacecraft. Voyager 2 began returning normal science and telemetry data on August 4, restoring full communications earlier than the automatic October reset. The probe remained on its expected trajectory.",
+              "published_at": "2023-08-04T12:29:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased", "source_snapshot", "updated_status_page"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-voy-02", "canonical_story_id": "voyager-2-antenna-communications", "relationship": "same_story", "delta_type": "resolved", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["voy_f2"], "forbidden_fact_ids": ["voy_f3"]}
+          ]
+        },
+        {
+          "date": "2023-12-12",
+          "documents": [
+            {
+              "id": "rb-voy-03",
+              "source": "NASA Science",
+              "title": "Engineers Working to Resolve Issue With Voyager 1 Computer",
+              "url": "https://science.nasa.gov/blogs/voyager/2023/12/12/engineers-working-to-resolve-issue-with-voyager-1-computer-2/",
+              "snippet": "A different Voyager develops a different data-system fault.",
+              "body": "NASA reported that Voyager 1 was receiving commands but no longer returning usable science or engineering data. Its flight data subsystem was not communicating correctly with the TMU, which the initial version of the article expanded as 'telecommunications unit.' The repeating binary pattern persisted after a restart attempt. This was a new Voyager 1 fault, not a recurrence of Voyager 2's antenna mispointing.",
+              "published_at": "2023-12-12T14:01:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased", "source_snapshot"]
+            },
+            {
+              "id": "rb-voy-04",
+              "source": "NASA Science",
+              "title": "Engineers Working to Resolve Issue With Voyager 1 Computer (editor correction)",
+              "url": "https://science.nasa.gov/blogs/voyager/2023/12/12/engineers-working-to-resolve-issue-with-voyager-1-computer-2/",
+              "snippet": "The editor corrects the expansion of the TMU acronym.",
+              "body": "NASA added an editor's note correcting one technical description: TMU means telemetry modulation unit, not telecommunications unit. The underlying Voyager 1 data fault, FDS diagnosis, and unsuccessful restart were unchanged. This source snapshot represents the corrected page, not a new spacecraft failure.",
+              "published_at": "2023-12-12T14:02:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased", "source_snapshot", "editor_note"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-voy-03", "canonical_story_id": "voyager-1-fds-telemetry-fault", "relationship": "related_theme", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["voy_f3"], "forbidden_fact_ids": ["voy_f1", "voy_f2"]},
+            {"document_id": "rb-voy-04", "canonical_story_id": "voyager-1-fds-telemetry-fault", "relationship": "same_story", "delta_type": "correction", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["voy_f4"], "forbidden_fact_ids": ["voy_f1"]}
+          ]
+        },
+        {
+          "date": "2024-04-04",
+          "documents": [
+            {
+              "id": "rb-voy-05",
+              "source": "NASA Science",
+              "title": "Engineers Pinpoint Cause of Voyager 1 Issue, Are Working on Solution",
+              "url": "https://science.nasa.gov/blogs/voyager/2024/04/04/engineers-pinpoint-cause-of-voyager-1-issue-are-working-on-solution/",
+              "snippet": "A memory readout changes the fault from a broad subsystem diagnosis to a localized cause.",
+              "body": "NASA said engineers had confirmed corruption in about three percent of Voyager 1's flight-data-system memory. They suspected a single memory chip had failed, possibly through age or radiation, and were planning to relocate affected software. The spacecraft was still not back to normal data operations, so this was a causal finding rather than a recovery.",
+              "published_at": "2024-04-04T17:59:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-voy-05", "canonical_story_id": "voyager-1-fds-telemetry-fault", "relationship": "same_story", "delta_type": "material_update", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["voy_f5"], "forbidden_fact_ids": ["voy_f6", "voy_f8"]}
+          ]
+        },
+        {
+          "date": "2024-04-22",
+          "documents": [
+            {
+              "id": "rb-voy-06",
+              "source": "NASA Science",
+              "title": "NASA's Voyager 1 Resumes Sending Engineering Updates to Earth",
+              "url": "https://science.nasa.gov/blogs/voyager/2024/04/22/nasas-voyager-1-resumes-sending-engineering-updates-to-earth/",
+              "snippet": "The repair restores one class of usable data, while science data remains pending.",
+              "body": "NASA reported that Voyager 1 was returning usable engineering information for the first time since November. Engineers had moved affected code around the unusable memory area. This was a partial operational recovery: health and status data were readable, but the team still needed to restore science-data return.",
+              "published_at": "2024-04-22T16:00:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-voy-06", "canonical_story_id": "voyager-1-fds-telemetry-fault", "relationship": "same_story", "delta_type": "status_change", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["voy_f6"], "forbidden_fact_ids": ["voy_f8"]}
+          ]
+        },
+        {
+          "date": "2024-05-22",
+          "documents": [
+            {
+              "id": "rb-voy-07",
+              "source": "NASA Science",
+              "title": "Voyager 1 Resumes Sending Science Data from Two Instruments",
+              "url": "https://science.nasa.gov/blogs/voyager/2024/05/22/voyager-1-resumes-sending-science-data-from-two-instruments/",
+              "snippet": "Science recovery reaches two instruments but not all four.",
+              "body": "NASA said commands sent in May restored normal data from two of Voyager 1's four operating science instruments. Teams were still recalibrating the other two. The milestone advanced recovery beyond engineering telemetry but did not yet establish complete normal science operations.",
+              "published_at": "2024-05-22T19:55:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-voy-07", "canonical_story_id": "voyager-1-fds-telemetry-fault", "relationship": "same_story", "delta_type": "material_update", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["voy_f7"], "forbidden_fact_ids": ["voy_f8"]}
+          ]
+        },
+        {
+          "date": "2024-06-13",
+          "documents": [
+            {
+              "id": "rb-voy-08",
+              "source": "NASA Science",
+              "title": "Voyager 1 Returning Science Data From All Four Instruments",
+              "url": "https://science.nasa.gov/blogs/voyager/2024/06/13/voyager-1-returning-science-data-from-all-four-instruments/",
+              "snippet": "All remaining instruments return to usable science-data operation.",
+              "body": "NASA announced that all four operating Voyager 1 science instruments were again returning usable data, restoring normal science operations after the November fault. Minor cleanup work remained for timing software and the tape recorder, but the central loss-of-data problem was resolved.",
+              "published_at": "2024-06-13T23:53:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-voy-08", "canonical_story_id": "voyager-1-fds-telemetry-fault", "relationship": "same_story", "delta_type": "resolved", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["voy_f8"], "forbidden_fact_ids": ["voy_f1"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "real-blind-bls-benchmark-2024",
+      "split": "holdout",
+      "tags": ["real_primary_sources", "genre_economy_business", "numeric_revision", "preliminary_to_final", "same_agency_hard_negative", "long_noisy_release"],
+      "profile": {
+        "role": "US labour-market data analyst",
+        "wants": ["BLS payroll benchmark revisions", "major employment-data corrections", "US inflation releases"],
+        "beats": {"US labour data": 3.0, "official statistics": 2.8},
+        "briefing_style": "Preserve preliminary/final status and exact quantities; do not merge unrelated statistical series."
+      },
+      "fact_catalog": {
+        "bls_f1": "BLS scheduled a preliminary March 2024 payroll benchmark revision for August 21, with the final revision due in February 2025.",
+        "bls_f2": "The July 2024 CPI release reported inflation data, not a payroll benchmark revision.",
+        "bls_f3": "The preliminary benchmark estimate indicated March 2024 payroll employment would be revised down by 818,000.",
+        "bls_f4": "The final seasonally adjusted March 2024 benchmark revision was minus 589,000, smaller than the preliminary estimate.",
+        "bls_f5": "A separate preliminary benchmark for March 2026 estimated a payroll revision of minus 79,000."
+      },
+      "days": [
+        {
+          "date": "2024-07-05",
+          "documents": [
+            {
+              "id": "rb-bls-01",
+              "source": "US Bureau of Labor Statistics",
+              "title": "2024 Preliminary Benchmark Revision to be released on August 21",
+              "url": "https://www.bls.gov/news.release/archives/empsit_07052024.pdf",
+              "snippet": "BLS announces the timetable and explains that the first number will be preliminary.",
+              "body": "In a notice embedded in the June employment report, BLS said it would publish a preliminary March 2024 establishment-survey benchmark revision on August 21. The more comprehensive benchmark uses unemployment-insurance records; the final revision would arrive with January 2025 data in February. The release contains many pages of unrelated June labour-force, industry, wage, and table data, and it provides no benchmark-revision quantity yet.",
+              "published_at": "2024-07-05T12:30:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased", "long_source", "pdf_source"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-bls-01", "canonical_story_id": "bls-march-2024-payroll-benchmark", "relationship": "new_story", "delta_type": "new", "material": false, "display": "continuing_bullet", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["bls_f1"], "forbidden_fact_ids": ["bls_f3", "bls_f4"]}
+          ]
+        },
+        {
+          "date": "2024-08-14",
+          "documents": [
+            {
+              "id": "rb-bls-02",
+              "source": "US Bureau of Labor Statistics",
+              "title": "Consumer Price Index - July 2024",
+              "url": "https://www.bls.gov/news.release/archives/cpi_08142024.htm",
+              "snippet": "A different BLS programme publishes monthly price data.",
+              "body": "BLS released the July Consumer Price Index, describing changes in the all-items index, shelter, food, and energy prices. This is an inflation report from the same agency and period, not evidence about the March 2024 payroll employment benchmark or its eventual revision.",
+              "published_at": "2024-08-14T12:30:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-bls-02", "canonical_story_id": "bls-july-2024-cpi", "relationship": "related_theme", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "eligible", "should_select": true, "required_fact_ids": ["bls_f2"], "forbidden_fact_ids": ["bls_f3", "bls_f4"]}
+          ]
+        },
+        {
+          "date": "2024-08-21",
+          "documents": [
+            {
+              "id": "rb-bls-03",
+              "source": "US Bureau of Labor Statistics",
+              "title": "2024 Preliminary Benchmark Revision",
+              "url": "https://www.bls.gov/ces/notices/2024/2024-preliminary-benchmark-revision.htm",
+              "snippet": "The scheduled preliminary estimate supplies the first benchmark quantity.",
+              "body": "BLS estimated that March 2024 total nonfarm employment would be revised down by 818,000 jobs, or 0.5 percent. It explicitly described the number as preliminary and said official estimates had not yet been replaced; the final benchmark would be incorporated in February 2025. Industry tables and methodology explain how the estimate differs from the monthly sample.",
+              "published_at": "2024-08-21T14:00:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased", "numeric"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-bls-03", "canonical_story_id": "bls-march-2024-payroll-benchmark", "relationship": "same_story", "delta_type": "material_update", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["bls_f3"], "forbidden_fact_ids": ["bls_f4"]}
+          ]
+        },
+        {
+          "date": "2025-02-07",
+          "documents": [
+            {
+              "id": "rb-bls-04",
+              "source": "US Bureau of Labor Statistics",
+              "title": "CES Benchmark Announcement - Revisions to total nonfarm employment",
+              "url": "https://www.bls.gov/ces/notices/2025/ces-benchmark-announcement-revisions-to-total-nonfarm-employment.htm",
+              "snippet": "The final benchmark replaces the preliminary estimate with a smaller revision.",
+              "body": "BLS incorporated its annual benchmark and reported that the seasonally adjusted March 2024 payroll level was revised down by 589,000, or 0.4 percent. The final figure was materially smaller than the preliminary minus-818,000 estimate. The release also distinguishes the not-seasonally-adjusted revision of 598,000 and describes revisions to surrounding months.",
+              "published_at": "2025-02-07T13:30:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased", "numeric"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-bls-04", "canonical_story_id": "bls-march-2024-payroll-benchmark", "relationship": "same_story", "delta_type": "correction", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["bls_f4"], "forbidden_fact_ids": []}
+          ]
+        },
+        {
+          "date": "2026-08-28",
+          "documents": [
+            {
+              "id": "rb-bls-05",
+              "source": "US Bureau of Labor Statistics",
+              "title": "Current Employment Statistics Preliminary Benchmark - March 2026",
+              "url": "https://www.bls.gov/news.release/prebmk.nr0.htm",
+              "snippet": "Nearly identical benchmark language now refers to a different reference year and quantity.",
+              "body": "BLS reported a preliminary national benchmark revision of minus 79,000 for March 2026 and said the corresponding final revision would be issued in February 2027. This release uses the same programme, method, preliminary/final terminology, and page family as the 2024 benchmark story, but it measures a separate reference period and does not revise the finalized March 2024 figure.",
+              "published_at": "2026-08-28T14:00:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased", "numeric", "post_training_candidate"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-bls-05", "canonical_story_id": "bls-march-2026-payroll-benchmark", "relationship": "related_theme", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["bls_f5"], "forbidden_fact_ids": ["bls_f3", "bls_f4"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "real-blind-epa-pfas-water-rule",
+      "split": "holdout",
+      "tags": ["real_primary_sources", "genre_environment", "proposal_to_final", "partial_policy_reversal", "translated_duplicate", "same_agency_topic_hard_negative"],
+      "profile": {
+        "role": "US drinking-water utility policy lead",
+        "wants": ["federal PFAS drinking-water limits", "compliance deadlines", "lead and copper requirements"],
+        "beats": {"drinking water regulation": 3.0, "PFAS": 3.0},
+        "briefing_style": "Track legal status, covered chemicals, deadlines, and separate contaminant rules."
+      },
+      "fact_catalog": {
+        "epa_f1": "EPA proposed enforceable national drinking-water limits for six PFAS in March 2023.",
+        "epa_f2": "EPA finalized enforceable PFAS drinking-water limits in April 2024, including 4 parts per trillion for PFOA and PFOS.",
+        "epa_f3": "EPA's Spanish release restated the April 2024 final PFAS rule without a later policy change.",
+        "epa_f4": "EPA finalized a separate lead-pipe and lead-testing rule in October 2024.",
+        "epa_f5": "EPA later kept the PFOA and PFOS limits but planned a longer compliance schedule and reconsideration of limits for four other PFAS.",
+        "epa_f6": "EPA issued proposed rules in May 2026 making the possible PFOA/PFOS extension opt-in and formally reopening the four-other-PFAS determinations for comment."
+      },
+      "days": [
+        {
+          "date": "2023-03-14",
+          "documents": [
+            {
+              "id": "rb-epa-01",
+              "source": "US Environmental Protection Agency",
+              "title": "Administration Proposes First-Ever National Standard for PFAS in Drinking Water",
+              "url": "https://www.epa.gov/newsreleases/biden-harris-administration-proposes-first-ever-national-standard-protect-communities",
+              "snippet": "EPA opens rulemaking on enforceable limits for six PFAS.",
+              "body": "EPA proposed the first nationwide drinking-water regulation covering six PFAS. The proposal included enforceable levels for PFOA and PFOS and a mixture approach for several others. It still required public comment and final agency action, so utilities did not yet face the final legal standard. The release also describes health research, infrastructure funding, testing, hazardous-substance work, and the broader PFAS roadmap.",
+              "published_at": "2023-03-14T12:00:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased", "long_source"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-epa-01", "canonical_story_id": "epa-pfas-drinking-water-rule", "relationship": "new_story", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["epa_f1"], "forbidden_fact_ids": ["epa_f2", "epa_f5"]}
+          ]
+        },
+        {
+          "date": "2024-04-10",
+          "documents": [
+            {
+              "id": "rb-epa-02",
+              "source": "US Environmental Protection Agency",
+              "title": "Administration Finalizes First-Ever National Drinking Water Standard for PFAS",
+              "url": "https://www.epa.gov/newsreleases/biden-harris-administration-finalizes-first-ever-national-drinking-water-standard",
+              "snippet": "The proposed limits become a final legally enforceable rule.",
+              "body": "EPA issued the final national PFAS drinking-water regulation after reviewing research and public comments. It set enforceable limits of 4.0 parts per trillion for PFOA and PFOS, additional limits for other named PFAS, monitoring requirements, and future compliance obligations. The release also announces funding and estimates public-health benefits.",
+              "published_at": "2024-04-10T12:00:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased"]
+            },
+            {
+              "id": "rb-epa-03",
+              "source": "US EPA en español",
+              "title": "La administración finaliza la primera norma nacional de agua potable para PFAS",
+              "url": "https://www.epa.gov/newsreleases/la-administracion-biden-harris-finaliza-la-primera-norma-nacional-de-agua-potable-para",
+              "snippet": "The Spanish release restates the same final rule.",
+              "body": "La EPA informa en español de la misma norma final del 10 de abril: límites nacionales exigibles para PFAS, requisitos para los sistemas de agua y fondos de implementación. No contiene una decisión posterior sobre plazos ni una segunda norma distinta.",
+              "published_at": "2024-04-10T12:01:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased", "translated_release"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-epa-02", "canonical_story_id": "epa-pfas-drinking-water-rule", "relationship": "same_story", "delta_type": "status_change", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["epa_f2"], "forbidden_fact_ids": ["epa_f5"]},
+            {"document_id": "rb-epa-03", "canonical_story_id": "epa-pfas-drinking-water-rule", "relationship": "same_story", "delta_type": "unchanged", "material": false, "display": "omit", "profile_relevance": "must_select", "should_select": false, "required_fact_ids": [], "forbidden_fact_ids": ["epa_f5"]}
+          ]
+        },
+        {
+          "date": "2024-10-08",
+          "documents": [
+            {
+              "id": "rb-epa-04",
+              "source": "US Environmental Protection Agency",
+              "title": "Lead and Copper Rule Improvements",
+              "url": "https://www.epa.gov/ground-water-and-drinking-water/lead-and-copper-rule-improvements",
+              "snippet": "A separate final drinking-water rule targets lead service lines and testing.",
+              "body": "EPA finalized requirements for water systems to identify and replace lead service lines, use stronger testing, and act at a lower lead threshold. The rule belongs to the same drinking-water regulatory programme and affects many of the same utilities, but it regulates lead and copper rather than changing the PFAS limits.",
+              "published_at": "2024-10-08T12:00:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased", "rule_page"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-epa-04", "canonical_story_id": "epa-lead-copper-rule-improvements", "relationship": "related_theme", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["epa_f4"], "forbidden_fact_ids": ["epa_f2", "epa_f5"]}
+          ]
+        },
+        {
+          "date": "2025-05-14",
+          "documents": [
+            {
+              "id": "rb-epa-05",
+              "source": "US Environmental Protection Agency",
+              "title": "EPA Announces It Will Keep Maximum Contaminant Levels for PFOA, PFOS",
+              "url": "https://www.epa.gov/newsreleases/epa-announces-it-will-keep-maximum-contaminant-levels-pfoa-pfos",
+              "snippet": "EPA preserves two core limits but signals deadline and scope changes elsewhere in the rule.",
+              "body": "EPA said it would retain the existing PFOA and PFOS maximum contaminant levels. At the same time, it planned rulemaking to extend their compliance date from 2029 to 2031 and announced an intention to rescind or reconsider regulatory determinations for PFHxS, PFNA, GenX chemicals, and the mixture standard. This was neither a complete repeal nor simple continuation of the 2024 rule.",
+              "published_at": "2025-05-14T12:00:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased", "mixed_policy_change"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-epa-05", "canonical_story_id": "epa-pfas-drinking-water-rule", "relationship": "same_story", "delta_type": "status_change", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["epa_f5"], "forbidden_fact_ids": ["epa_f4"]}
+          ]
+        },
+        {
+          "date": "2026-05-18",
+          "documents": [
+            {
+              "id": "rb-epa-06",
+              "source": "US Environmental Protection Agency",
+              "title": "EPA Advances Comprehensive PFAS Strategy with Drinking Water Protections",
+              "url": "https://www.epa.gov/newsreleases/epa-advances-comprehensive-pfas-strategy-legally-defensible-practical-scientifically",
+              "snippet": "The earlier plan becomes two published proposals with a narrower extension mechanism.",
+              "body": "EPA issued two proposed rules for public comment. One would keep the PFOA and PFOS limits while allowing eligible water systems to apply for, rather than automatically receive, up to two extra years for compliance. The other reopened the legal and procedural basis for regulating PFHxS, PFNA, GenX chemicals, and the mixture index without predetermining the outcome. The lengthy release also discusses treatment technology, grants, industrial discharges, research methods, outreach, and enforcement.",
+              "published_at": "2026-05-18T12:00:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased", "post_training_candidate", "long_source"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-epa-06", "canonical_story_id": "epa-pfas-drinking-water-rule", "relationship": "same_story", "delta_type": "status_change", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["epa_f6"], "forbidden_fact_ids": ["epa_f4"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "real-blind-who-mpox-emergencies",
+      "split": "holdout",
+      "tags": ["real_primary_sources", "genre_science", "genre_health_science", "formal_status_transition", "same_phrase_different_disease", "recurrent_distinct_episode", "claim_buried_in_long_briefing"],
+      "profile": {
+        "role": "Global public-health emergency analyst",
+        "wants": ["WHO public health emergency declarations", "mpox international spread", "end of emergency status"],
+        "beats": {"WHO emergencies": 3.0, "mpox": 3.0},
+        "briefing_style": "Distinguish disease, outbreak episode, geographic scope, and emergency status."
+      },
+      "fact_catalog": {
+        "who_f1": "WHO declared the 2022 multi-country mpox outbreak a public health emergency of international concern.",
+        "who_f2": "WHO ended the separate COVID-19 public health emergency in May 2023.",
+        "who_f3": "WHO ended the 2022 mpox emergency status on May 11, 2023, while saying the disease still required sustained control.",
+        "who_f4": "WHO declared the 2024 African mpox upsurge, involving a new clade and regional spread, a new international emergency.",
+        "who_f5": "Burundi, Kenya, Rwanda, and Uganda reported their first mpox cases during the 2024 regional expansion.",
+        "who_f6": "WHO ended the 2024 mpox international emergency on September 5, 2025, while warning that the threat continued."
+      },
+      "days": [
+        {
+          "date": "2022-07-23",
+          "documents": [
+            {
+              "id": "rb-who-01",
+              "source": "World Health Organization",
+              "title": "WHO Director-General statement following the IHR Emergency Committee on monkeypox",
+              "url": "https://www.who.int/news-room/speeches/item/who-director-general-s-statement-on-the-press-conference-following-IHR-emergency-committee-regarding-the-multi--country-outbreak-of-monkeypox--23-july-2022",
+              "snippet": "WHO applies its highest international alert to the spreading 2022 outbreak.",
+              "body": "The WHO Director-General declared the rapidly expanding multi-country monkeypox outbreak a public health emergency of international concern. He noted more than sixteen thousand reported cases in seventy-five countries, uncertainty, international spread, and a divided emergency committee. The lengthy statement also explains International Health Regulations criteria, risk levels, recommendations for four groups of countries, travel, stigma, research, and access to countermeasures.",
+              "published_at": "2022-07-23T12:00:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased", "long_source"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-who-01", "canonical_story_id": "who-mpox-2022-pheic", "relationship": "new_story", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["who_f1"], "forbidden_fact_ids": ["who_f3", "who_f4"]}
+          ]
+        },
+        {
+          "date": "2023-05-05",
+          "documents": [
+            {
+              "id": "rb-who-02",
+              "source": "World Health Organization",
+              "title": "WHO Director-General's opening remarks at the media briefing - 5 May 2023",
+              "url": "https://www.who.int/news-room/speeches/item/who-director-general-s-opening-remarks-at-the-media-briefing---5-may-2023",
+              "snippet": "WHO ends an emergency declaration, but for COVID-19 rather than mpox.",
+              "body": "WHO accepted advice that COVID-19 no longer constituted a public health emergency of international concern. The formal status language resembles the mpox process and appears in the same organization's media briefings, but the pathogen, emergency committee, epidemiology, and underlying event were different.",
+              "published_at": "2023-05-05T12:00:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-who-02", "canonical_story_id": "who-covid-19-pheic", "relationship": "related_theme", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "eligible", "should_select": true, "required_fact_ids": ["who_f2"], "forbidden_fact_ids": ["who_f3", "who_f4"]}
+          ]
+        },
+        {
+          "date": "2023-05-11",
+          "documents": [
+            {
+              "id": "rb-who-03",
+              "source": "World Health Organization",
+              "title": "WHO Director-General's opening remarks at the media briefing - 11 May 2023",
+              "url": "https://www.who.int/news-room/speeches/item/who-director-general-s-opening-remarks-at-the-media-briefing---11-may-2023",
+              "snippet": "The relevant mpox emergency status now ends.",
+              "body": "The briefing begins with extensive material about conflict and health-system disruption in Sudan, tuberculosis, pandemic preparedness, and primary care. Near the end, the Director-General accepts the mpox committee's advice and declares that the 2022 multi-country outbreak is no longer a global health emergency, citing a large decline in cases. He stresses that mpox continues to circulate and still needs surveillance, testing, prevention, and care.",
+              "published_at": "2023-05-11T12:00:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased", "long_source", "buried_claim"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-who-03", "canonical_story_id": "who-mpox-2022-pheic", "relationship": "same_story", "delta_type": "resolved", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["who_f3"], "forbidden_fact_ids": ["who_f2", "who_f4"]}
+          ]
+        },
+        {
+          "date": "2024-08-14",
+          "documents": [
+            {
+              "id": "rb-who-04",
+              "source": "World Health Organization",
+              "title": "WHO Director-General remarks following the IHR Emergency Committee on the upsurge of mpox 2024",
+              "url": "https://www.who.int/news-room/speeches/item/who-director-general-s-opening-remarks-at-the-media-briefing-following-the-ihr-emergency-committee-meeting-on-the-upsurge-of-mpox-2024---14-august-2024",
+              "snippet": "A new African upsurge and clade create a distinct later emergency episode.",
+              "body": "WHO declared the 2024 mpox upsurge in the Democratic Republic of the Congo and neighboring African countries a public health emergency of international concern. The decision centered on a rapidly spreading new clade, rising cases and deaths, first detections in additional countries, and the need for a coordinated response. It was not a correction saying the 2022 emergency had never ended; it was a new episode after that earlier status was lifted.",
+              "published_at": "2024-08-14T12:00:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-who-04", "canonical_story_id": "who-mpox-2024-africa-pheic", "relationship": "related_theme", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["who_f4"], "forbidden_fact_ids": ["who_f1", "who_f6"]}
+          ]
+        },
+        {
+          "date": "2024-08-22",
+          "documents": [
+            {
+              "id": "rb-who-05",
+              "source": "World Health Organization",
+              "title": "Mpox - African Region",
+              "url": "https://www.who.int/emergencies/disease-outbreak-news/item/2024-DON528",
+              "snippet": "The situation report adds first cases in four countries and travel links.",
+              "body": "WHO's disease-outbreak notice reported that Burundi, Kenya, Rwanda, and Uganda had each recorded their first mpox cases, with several linked to eastern DRC and clade Ib. It added country-level spread evidence after the August 14 declaration. The emergency status itself remained in force and unchanged.",
+              "published_at": "2024-08-22T12:00:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased", "situation_report"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-who-05", "canonical_story_id": "who-mpox-2024-africa-pheic", "relationship": "same_story", "delta_type": "material_update", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["who_f5"], "forbidden_fact_ids": ["who_f6"]}
+          ]
+        },
+        {
+          "date": "2025-09-05",
+          "documents": [
+            {
+              "id": "rb-who-06",
+              "source": "World Health Organization",
+              "title": "WHO Director-General's opening remarks at the media briefing - 5 September 2025",
+              "url": "https://www.who.int/news-room/speeches/item/who-director-general-s-opening-remarks-at-the-media-briefing---5-september-2025",
+              "snippet": "WHO lifts the international emergency status for the 2024 upsurge.",
+              "body": "WHO accepted the emergency committee's conclusion that the 2024 mpox upsurge no longer met the international-emergency threshold, based on sustained declines and improved response capacity. The Director-General explicitly said that ending the declaration did not mean the threat or response had ended, and noted that Africa CDC still regarded mpox as a continental emergency.",
+              "published_at": "2025-09-05T12:00:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-who-06", "canonical_story_id": "who-mpox-2024-africa-pheic", "relationship": "same_story", "delta_type": "resolved", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["who_f6"], "forbidden_fact_ids": ["who_f3"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "real-blind-apple-dma-proceedings",
+      "split": "holdout",
+      "tags": ["real_primary_sources", "genre_technology", "genre_economy_business", "same_actor_multiple_obligations", "same_release_multiple_cases", "preliminary_to_fine", "parallel_resolution"],
+      "profile": {
+        "role": "EU digital-platform regulation analyst",
+        "wants": ["Apple DMA enforcement", "app-store steering", "browser choice", "platform interoperability", "Meta DMA enforcement"],
+        "beats": {"Digital Markets Act": 3.0, "Apple regulation": 3.0},
+        "briefing_style": "Keep separate proceedings distinct by company, service, and legal obligation."
+      },
+      "fact_catalog": {
+        "dma_f1": "The Commission opened a DMA investigation into Apple's App Store steering rules in March 2024.",
+        "dma_f2": "The same March release opened a separate Apple investigation concerning browser choice and default settings.",
+        "dma_f3": "The Commission preliminarily found Apple's App Store steering terms breached the DMA in June 2024.",
+        "dma_f4": "The Commission opened separate Apple interoperability specification proceedings in September 2024.",
+        "dma_f5": "The Commission finalized the steering infringement and fined Apple 500 million euros in April 2025.",
+        "dma_f6": "The Commission closed the separate Apple browser-choice investigation after Apple changed its design and default-setting controls.",
+        "dma_f7": "The Commission separately fined Meta 200 million euros over its pay-or-consent model."
+      },
+      "days": [
+        {
+          "date": "2024-03-25",
+          "documents": [
+            {
+              "id": "rb-dma-01",
+              "source": "European Commission",
+              "title": "Commission opens DMA investigation into Apple's App Store steering rules",
+              "url": "https://digital-markets-act.ec.europa.eu/commission-opens-non-compliance-investigations-against-alphabet-apple-and-meta-under-digital-markets-2024-03-25_en",
+              "snippet": "One part of a multi-company release concerns Apple's developer steering restrictions.",
+              "body": "The Commission opened proceedings to determine whether Apple's App Store rules allowed developers to direct users to offers outside the store as required by the DMA. No infringement had yet been established. The source also covers Alphabet, Meta, Amazon, Apple's browser choice, document-retention orders, possible penalties, and the broader enforcement timetable.",
+              "published_at": "2024-03-25T12:00:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased", "long_source"]
+            },
+            {
+              "id": "rb-dma-02",
+              "source": "European Commission",
+              "title": "Commission opens DMA investigation into Apple's browser choice and defaults",
+              "url": "https://digital-markets-act.ec.europa.eu/commission-opens-non-compliance-investigations-against-alphabet-apple-and-meta-under-digital-markets-2024-03-25_en",
+              "snippet": "Another part of the same release concerns a different Apple obligation.",
+              "body": "The Commission separately opened proceedings on whether Apple's browser-choice screen and default-setting design let users exercise genuine choice. The investigated company and law were the same as in the App Store steering proceeding, but the product behavior, legal obligation, evidence, and potential remedy were different.",
+              "published_at": "2024-03-25T12:01:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased", "multi_case_source"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-dma-01", "canonical_story_id": "apple-dma-app-store-steering", "relationship": "new_story", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["dma_f1"], "forbidden_fact_ids": ["dma_f2", "dma_f5"]},
+            {"document_id": "rb-dma-02", "canonical_story_id": "apple-dma-browser-choice", "relationship": "related_theme", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["dma_f2"], "forbidden_fact_ids": ["dma_f1", "dma_f5"]}
+          ]
+        },
+        {
+          "date": "2024-06-24",
+          "documents": [
+            {
+              "id": "rb-dma-03",
+              "source": "European Commission",
+              "title": "Commission sends preliminary findings to Apple and opens another DMA investigation",
+              "url": "https://digital-markets-act.ec.europa.eu/commission-sends-preliminary-findings-apple-and-opens-additional-non-compliance-investigation-2024-06-24_en",
+              "snippet": "The steering case advances to a preliminary breach finding.",
+              "body": "The Commission informed Apple of its preliminary view that App Store rules prevented developers from freely steering customers to alternative offers. Apple could respond before a final decision. The same release also discussed a newly opened investigation into Apple's alternative app-distribution terms; neither item resolved the separate browser-choice proceeding.",
+              "published_at": "2024-06-24T12:00:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-dma-03", "canonical_story_id": "apple-dma-app-store-steering", "relationship": "same_story", "delta_type": "status_change", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["dma_f3"], "forbidden_fact_ids": ["dma_f5", "dma_f6"]}
+          ]
+        },
+        {
+          "date": "2024-09-19",
+          "documents": [
+            {
+              "id": "rb-dma-04",
+              "source": "European Commission",
+              "title": "Commission starts proceedings to specify Apple's interoperability obligations",
+              "url": "https://digital-markets-act.ec.europa.eu/commission-starts-first-proceedings-specify-apples-interoperability-obligations-under-digital-2024-09-19_en",
+              "snippet": "A third Apple DMA track concerns connected-device interoperability.",
+              "body": "The Commission opened specification proceedings concerning iOS and iPadOS interoperability with connected devices and the process for developer requests. These proceedings involved Apple and the DMA but did not decide the App Store steering case or the browser-choice investigation.",
+              "published_at": "2024-09-19T12:00:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-dma-04", "canonical_story_id": "apple-dma-interoperability", "relationship": "related_theme", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["dma_f4"], "forbidden_fact_ids": ["dma_f3", "dma_f5", "dma_f6"]}
+          ]
+        },
+        {
+          "date": "2025-04-23",
+          "documents": [
+            {
+              "id": "rb-dma-05",
+              "source": "European Commission",
+              "title": "Commission finds Apple in breach of the Digital Markets Act",
+              "url": "https://digital-markets-act.ec.europa.eu/commission-finds-apple-and-meta-breach-digital-markets-act-2025-04-23_en",
+              "snippet": "The steering proceeding ends with a final infringement and fine.",
+              "body": "The Commission adopted a final decision that Apple's steering restrictions breached the DMA and imposed a 500 million euro fine. It ordered Apple to remove the restrictions and avoid equivalent conduct. The same source also reports a separate Meta decision, which should not be folded into the Apple steering claim.",
+              "published_at": "2025-04-23T12:00:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased", "multi_case_source"]
+            },
+            {
+              "id": "rb-dma-06",
+              "source": "European Commission",
+              "title": "Commission closes investigation into Apple's user-choice obligations",
+              "url": "https://digital-markets-act.ec.europa.eu/commission-closes-investigation-apples-user-choice-obligations-and-issues-preliminary-findings-rules-2025-04-23_en",
+              "snippet": "A different Apple case closes after browser and default-setting changes.",
+              "body": "The Commission closed the browser-choice and defaults investigation after Apple revised its choice screen, centralized default controls, and made other user-choice changes. The source also announced preliminary findings about alternative app-distribution terms, but it did not impose the 500 million euro steering fine in this proceeding.",
+              "published_at": "2025-04-23T12:01:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased", "multi_case_source"]
+            },
+            {
+              "id": "rb-dma-07",
+              "source": "European Commission",
+              "title": "Commission finds Meta in breach of the Digital Markets Act",
+              "url": "https://digital-markets-act.ec.europa.eu/commission-finds-apple-and-meta-breach-digital-markets-act-2025-04-23_en",
+              "snippet": "The same press release contains a separate decision against another company.",
+              "body": "The Commission found that Meta's binary pay-or-consent model did not give users the required equivalent, less-personalized option and imposed a 200 million euro fine. This decision shares a publication, date, regulator, statute, and enforcement vocabulary with Apple's fine, but concerns another company and obligation.",
+              "published_at": "2025-04-23T12:02:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased", "multi_case_source"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-dma-05", "canonical_story_id": "apple-dma-app-store-steering", "relationship": "same_story", "delta_type": "resolved", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["dma_f5"], "forbidden_fact_ids": ["dma_f6", "dma_f7"]},
+            {"document_id": "rb-dma-06", "canonical_story_id": "apple-dma-browser-choice", "relationship": "same_story", "delta_type": "resolved", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["dma_f6"], "forbidden_fact_ids": ["dma_f5", "dma_f7"]},
+            {"document_id": "rb-dma-07", "canonical_story_id": "meta-dma-pay-or-consent", "relationship": "related_theme", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["dma_f7"], "forbidden_fact_ids": ["dma_f5", "dma_f6"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "real-blind-black-sea-grain-initiative",
+      "split": "holdout",
+      "tags": ["real_primary_sources", "genre_war_conflict", "agreement_lifecycle", "temporary_reversal", "same_conflict_hard_negative", "long_horizon"],
+      "profile": {
+        "role": "Conflict-linked food-security analyst",
+        "wants": ["Black Sea Grain Initiative operations", "Ukraine export-corridor agreements", "interruptions and renewals"],
+        "beats": {"Ukraine war spillovers": 3.0, "global food security": 2.8},
+        "briefing_style": "Track the export agreement's operational state without merging every diplomatic development in the Ukraine war."
+      },
+      "fact_catalog": {
+        "grain_f1": "The Black Sea Grain Initiative was signed in Istanbul on July 22, 2022.",
+        "grain_f2": "The first shipment under the initiative left Odesa on August 1 and passed inspection on August 3.",
+        "grain_f3": "Russia temporarily suspended its participation on October 29, 2022.",
+        "grain_f4": "Participation and operations fully resumed by November 3, 2022.",
+        "grain_f5": "All parties agreed on November 17, 2022 to continue the initiative.",
+        "grain_f6": "A February 2023 General Assembly resolution addressed a just peace and Russian withdrawal, not the grain corridor's operating state.",
+        "grain_f7": "The initiative was extended again on March 18, 2023.",
+        "grain_f8": "Russia terminated implementation and the initiative ended on July 17, 2023."
+      },
+      "days": [
+        {
+          "date": "2022-07-22",
+          "documents": [{
+            "id": "rb-grain-01",
+            "source": "United Nations",
+            "title": "Black Sea Grain Initiative signed in Istanbul",
+            "url": "https://press.un.org/en/2022/sgsm21381.doc.htm",
+            "snippet": "The parties establish a maritime arrangement for Ukrainian food exports.",
+            "body": "At the Istanbul signing, the United Nations reported that Turkiye, Ukraine, and the Russian Federation had reached an arrangement for safe exports of grain, foodstuffs, and fertilizer from designated Ukrainian ports. A parallel memorandum concerned Russian food and fertilizer exports. The corridor agreement was initially time-limited and still required operational coordination; it was not a general ceasefire in the war.",
+            "published_at": "2022-07-22T15:00:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased", "multi_agreement_source"]
+          }],
+          "expectations": [{"document_id": "rb-grain-01", "canonical_story_id": "black-sea-grain-initiative-lifecycle", "relationship": "new_story", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["grain_f1"], "forbidden_fact_ids": ["grain_f3", "grain_f8"]}]
+        },
+        {
+          "date": "2022-08-03",
+          "documents": [{
+            "id": "rb-grain-02",
+            "source": "United Nations in Ukraine",
+            "title": "Inspection of first commercial vessel completed",
+            "url": "https://ukraine.un.org/en/193210-inspection-first-commercial-vessel-under-black-sea-grain-initiative-completed",
+            "snippet": "The agreement moves from signing to a first cleared shipment.",
+            "body": "The Joint Coordination Centre completed checks on the Razoni, carrying more than 26,000 tonnes of Ukrainian food. The vessel had sailed from Odesa on August 1 and was cleared to continue toward Lebanon. This was the first commercial shipment under the July agreement and demonstrated initial operation; it did not establish that later voyages or renewals were guaranteed.",
+            "published_at": "2022-08-03T12:00:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased"]
+          }],
+          "expectations": [{"document_id": "rb-grain-02", "canonical_story_id": "black-sea-grain-initiative-lifecycle", "relationship": "same_story", "delta_type": "material_update", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["grain_f2"], "forbidden_fact_ids": ["grain_f3", "grain_f8"]}]
+        },
+        {
+          "date": "2022-10-29",
+          "documents": [{
+            "id": "rb-grain-03",
+            "source": "United Nations Secretary-General",
+            "title": "Note on reported suspension from the grain initiative",
+            "url": "https://www.un.org/sg/en/content/sg/note-correspondents/2022-10-29/note-correspondents-black-sea-grain-initiative",
+            "snippet": "Russia reports a temporary suspension of its participation.",
+            "body": "The Secretary-General's office acknowledged reports that the Russian Federation had suspended participation after an attack on its Black Sea Fleet. The note said the United Nations was in contact with the Russian authorities and urged all parties to avoid jeopardizing the humanitarian arrangement. Suspension changed the agreement's operating status but did not yet terminate it.",
+            "published_at": "2022-10-29T20:00:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased", "attributed_claim"]
+          }],
+          "expectations": [{"document_id": "rb-grain-03", "canonical_story_id": "black-sea-grain-initiative-lifecycle", "relationship": "same_story", "delta_type": "status_change", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["grain_f3"], "forbidden_fact_ids": ["grain_f4", "grain_f8"]}]
+        },
+        {
+          "date": "2022-11-03",
+          "documents": [{
+            "id": "rb-grain-04",
+            "source": "United Nations Secretary-General",
+            "title": "Black Sea Grain Initiative fully resumes",
+            "url": "https://www.un.org/sg/en/content/sg/press-events/2022-11-03/secretary-generals-press-encounter-black-sea-grain-initiative",
+            "snippet": "The brief suspension is reversed and operations resume.",
+            "body": "The Secretary-General said the Black Sea Grain Initiative had fully resumed and called for renewal and full implementation. The update reverses the October suspension and restores the corridor's operating state. It does not itself extend the agreement beyond the current term, and the same press encounter also comments separately on the new Ethiopia peace agreement.",
+            "published_at": "2022-11-03T12:00:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased", "multi_conflict_source"]
+          }],
+          "expectations": [{"document_id": "rb-grain-04", "canonical_story_id": "black-sea-grain-initiative-lifecycle", "relationship": "same_story", "delta_type": "status_change", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["grain_f4"], "forbidden_fact_ids": ["grain_f5", "grain_f8"]}]
+        },
+        {
+          "date": "2022-11-17",
+          "documents": [{
+            "id": "rb-grain-05",
+            "source": "United Nations",
+            "title": "Parties agree to continue the grain initiative",
+            "url": "https://press.un.org/en/2022/sgsm21588.doc.htm",
+            "snippet": "The export arrangement is renewed beyond its first term.",
+            "body": "The Secretary-General welcomed agreement by all parties to continue the Black Sea Grain Initiative. The statement distinguishes the Ukrainian maritime corridor from the parallel effort to remove obstacles to Russian food and fertilizer exports. This was a renewal decision, not merely another report of ships moving under the original term.",
+            "published_at": "2022-11-17T15:00:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased"]
+          }],
+          "expectations": [{"document_id": "rb-grain-05", "canonical_story_id": "black-sea-grain-initiative-lifecycle", "relationship": "same_story", "delta_type": "material_update", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["grain_f5"], "forbidden_fact_ids": ["grain_f7", "grain_f8"]}]
+        },
+        {
+          "date": "2023-02-23",
+          "documents": [{
+            "id": "rb-grain-06",
+            "source": "United Nations General Assembly",
+            "title": "General Assembly adopts Ukraine peace-principles resolution",
+            "url": "https://press.un.org/en/2023/ga12492.doc.htm",
+            "snippet": "A major diplomatic development in the same war does not update the export deal.",
+            "body": "The General Assembly adopted a resolution calling for a comprehensive, just, and lasting peace and again demanding withdrawal of Russian forces. It addresses hostilities, civilians, prisoners, accountability, and humanitarian access. Although it notes the war's global food-security effects, it neither renews nor suspends the Black Sea Grain Initiative and is a separate diplomatic thread.",
+            "published_at": "2023-02-23T18:00:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased", "long_source"]
+          }],
+          "expectations": [{"document_id": "rb-grain-06", "canonical_story_id": "un-general-assembly-ukraine-peace-resolution-2023", "relationship": "related_theme", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "eligible", "should_select": true, "required_fact_ids": ["grain_f6"], "forbidden_fact_ids": ["grain_f7", "grain_f8"]}]
+        },
+        {
+          "date": "2023-03-18",
+          "documents": [{
+            "id": "rb-grain-07",
+            "source": "United Nations in Ukraine",
+            "title": "Black Sea Grain Initiative extended",
+            "url": "https://ukraine.un.org/en/223807-note-correspondents-extension-black-sea-grain-initiative",
+            "snippet": "The corridor receives a further extension after moving about 25 million tonnes.",
+            "body": "The United Nations announced another extension of the initiative and said roughly 25 million tonnes of grain and foodstuffs had moved during its first two terms. The brief statement did not specify a new permanent settlement of the war or eliminate future renewal risk.",
+            "published_at": "2023-03-18T12:00:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased"]
+          }],
+          "expectations": [{"document_id": "rb-grain-07", "canonical_story_id": "black-sea-grain-initiative-lifecycle", "relationship": "same_story", "delta_type": "material_update", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["grain_f7"], "forbidden_fact_ids": ["grain_f8"]}]
+        },
+        {
+          "date": "2023-07-17",
+          "documents": [{
+            "id": "rb-grain-08",
+            "source": "United Nations Secretary-General",
+            "title": "Russia terminates implementation of the Black Sea Initiative",
+            "url": "https://www.un.org/sg/en/content/sg/press-events/2023-07-17/secretary-generals-press-encounter-the-black-sea-initiative",
+            "snippet": "The agreement ends after Russia withdraws its participation and security guarantees.",
+            "body": "The Secretary-General said Russia had terminated implementation of the Black Sea Initiative and withdrawn its navigation security guarantees. The corridor therefore ended on July 17 after moving tens of millions of tonnes of food. He said the United Nations would continue seeking access for food and fertilizer, but that future effort was not an extension of the expired deal.",
+            "published_at": "2023-07-17T15:00:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased"]
+          }],
+          "expectations": [{"document_id": "rb-grain-08", "canonical_story_id": "black-sea-grain-initiative-lifecycle", "relationship": "same_story", "delta_type": "resolved", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["grain_f8"], "forbidden_fact_ids": []}]
+        }
+      ]
+    },
+    {
+      "id": "real-blind-tigray-coha",
+      "split": "holdout",
+      "tags": ["real_primary_sources", "genre_war_conflict", "peace_process", "implementation_gaps", "same_region_hard_negative", "post_cutoff_2026"],
+      "profile": {
+        "role": "Horn of Africa peace-process analyst",
+        "wants": ["Tigray cessation-of-hostilities process", "implementation and monitoring", "renewed risks to the Pretoria agreement"],
+        "beats": {"Ethiopia peace process": 3.0, "African Union mediation": 2.7},
+        "briefing_style": "Separate negotiations, agreement, implementation, and later compliance risks; do not merge other African ceasefire efforts."
+      },
+      "fact_catalog": {
+        "coha_f1": "Fighting in Tigray had resumed by August 24, 2022 after an earlier truce.",
+        "coha_f2": "The AU opened direct peace talks in South Africa on October 25, 2022.",
+        "coha_f3": "An October 30 AU ceasefire appeal concerned eastern Democratic Republic of the Congo, not Tigray.",
+        "coha_f4": "Ethiopia's federal government and the TPLF signed a permanent cessation-of-hostilities agreement on November 2, 2022.",
+        "coha_f5": "The AU launched a monitoring, verification, and compliance mission in Mekelle on December 29, 2022.",
+        "coha_f6": "A March 2024 review recorded implementation gains but also unresolved gaps requiring further consultations.",
+        "coha_f7": "The AU warned in April 2024 of escalating tensions and renewed displacement in contested northern areas while calling for COHA compliance.",
+        "coha_f8": "In January 2026 the AU again expressed concern about developments in Tigray and urged restraint to preserve the agreement."
+      },
+      "days": [
+        {
+          "date": "2022-08-24",
+          "documents": [{
+            "id": "rb-coha-01",
+            "source": "African Union",
+            "title": "AU urges de-escalation after renewed confrontation in Ethiopia",
+            "url": "https://au.int/en/pressreleases/20220824/chairperson-deeply-concerned-reports-renewed-military-confrontation-ethiopia",
+            "snippet": "Renewed fighting ends the earlier lull and revives calls for talks.",
+            "body": "The African Union Commission chair said reports indicated renewed military confrontation in Ethiopia and called for an immediate cessation of hostilities and a return to peace talks. The statement followed an earlier humanitarian truce. At this point there was no permanent Pretoria agreement or formal monitoring mission.",
+            "published_at": "2022-08-24T12:00:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased"]
+          }],
+          "expectations": [{"document_id": "rb-coha-01", "canonical_story_id": "tigray-coha-peace-process", "relationship": "new_story", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["coha_f1"], "forbidden_fact_ids": ["coha_f4", "coha_f5"]}]
+        },
+        {
+          "date": "2022-10-25",
+          "documents": [{
+            "id": "rb-coha-02",
+            "source": "African Union",
+            "title": "AU launches direct Tigray peace talks",
+            "url": "https://au.int/sw/node/42301",
+            "snippet": "The parties enter their first direct AU-led talks in South Africa.",
+            "body": "The African Union announced the start of direct talks between Ethiopia's federal government and the Tigray People's Liberation Front in South Africa. An AU high-level panel facilitated the process, with several organizations attending as observers. Talks materially advanced the peace track but had not yet produced a signed outcome.",
+            "published_at": "2022-10-25T12:00:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased"]
+          }],
+          "expectations": [{"document_id": "rb-coha-02", "canonical_story_id": "tigray-coha-peace-process", "relationship": "same_story", "delta_type": "status_change", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["coha_f2"], "forbidden_fact_ids": ["coha_f4", "coha_f5"]}]
+        },
+        {
+          "date": "2022-10-30",
+          "documents": [{
+            "id": "rb-coha-03",
+            "source": "African Union",
+            "title": "AU calls for ceasefire in eastern DRC",
+            "url": "https://au.int/en/pressreleases/20221030/joint-communique-situation-east-drc",
+            "snippet": "A separate AU ceasefire process uses nearly identical regional-diplomacy language.",
+            "body": "The AU chair and Commission chair called for an immediate ceasefire amid deteriorating security in eastern Democratic Republic of the Congo and supported dialogue through DRC-specific regional mechanisms. The release shares the publisher, continent, ceasefire vocabulary, and week with the Ethiopia talks, but it concerns different parties, territory, and mediation frameworks.",
+            "published_at": "2022-10-30T12:00:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased"]
+          }],
+          "expectations": [{"document_id": "rb-coha-03", "canonical_story_id": "eastern-drc-au-ceasefire-process-2022", "relationship": "related_theme", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "eligible", "should_select": true, "required_fact_ids": ["coha_f3"], "forbidden_fact_ids": ["coha_f4", "coha_f5"]}]
+        },
+        {
+          "date": "2022-11-02",
+          "documents": [{
+            "id": "rb-coha-04",
+            "source": "African Union Peace and Security Department",
+            "title": "Cessation-of-hostilities agreement concluded in Pretoria",
+            "url": "https://www.peaceau.org/uploads/press-release-cessation-of-hostilities-pretoria-2-11-2022.pdf",
+            "snippet": "The direct talks produce a signed permanent cessation agreement.",
+            "body": "The AU panel announced that the federal government and TPLF had signed an Agreement for Lasting Peace through a Permanent Cessation of Hostilities. It provided for an immediate halt to fighting, humanitarian access, restoration of services, and an implementation framework. Signing resolved the negotiation phase but opened a distinct, still-unfinished implementation phase.",
+            "published_at": "2022-11-02T15:00:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased", "pdf_source"]
+          }],
+          "expectations": [{"document_id": "rb-coha-04", "canonical_story_id": "tigray-coha-peace-process", "relationship": "same_story", "delta_type": "material_update", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["coha_f4"], "forbidden_fact_ids": ["coha_f5", "coha_f7"]}]
+        },
+        {
+          "date": "2022-12-29",
+          "documents": [{
+            "id": "rb-coha-05",
+            "source": "African Union Peace and Security Department",
+            "title": "AU launches COHA monitoring mission in Mekelle",
+            "url": "https://www.peaceau.org/uploads/final-pr-launch-of-the-aumvcm.pdf",
+            "snippet": "The peace agreement gains an operational compliance mechanism.",
+            "body": "The African Union launched its Monitoring, Verification and Compliance Mission in Mekelle under the agreement's monitoring article. The mission included AU experts and liaison representatives of the parties and was tasked with tracking implementation. This operational step did not mean every political or territorial issue had been settled.",
+            "published_at": "2022-12-29T12:00:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased", "pdf_source"]
+          }],
+          "expectations": [{"document_id": "rb-coha-05", "canonical_story_id": "tigray-coha-peace-process", "relationship": "same_story", "delta_type": "material_update", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["coha_f5"], "forbidden_fact_ids": ["coha_f7", "coha_f8"]}]
+        },
+        {
+          "date": "2024-03-11",
+          "documents": [{
+            "id": "rb-coha-06",
+            "source": "African Union",
+            "title": "Parties review gains and gaps in COHA implementation",
+            "url": "https://au.int/en/pressreleases/20240311/african-union-convenes-first-strategic-reflection-meeting-implementation",
+            "snippet": "A strategic review records progress while keeping unresolved implementation work open.",
+            "body": "At a first strategic reflection meeting, the parties reaffirmed commitment to the Pretoria agreement, acknowledged progress, and identified gaps requiring additional joint work. They agreed to further consultations and another similar meeting. A companion AU statement listed gains such as service restoration and weapons handover, but did not declare the peace process fully completed.",
+            "published_at": "2024-03-11T12:00:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased", "long_horizon"]
+          }],
+          "expectations": [{"document_id": "rb-coha-06", "canonical_story_id": "tigray-coha-peace-process", "relationship": "same_story", "delta_type": "material_update", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["coha_f6"], "forbidden_fact_ids": ["coha_f7", "coha_f8"]}]
+        },
+        {
+          "date": "2024-04-25",
+          "documents": [{
+            "id": "rb-coha-07",
+            "source": "African Union",
+            "title": "AU warns of tensions in contested northern Ethiopian areas",
+            "url": "https://au.int/en/pressreleases/20240425/statement-chairperson-situation-ethiopia",
+            "snippet": "Renewed local tensions put the still-active implementation process at risk.",
+            "body": "The AU Commission chair expressed concern about escalating tensions, hostilities, and displacement in contested northern areas including Raya Alamata, Zata, and Ofla. He called for the sides to halt hostilities, protect civilians, and use political dialogue contemplated by the Pretoria agreement. This is a negative status change in the peace process, not proof that the 2022 agreement had been formally terminated.",
+            "published_at": "2024-04-25T12:00:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased"]
+          }],
+          "expectations": [{"document_id": "rb-coha-07", "canonical_story_id": "tigray-coha-peace-process", "relationship": "same_story", "delta_type": "status_change", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["coha_f7"], "forbidden_fact_ids": ["coha_f8"]}]
+        },
+        {
+          "date": "2026-01-30",
+          "documents": [{
+            "id": "rb-coha-08",
+            "source": "African Union",
+            "title": "AU again calls for restraint in Tigray",
+            "url": "https://au.int/en/pressreleases/20260130/auc-chairperson-calls-maximum-restraint-tigray-region-ethiopia",
+            "snippet": "New concern prompts another call to preserve the gains of the 2022 agreement.",
+            "body": "The AU Commission chair said he was deeply concerned about unfolding developments in parts of Tigray and urged all parties to exercise maximum restraint and address outstanding issues through dialogue. He reaffirmed the importance of fully implementing the 2022 agreement. The statement updates the risk state four years later; it neither announces a new agreement nor says the existing one has ended.",
+            "published_at": "2026-01-30T12:00:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased", "post_cutoff_2026", "long_horizon"]
+          }],
+          "expectations": [{"document_id": "rb-coha-08", "canonical_story_id": "tigray-coha-peace-process", "relationship": "same_story", "delta_type": "status_change", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["coha_f8"], "forbidden_fact_ids": []}]
+        }
+      ]
+    },
+    {
+      "id": "real-blind-loss-damage-fund",
+      "split": "holdout",
+      "tags": ["real_primary_sources", "genre_climate", "policy_to_implementation", "same_conference_hard_negative", "long_noisy_source"],
+      "profile": {
+        "role": "International climate-finance analyst",
+        "wants": ["UN loss-and-damage fund", "fund governance and operationalization", "COP decisions on climate finance"],
+        "beats": {"loss and damage": 3.0, "UN climate negotiations": 2.6},
+        "briefing_style": "Track this fund from political establishment to operational governance while separating other outcomes from the same climate conferences."
+      },
+      "fact_catalog": {
+        "loss_f1": "COP27 established new loss-and-damage funding arrangements and a dedicated fund in November 2022.",
+        "loss_f2": "The Transitional Committee delivered governance and operational recommendations before COP28.",
+        "loss_f3": "A COP28 draft decision proposed adoption of the committee's operational package.",
+        "loss_f4": "COP28 operationalized the fund on the conference's first day and pledges began arriving.",
+        "loss_f5": "COP28's global stocktake and fossil-fuel transition language were a separate conference outcome.",
+        "loss_f6": "The fund's Board held its first meeting in April-May 2024 and began governance and access work."
+      },
+      "days": [
+        {
+          "date": "2022-11-20",
+          "documents": [{
+            "id": "rb-loss-01",
+            "source": "UNFCCC",
+            "title": "COP27 establishes a loss-and-damage fund",
+            "url": "https://www.unfccc.int/news/cop27-reaches-breakthrough-agreement-on-new-loss-and-damage-fund-for-vulnerable-countries",
+            "snippet": "Governments create a dedicated fund but leave its machinery for later design.",
+            "body": "COP27 ended with agreement to establish new funding arrangements and a dedicated fund for vulnerable developing countries facing climate loss and damage. Governments also created a transitional committee to recommend how the fund should operate at COP28. This was a founding decision, not a functioning grant programme, and the release contains many other mitigation, adaptation, and finance outcomes from the conference.",
+            "published_at": "2022-11-20T12:00:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased", "long_source"]
+          }],
+          "expectations": [{"document_id": "rb-loss-01", "canonical_story_id": "un-loss-damage-fund-implementation", "relationship": "new_story", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["loss_f1"], "forbidden_fact_ids": ["loss_f4", "loss_f6"]}]
+        },
+        {
+          "date": "2023-11-28",
+          "documents": [{
+            "id": "rb-loss-02",
+            "source": "UNFCCC Secretariat",
+            "title": "Transitional Committee reports recommendations for the fund",
+            "url": "https://www.unfccc.int/documents/632319",
+            "snippet": "A year of design work produces a proposed governing instrument and operational package.",
+            "body": "The Transitional Committee's report presented recommendations on institutional arrangements, governance, fund structure, sources of money, and coordination with other funding. Annexes contained a draft decision and governing instrument for COP28 consideration. The committee had completed its recommendation mandate, but parties had not yet adopted or operationalized the package.",
+            "published_at": "2023-11-28T12:00:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased", "long_source", "pdf_source"]
+          }],
+          "expectations": [{"document_id": "rb-loss-02", "canonical_story_id": "un-loss-damage-fund-implementation", "relationship": "same_story", "delta_type": "material_update", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["loss_f2"], "forbidden_fact_ids": ["loss_f4", "loss_f6"]}]
+        },
+        {
+          "date": "2023-11-29",
+          "documents": [{
+            "id": "rb-loss-03",
+            "source": "UNFCCC Conference of the Parties",
+            "title": "COP28 president issues draft operationalization decision",
+            "url": "https://www.unfccc.int/documents/634215",
+            "snippet": "The committee package advances to a formal draft decision immediately before COP28 action.",
+            "body": "A proposal by the COP28 president put the Transitional Committee's recommendations into draft decision form for consideration by the parties. It was an authoritative procedural advance, yet remained a draft at publication and should not be represented as the final adopted decision.",
+            "published_at": "2023-11-29T12:00:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased", "draft_status"]
+          }],
+          "expectations": [{"document_id": "rb-loss-03", "canonical_story_id": "un-loss-damage-fund-implementation", "relationship": "same_story", "delta_type": "incremental", "material": false, "display": "continuing_bullet", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["loss_f3"], "forbidden_fact_ids": ["loss_f4", "loss_f6"]}]
+        },
+        {
+          "date": "2023-12-13",
+          "documents": [
+            {
+              "id": "rb-loss-04",
+              "source": "UNFCCC",
+              "title": "COP28 operationalizes the loss-and-damage fund",
+              "url": "https://unfccc.int/news/cop28-agreement-signals-beginning-of-the-end-of-the-fossil-fuel-era",
+              "snippet": "Parties adopt the fund package and begin making financial pledges.",
+              "body": "UNFCCC's conference wrap-up confirmed that parties had operationalized the loss-and-damage fund on COP28's first day and that pledges began immediately, exceeding 700 million dollars by conference close. This converted the prior proposal into an adopted governance arrangement, though the Board and access machinery still had to be built. The long release discusses many other COP28 decisions.",
+              "published_at": "2023-12-13T12:00:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased", "long_source", "multi_outcome_source"]
+            },
+            {
+              "id": "rb-loss-05",
+              "source": "UNFCCC",
+              "title": "COP28 global stocktake calls for energy transition",
+              "url": "https://unfccc.int/news/cop28-agreement-signals-beginning-of-the-end-of-the-fossil-fuel-era",
+              "snippet": "The same wrap-up contains a separate flagship decision about emissions and energy systems.",
+              "body": "COP28's first global stocktake called for measures including tripling renewable-energy capacity, doubling energy-efficiency improvements, and transitioning away from fossil fuels in energy systems. It came from the same conference and source as fund operationalization but is a distinct policy outcome; it does not describe the loss-and-damage fund's Board, access rules, or pledges.",
+              "published_at": "2023-12-13T12:01:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased", "multi_outcome_source"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-loss-04", "canonical_story_id": "un-loss-damage-fund-implementation", "relationship": "same_story", "delta_type": "material_update", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["loss_f4"], "forbidden_fact_ids": ["loss_f5", "loss_f6"]},
+            {"document_id": "rb-loss-05", "canonical_story_id": "cop28-global-stocktake-energy-transition", "relationship": "related_theme", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "eligible", "should_select": true, "required_fact_ids": ["loss_f5"], "forbidden_fact_ids": ["loss_f4", "loss_f6"]}
+          ]
+        },
+        {
+          "date": "2024-05-06",
+          "documents": [{
+            "id": "rb-loss-06",
+            "source": "UNFCCC",
+            "title": "Loss-and-damage fund Board holds first meeting",
+            "url": "https://unfccc.int/news/the-board-of-the-fund-for-responding-to-loss-and-damage-holds-its-historic-first-meeting",
+            "snippet": "The operationalized fund gains a working Board and starts implementation tasks.",
+            "body": "The fund's Board completed its first meeting, elected co-chairs, began selecting an executive director, and opened work on access modalities, financial instruments, observer participation, and World Bank hosting arrangements. This was a concrete implementation step after COP28, not the delivery of the first grants or a declaration that the fund's setup was complete.",
+            "published_at": "2024-05-06T12:00:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased"]
+          }],
+          "expectations": [{"document_id": "rb-loss-06", "canonical_story_id": "un-loss-damage-fund-implementation", "relationship": "same_story", "delta_type": "material_update", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["loss_f6"], "forbidden_fact_ids": []}]
+        }
+      ]
+    },
+    {
+      "id": "real-blind-hurricane-beryl-2024",
+      "split": "holdout",
+      "tags": ["real_primary_sources", "genre_climate", "genre_weather_extremes", "rapid_state_changes", "same_basin_hard_negative", "retrospective_correction", "long_noisy_source"],
+      "profile": {
+        "role": "Atlantic tropical-cyclone risk analyst",
+        "wants": ["Hurricane Beryl 2024", "Beryl intensity and landfalls", "post-storm assessments and corrections"],
+        "beats": {"Atlantic tropical cyclones": 2.9, "extreme-weather impacts": 2.8},
+        "briefing_style": "Track forecast-to-observed state changes and later post-analysis; distinguish other named storms even when active on the same date."
+      },
+      "fact_catalog": {
+        "beryl_f1": "Beryl was a tropical storm east of Barbados on June 29, 2024 and was forecast to become a major hurricane.",
+        "beryl_f2": "Beryl made landfall on Carriacou as a Category 4 hurricane on July 1 with 150 mph winds.",
+        "beryl_f3": "Tropical Storm Chris made landfall in Veracruz on July 1 and was a different cyclone.",
+        "beryl_f4": "Beryl strengthened to Category 5 late on July 1 with 160 mph winds.",
+        "beryl_f5": "Beryl made another landfall near Tulum on the Yucatan Peninsula on July 5.",
+        "beryl_f6": "Beryl made landfall near Matagorda, Texas on July 8 as a hurricane with 80 mph winds.",
+        "beryl_f7": "Beryl became post-tropical on July 9 while flooding and tornado risks continued.",
+        "beryl_f8": "NHC's January 2025 post-analysis described Beryl as the earliest Atlantic Category 5 on record and estimated 34 direct and 68 total deaths.",
+        "beryl_f9": "NHC amended the report on May 1, 2025 to 35 direct and 69 total deaths after adding one Jamaican death."
+      },
+      "days": [
+        {
+          "date": "2024-06-29",
+          "documents": [{
+            "id": "rb-beryl-01",
+            "source": "NOAA National Hurricane Center",
+            "title": "Tropical Storm Beryl expected to become a major hurricane",
+            "url": "https://www.nhc.noaa.gov/archive/2024/al02/al022024.public.004.shtml",
+            "snippet": "A strengthening tropical storm prompts hurricane watches before reaching the Windward Islands.",
+            "body": "NHC placed Tropical Storm Beryl about 820 miles east-southeast of Barbados with maximum sustained winds near 65 mph. It forecast major-hurricane strength before the Windward Islands and listed new watches and expected hazards. These were contemporaneous estimates and predictions, not yet an observed island landfall or Category 5 measurement.",
+            "published_at": "2024-06-29T15:00:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased", "forecast_vs_observed"]
+          }],
+          "expectations": [{"document_id": "rb-beryl-01", "canonical_story_id": "atlantic-hurricane-beryl-2024", "relationship": "new_story", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["beryl_f1"], "forbidden_fact_ids": ["beryl_f2", "beryl_f4", "beryl_f6"]}]
+        },
+        {
+          "date": "2024-07-01",
+          "documents": [
+            {
+              "id": "rb-beryl-02",
+              "source": "NOAA National Hurricane Center",
+              "title": "Category 4 Beryl makes landfall on Carriacou",
+              "url": "https://www.nhc.noaa.gov/archive/2024/al02/al022024.update.07011512.shtml",
+              "snippet": "The storm's eye crosses Carriacou with 150 mph winds.",
+              "body": "Satellite, radar, and reconnaissance data showed Beryl making landfall on Carriacou at 11:10 a.m. Atlantic time as a Category 4 hurricane. NHC increased the observed maximum sustained wind estimate to 150 mph. This verifies an island landfall but precedes the storm's later Category 5 intensification.",
+              "published_at": "2024-07-01T15:12:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased", "observed_event"]
+            },
+            {
+              "id": "rb-beryl-03",
+              "source": "NOAA National Hurricane Center",
+              "title": "Tropical Storm Chris makes landfall in Veracruz",
+              "url": "https://www.nhc.noaa.gov/archive/2024/al03/al032024.discus.003.shtml",
+              "snippet": "Another Atlantic storm reaches Mexico while Beryl remains active.",
+              "body": "NHC estimated that Tropical Storm Chris had made landfall near Lechuguillas in Veracruz and would dissipate over high terrain. The advisory shares the basin, agency, date, cyclone terminology, Mexican impacts, and an eventual dissipation state with Beryl coverage. Chris is nevertheless a separate named cyclone and does not update Beryl's track or intensity.",
+              "published_at": "2024-07-01T09:00:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased", "same_day_hard_negative"]
+            },
+            {
+              "id": "rb-beryl-04",
+              "source": "NOAA National Hurricane Center",
+              "title": "Beryl becomes a Category 5 hurricane",
+              "url": "https://www.nhc.noaa.gov/archive/2024/al02/al022024.public.014.shtml",
+              "snippet": "Reconnaissance measures a new peak category after the Carriacou landfall.",
+              "body": "At 11 p.m. Atlantic time, NHC upgraded Beryl to Category 5 based on 160 mph maximum sustained winds measured after the earlier Carriacou landfall. The bulletin forecast serious hazards farther along the track. This is a new intensity state, not a correction saying Beryl had been Category 5 when it first crossed Carriacou.",
+              "published_at": "2024-07-01T23:00:00-04:00",
+              "category": "real",
+              "tags": ["official_source", "paraphrased"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-beryl-02", "canonical_story_id": "atlantic-hurricane-beryl-2024", "relationship": "same_story", "delta_type": "material_update", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["beryl_f2"], "forbidden_fact_ids": ["beryl_f4", "beryl_f6"]},
+            {"document_id": "rb-beryl-03", "canonical_story_id": "atlantic-tropical-storm-chris-2024", "relationship": "related_theme", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "eligible", "should_select": true, "required_fact_ids": ["beryl_f3"], "forbidden_fact_ids": ["beryl_f2", "beryl_f4"]},
+            {"document_id": "rb-beryl-04", "canonical_story_id": "atlantic-hurricane-beryl-2024", "relationship": "same_story", "delta_type": "status_change", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["beryl_f4"], "forbidden_fact_ids": ["beryl_f6"]}
+          ]
+        },
+        {
+          "date": "2024-07-05",
+          "documents": [{
+            "id": "rb-beryl-05",
+            "source": "NOAA National Hurricane Center",
+            "title": "Beryl makes landfall on the Yucatan Peninsula",
+            "url": "https://www.nhc.noaa.gov/archive/2024/al02/al022024.update.07051104.shtml",
+            "snippet": "The center crosses near Tulum after traversing the Caribbean.",
+            "body": "Radar and surface observations showed Beryl making landfall just northeast of Tulum with estimated sustained winds of 110 mph. This was a later landfall in the same storm family, geographically distinct from Carriacou and before the Texas landfall. The update did not say the cyclone had ended.",
+            "published_at": "2024-07-05T11:04:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased", "observed_event"]
+          }],
+          "expectations": [{"document_id": "rb-beryl-05", "canonical_story_id": "atlantic-hurricane-beryl-2024", "relationship": "same_story", "delta_type": "material_update", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["beryl_f5"], "forbidden_fact_ids": ["beryl_f6", "beryl_f7"]}]
+        },
+        {
+          "date": "2024-07-08",
+          "documents": [{
+            "id": "rb-beryl-06",
+            "source": "NOAA National Hurricane Center",
+            "title": "Beryl makes landfall near Matagorda, Texas",
+            "url": "https://www.nhc.noaa.gov/archive/2024/al02/al022024.public.039.shtml",
+            "snippet": "The cyclone regains hurricane strength and crosses the Texas coast.",
+            "body": "NHC reported the center of Beryl making landfall near Matagorda, Texas, with maximum sustained winds of 80 mph. Storm surge, strong winds, and flash flooding were occurring, and the cyclone was expected to weaken inland. This is an observed U.S. landfall, not a restatement of the Yucatan event or a forecast that landfall might occur.",
+            "published_at": "2024-07-08T09:00:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased", "observed_event", "long_source"]
+          }],
+          "expectations": [{"document_id": "rb-beryl-06", "canonical_story_id": "atlantic-hurricane-beryl-2024", "relationship": "same_story", "delta_type": "material_update", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["beryl_f6"], "forbidden_fact_ids": ["beryl_f7"]}]
+        },
+        {
+          "date": "2024-07-09",
+          "documents": [{
+            "id": "rb-beryl-07",
+            "source": "NOAA Weather Prediction Center",
+            "title": "Beryl becomes post-tropical",
+            "url": "https://www.nhc.noaa.gov/archive/2024/al02/al022024.public.044.shtml",
+            "snippet": "Tropical-cyclone status ends while inland hazards remain active.",
+            "body": "The Weather Prediction Center classified Beryl as post-tropical over Arkansas, with winds near 30 mph. Flooding and tornado risks continued from the Mississippi and Ohio valleys toward the Great Lakes, so the hazard story was not instantly over even though tropical status had ended. The advisory said further updates would follow.",
+            "published_at": "2024-07-09T15:00:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased", "cross_agency_continuation"]
+          }],
+          "expectations": [{"document_id": "rb-beryl-07", "canonical_story_id": "atlantic-hurricane-beryl-2024", "relationship": "same_story", "delta_type": "resolved", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["beryl_f7"], "forbidden_fact_ids": ["beryl_f8", "beryl_f9"]}]
+        },
+        {
+          "date": "2025-01-23",
+          "documents": [{
+            "id": "rb-beryl-08",
+            "source": "NOAA National Hurricane Center",
+            "title": "Post-season report consolidates Hurricane Beryl's record and impacts",
+            "url": "https://www.nhc.noaa.gov/data/tcr/AL022024_Beryl.pdf",
+            "snippet": "Detailed post-analysis revises the event from live advisories into a historical record.",
+            "body": "NHC's original tropical cyclone report concluded that Beryl was the earliest Category 5 hurricane on record in the Atlantic, documented its Caribbean, Mexican, and Texas landfalls, and attributed 34 direct deaths and 68 deaths overall. The long report also reconstructed best-track intensity, forecast performance, damage, warnings, and country-by-country impacts. It is a retrospective synthesis rather than a new landfall.",
+            "published_at": "2025-01-23T16:30:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased", "long_source", "retrospective", "snapshot_reconstructed"]
+          }],
+          "expectations": [{"document_id": "rb-beryl-08", "canonical_story_id": "atlantic-hurricane-beryl-2024", "relationship": "same_story", "delta_type": "reframed", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["beryl_f8"], "forbidden_fact_ids": ["beryl_f9"]}]
+        },
+        {
+          "date": "2025-05-01",
+          "documents": [{
+            "id": "rb-beryl-09",
+            "source": "NOAA National Hurricane Center",
+            "title": "NHC amends Beryl casualty totals",
+            "url": "https://www.nhc.noaa.gov/data/tcr/AL022024_Beryl.pdf",
+            "snippet": "A revised official report adds one direct death in Jamaica.",
+            "body": "The amended NHC report explicitly says it added one direct death in Jamaica, raising the direct count to 35 and the combined direct-and-indirect count to 69. Other casualty and damage details were also updated. The correction changes the post-season record but does not alter Beryl's track, peak intensity, or landfall sequence.",
+            "published_at": "2025-05-01T12:00:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased", "explicit_correction", "same_url_revision", "long_source"]
+          }],
+          "expectations": [{"document_id": "rb-beryl-09", "canonical_story_id": "atlantic-hurricane-beryl-2024", "relationship": "same_story", "delta_type": "correction", "material": false, "display": "continuing_bullet", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["beryl_f9"], "forbidden_fact_ids": []}]
+        }
+      ]
+    },
+    {
+      "id": "real-blind-eu-ai-act-lifecycle",
+      "split": "holdout",
+      "tags": ["real_primary_sources", "genre_ai_technology", "legislative_lifecycle", "cross_institution", "similar_treaty_hard_negative", "post_cutoff_2026"],
+      "profile": {
+        "role": "European AI-regulation analyst",
+        "wants": ["EU Artificial Intelligence Act", "AI Act adoption and application", "changes to AI Act implementation dates"],
+        "beats": {"EU AI regulation": 3.0, "technology law": 2.7},
+        "briefing_style": "Preserve provisional, adopted, in-force, and applicable states; separate other European AI instruments."
+      },
+      "fact_catalog": {
+        "aia_f1": "EU negotiators reached a provisional political agreement on the AI Act in December 2023.",
+        "aia_f2": "The European Parliament approved its first-reading position in March 2024, pending Council endorsement.",
+        "aia_f3": "The Council gave final approval to the AI Act on May 21, 2024.",
+        "aia_f4": "The AI Act entered into force on August 1, 2024 with staged application dates.",
+        "aia_f5": "The Council of Europe AI Framework Convention opened for signature in September 2024 and is not the EU AI Act.",
+        "aia_f6": "The AI Act's first applicable provisions, including prohibited practices and AI literacy, began applying on February 2, 2025.",
+        "aia_f7": "EU co-legislators provisionally agreed in May 2026 to amend and delay parts of the AI Act implementation timeline.",
+        "aia_f8": "The AI Omnibus entered into force on July 27, 2026 and set later dates for high-risk-system rules."
+      },
+      "days": [
+        {
+          "date": "2023-12-09",
+          "documents": [{
+            "id": "rb-aia-01",
+            "source": "Council of the European Union",
+            "title": "Council and Parliament reach provisional AI Act deal",
+            "url": "https://www.consilium.europa.eu/en/press/press-releases/2023/12/09/artificial-intelligence-act-council-and-parliament-strike-a-deal-on-the-first-worldwide-rules-for-ai/",
+            "snippet": "Negotiators close the political questions but formal adoption remains ahead.",
+            "body": "The Council presidency and European Parliament negotiators reached a provisional political agreement on a risk-based AI law. The release describes prohibited practices, high-risk duties, general-purpose models, governance, and penalties. Technical work, legal review, and formal endorsement by both institutions were still required, so this was not yet a law in force.",
+            "published_at": "2023-12-09T12:00:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased", "provisional_status", "long_source"]
+          }],
+          "expectations": [{"document_id": "rb-aia-01", "canonical_story_id": "eu-ai-act-adoption-and-implementation", "relationship": "new_story", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["aia_f1"], "forbidden_fact_ids": ["aia_f3", "aia_f4", "aia_f8"]}]
+        },
+        {
+          "date": "2024-03-13",
+          "documents": [{
+            "id": "rb-aia-02",
+            "source": "European Parliament",
+            "title": "MEPs approve the Artificial Intelligence Act",
+            "url": "https://www.europarl.europa.eu/news/en/press-room/20240308IPR19015/intelligence-artificielle-les-deputes-adoptent-une-legislation-historique",
+            "snippet": "Parliament approves the negotiated text while Council action remains pending.",
+            "body": "The European Parliament approved the negotiated AI Act by 523 votes to 46, with 49 abstentions. The release explicitly said the Council still needed to formally endorse the regulation and described staged future application dates. This advances the same legislative file but should not be mistaken for final Council approval or entry into force.",
+            "published_at": "2024-03-13T12:25:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased"]
+          }],
+          "expectations": [{"document_id": "rb-aia-02", "canonical_story_id": "eu-ai-act-adoption-and-implementation", "relationship": "same_story", "delta_type": "status_change", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["aia_f2"], "forbidden_fact_ids": ["aia_f3", "aia_f4"]}]
+        },
+        {
+          "date": "2024-05-21",
+          "documents": [{
+            "id": "rb-aia-03",
+            "source": "Council of the European Union",
+            "title": "Council gives final green light to the AI Act",
+            "url": "https://www.consilium.europa.eu/en/press/press-releases/2024/05/21/artificial-intelligence-ai-act-council-gives-final-green-light-to-the-first-worldwide-rules-on-ai/",
+            "snippet": "The second co-legislator formally approves the regulation.",
+            "body": "The Council adopted the AI Act after Parliament's vote, completing the institutions' formal approval. The act still needed signatures and publication in the Official Journal and would enter into force twenty days after publication. The release's broad summary of risk tiers and governance does not mean every substantive duty started applying that day.",
+            "published_at": "2024-05-21T10:17:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased"]
+          }],
+          "expectations": [{"document_id": "rb-aia-03", "canonical_story_id": "eu-ai-act-adoption-and-implementation", "relationship": "same_story", "delta_type": "material_update", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["aia_f3"], "forbidden_fact_ids": ["aia_f4", "aia_f6"]}]
+        },
+        {
+          "date": "2024-08-01",
+          "documents": [{
+            "id": "rb-aia-04",
+            "source": "European Commission",
+            "title": "AI Act enters into force",
+            "url": "https://commission.europa.eu/news-and-media/news/ai-act-enters-force-2024-08-01_en",
+            "snippet": "The adopted regulation becomes law, with obligations still phased in.",
+            "body": "The Commission announced that the AI Act entered into force on August 1. The regulation used a risk-based framework, while application of many provisions would be staggered over subsequent months and years. Entry into force is a legal status change and is not equivalent to all regulated systems immediately becoming subject to every obligation.",
+            "published_at": "2024-08-01T12:00:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased"]
+          }],
+          "expectations": [{"document_id": "rb-aia-04", "canonical_story_id": "eu-ai-act-adoption-and-implementation", "relationship": "same_story", "delta_type": "status_change", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["aia_f4"], "forbidden_fact_ids": ["aia_f6", "aia_f8"]}]
+        },
+        {
+          "date": "2024-09-05",
+          "documents": [{
+            "id": "rb-aia-05",
+            "source": "Council of Europe",
+            "title": "AI Framework Convention opens for signature",
+            "url": "https://www.coe.int/en/web/artificial-intelligence/the-framework-convention-on-artificial-intelligence",
+            "snippet": "A different European legal instrument also regulates AI and fundamental rights.",
+            "body": "The Council of Europe opened its Framework Convention on Artificial Intelligence and human rights, democracy, and the rule of law for signature. It is an international treaty with its own parties, scope, and ratification mechanism. Despite overlapping European institutions, risk language, and subject matter, it is not the European Union's AI Act and does not change the Act's application dates.",
+            "published_at": "2024-09-05T12:00:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased"]
+          }],
+          "expectations": [{"document_id": "rb-aia-05", "canonical_story_id": "council-europe-ai-framework-convention", "relationship": "related_theme", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "eligible", "should_select": true, "required_fact_ids": ["aia_f5"], "forbidden_fact_ids": ["aia_f4", "aia_f6"]}]
+        },
+        {
+          "date": "2025-02-03",
+          "documents": [{
+            "id": "rb-aia-06",
+            "source": "European Commission",
+            "title": "First AI Act rules become applicable",
+            "url": "https://digital-strategy.ec.europa.eu/en/news/first-rules-artificial-intelligence-act-are-now-applicable",
+            "snippet": "The first phased obligations begin six months after entry into force.",
+            "body": "The Commission said that, as of February 2, the Act's definition of an AI system, AI-literacy provisions, and a limited set of prohibited practices had started applying. It also previewed non-binding guidance. This is a concrete implementation milestone, but most rules still followed later schedules.",
+            "published_at": "2025-02-03T12:00:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased"]
+          }],
+          "expectations": [{"document_id": "rb-aia-06", "canonical_story_id": "eu-ai-act-adoption-and-implementation", "relationship": "same_story", "delta_type": "material_update", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["aia_f6"], "forbidden_fact_ids": ["aia_f7", "aia_f8"]}]
+        },
+        {
+          "date": "2026-05-07",
+          "documents": [{
+            "id": "rb-aia-07",
+            "source": "Council of the European Union",
+            "title": "EU negotiators provisionally agree to simplify AI Act rules",
+            "url": "https://www.consilium.europa.eu/en/press/press-releases/2026/05/07/artificial-intelligence-council-and-parliament-agree-to-simplify-and-streamline-rules/",
+            "snippet": "A new political deal proposes fixed delays and targeted amendments to the existing Act.",
+            "body": "Council and Parliament negotiators reached a provisional agreement on an AI Omnibus that would simplify parts of the AI Act and move high-risk-system application dates to December 2027 and August 2028. It also added and adjusted several substantive requirements. The release said formal endorsement and adoption were still required, so the proposed dates were not yet in force on May 7.",
+            "published_at": "2026-05-07T12:00:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased", "provisional_status", "post_cutoff_2026", "long_source"]
+          }],
+          "expectations": [{"document_id": "rb-aia-07", "canonical_story_id": "eu-ai-act-adoption-and-implementation", "relationship": "same_story", "delta_type": "status_change", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["aia_f7"], "forbidden_fact_ids": ["aia_f8"]}]
+        },
+        {
+          "date": "2026-07-27",
+          "documents": [{
+            "id": "rb-aia-08",
+            "source": "European Commission",
+            "title": "AI Omnibus enters into force",
+            "url": "https://digital-strategy.ec.europa.eu/en/news/ai-omnibus-enters-force",
+            "snippet": "The provisional amendment becomes binding and changes the implementation timeline.",
+            "body": "The Commission announced that the AI Omnibus had entered into force across the European Union. It set application of stand-alone high-risk-system rules for December 2, 2027 and product-embedded high-risk rules for August 2, 2028, while making other simplifications and safeguards. This supersedes the prior expected timeline for those provisions but does not erase rules that had already begun applying in February 2025.",
+            "published_at": "2026-07-27T12:00:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased", "post_cutoff_2026"]
+          }],
+          "expectations": [{"document_id": "rb-aia-08", "canonical_story_id": "eu-ai-act-adoption-and-implementation", "relationship": "same_story", "delta_type": "material_update", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["aia_f8"], "forbidden_fact_ids": []}]
+        }
+      ]
+    },
+    {
+      "id": "real-blind-nist-generative-ai-profile",
+      "split": "holdout",
+      "tags": ["real_primary_sources", "genre_ai_technology", "guidance_draft_to_final", "same_release_hard_negative", "nested_framework_threads", "post_cutoff_2026"],
+      "profile": {
+        "role": "AI assurance standards analyst",
+        "wants": ["NIST Generative AI Profile", "AI Risk Management Framework companion guidance", "draft and final NIST AI risk publications"],
+        "beats": {"NIST AI guidance": 3.0, "generative-AI risk management": 2.9},
+        "briefing_style": "Distinguish the core framework, its domain profiles, and other guidance released in the same announcement."
+      },
+      "fact_catalog": {
+        "nist_f1": "NIST released the general AI Risk Management Framework 1.0 in January 2023.",
+        "nist_f2": "NIST launched a public working group in June 2023 to develop a generative-AI profile for the framework.",
+        "nist_f3": "NIST released an initial draft Generative AI Profile for public comment in April 2024.",
+        "nist_f4": "NIST finalized the Generative AI Profile in July 2024 with 12 risk categories and more than 200 suggested actions.",
+        "nist_f5": "The July 2024 announcement also introduced a separate draft on misuse risk for dual-use foundation models.",
+        "nist_f6": "NIST issued a substantially expanded second draft of the dual-use misuse guidance in January 2025.",
+        "nist_f7": "NIST began developing a separate trustworthy-AI-in-critical-infrastructure profile in April 2026."
+      },
+      "days": [
+        {
+          "date": "2023-01-26",
+          "documents": [{
+            "id": "rb-nist-01",
+            "source": "National Institute of Standards and Technology",
+            "title": "NIST releases AI Risk Management Framework 1.0",
+            "url": "https://www.nist.gov/news-events/news/2023/01/nist-risk-management-framework-aims-improve-trustworthiness-artificial",
+            "snippet": "A voluntary general framework establishes the parent structure for later profiles.",
+            "body": "NIST released AI RMF 1.0 as voluntary guidance for organizations that design, develop, deploy, or use AI. Its core functions are govern, map, measure, and manage, and the long release covers its development process, playbook, roadmap, and broad socio-technical risks. This is the parent framework, not the later companion profile devoted specifically to generative AI.",
+            "published_at": "2023-01-26T12:00:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased", "long_source"]
+          }],
+          "expectations": [{"document_id": "rb-nist-01", "canonical_story_id": "nist-ai-rmf-core-1", "relationship": "new_story", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "eligible", "should_select": true, "required_fact_ids": ["nist_f1"], "forbidden_fact_ids": ["nist_f3", "nist_f4"]}]
+        },
+        {
+          "date": "2023-06-22",
+          "documents": [{
+            "id": "rb-nist-02",
+            "source": "National Institute of Standards and Technology",
+            "title": "NIST launches Generative AI Public Working Group",
+            "url": "https://www.nist.gov/news-events/news/2023/06/biden-harris-administration-announces-new-nist-public-working-group-ai",
+            "snippet": "A new group begins adapting the general framework to generative-AI risks.",
+            "body": "NIST opened a public working group to build guidance for generative AI on top of AI RMF 1.0. The group would first collect input for a companion profile, then support testing and measurement, and later explore beneficial uses. Formation of the group starts a distinct profile-development thread; it does not itself publish a draft or final profile.",
+            "published_at": "2023-06-22T12:00:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased", "long_source"]
+          }],
+          "expectations": [{"document_id": "rb-nist-02", "canonical_story_id": "nist-rmf-generative-ai-profile", "relationship": "related_theme", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["nist_f2"], "forbidden_fact_ids": ["nist_f3", "nist_f4"]}]
+        },
+        {
+          "date": "2024-04-29",
+          "documents": [{
+            "id": "rb-nist-03",
+            "source": "National Institute of Standards and Technology",
+            "title": "NIST releases draft Generative AI Profile",
+            "url": "https://www.nist.gov/news-events/news/2024/04/department-commerce-announces-new-actions-implement-president-bidens",
+            "snippet": "The working-group effort becomes a public draft alongside three other draft products.",
+            "body": "NIST released an initial draft of AI 600-1, the AI RMF Generative AI Profile, for public comment. It was one of four draft publications in the same announcement, alongside secure-development, synthetic-content, and international-standards work. The profile was not final and feedback could still change it.",
+            "published_at": "2024-04-29T12:00:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased", "draft_status", "multi_item_source"]
+          }],
+          "expectations": [{"document_id": "rb-nist-03", "canonical_story_id": "nist-rmf-generative-ai-profile", "relationship": "same_story", "delta_type": "status_change", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["nist_f3"], "forbidden_fact_ids": ["nist_f4", "nist_f5"]}]
+        },
+        {
+          "date": "2024-07-26",
+          "documents": [
+            {
+              "id": "rb-nist-04",
+              "source": "National Institute of Standards and Technology",
+              "title": "NIST finalizes the Generative AI Profile",
+              "url": "https://www.nist.gov/news-events/news/2024/07/department-commerce-announces-new-guidance-tools-270-days-following",
+              "snippet": "The April draft becomes final guidance after public comment.",
+              "body": "NIST published the final AI RMF Generative AI Profile. The companion resource organized 12 generative-AI risk categories and more than 200 risk-management actions aligned with the parent framework. The same long announcement included several unrelated final and draft products, so finalization of this profile should be extracted from its specific section.",
+              "published_at": "2024-07-26T12:00:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased", "multi_item_source", "long_source"]
+            },
+            {
+              "id": "rb-nist-05",
+              "source": "National Institute of Standards and Technology",
+              "title": "NIST issues initial draft dual-use foundation-model misuse guidance",
+              "url": "https://www.nist.gov/news-events/news/2024/07/department-commerce-announces-new-guidance-tools-270-days-following",
+              "snippet": "A different new draft appears in the same announcement as the final profile.",
+              "body": "NIST's AI Safety Institute separately released the first public draft of AI 800-1 on managing deliberate misuse risks from dual-use foundation models. It offered seven broad approaches and sought later feedback. It shares generative-AI, risk-management, NIST, and framework vocabulary with AI 600-1, but is a different publication thread and remained a draft.",
+              "published_at": "2024-07-26T12:01:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased", "multi_item_source", "draft_status"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-nist-04", "canonical_story_id": "nist-rmf-generative-ai-profile", "relationship": "same_story", "delta_type": "resolved", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["nist_f4"], "forbidden_fact_ids": ["nist_f5"]},
+            {"document_id": "rb-nist-05", "canonical_story_id": "nist-ai-8001-dual-use-misuse-guidance", "relationship": "related_theme", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "eligible", "should_select": true, "required_fact_ids": ["nist_f5"], "forbidden_fact_ids": ["nist_f4"]}
+          ]
+        },
+        {
+          "date": "2025-01-15",
+          "documents": [{
+            "id": "rb-nist-06",
+            "source": "National Institute of Standards and Technology",
+            "title": "NIST expands the dual-use misuse guidance in a second draft",
+            "url": "https://www.nist.gov/news-events/news/2025/01/updated-guidelines-managing-misuse-risk-dual-use-foundation-models",
+            "snippet": "The separate AI 800-1 thread receives new evaluation, cyber, biological, and open-model material.",
+            "body": "NIST released a second public draft of AI 800-1 after feedback on the July draft. It expanded model-evaluation guidance, cyber and chemical-biological appendices, marginal-risk treatment, open-model guidance, and supply-chain coverage. This is a material continuation of the dual-use misuse document, not a revision or replacement of the already-final AI 600-1 Generative AI Profile.",
+            "published_at": "2025-01-15T12:00:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased", "draft_status", "hard_negative_continuation"]
+          }],
+          "expectations": [{"document_id": "rb-nist-06", "canonical_story_id": "nist-ai-8001-dual-use-misuse-guidance", "relationship": "same_story", "delta_type": "material_update", "material": true, "display": "full_report", "profile_relevance": "eligible", "should_select": true, "required_fact_ids": ["nist_f6"], "forbidden_fact_ids": ["nist_f4"]}]
+        },
+        {
+          "date": "2026-04-07",
+          "documents": [{
+            "id": "rb-nist-07",
+            "source": "National Institute of Standards and Technology",
+            "title": "NIST begins a trustworthy-AI critical-infrastructure profile",
+            "url": "https://www.nist.gov/programs-projects/concept-note-ai-rmf-profile-trustworthy-ai-critical-infrastructure",
+            "snippet": "A new domain profile reuses the same parent framework for a different audience.",
+            "body": "NIST published a concept note launching development of an AI RMF profile for trustworthy AI in critical infrastructure. It targets operators and vendors across information technology, operational technology, industrial control systems, and other infrastructure contexts. The project is another child of the same AI RMF but does not reopen or update the final Generative AI Profile.",
+            "published_at": "2026-04-07T12:00:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased", "post_cutoff_2026", "nested_framework_hard_negative"]
+          }],
+          "expectations": [{"document_id": "rb-nist-07", "canonical_story_id": "nist-rmf-critical-infrastructure-profile", "relationship": "related_theme", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "eligible", "should_select": true, "required_fact_ids": ["nist_f7"], "forbidden_fact_ids": ["nist_f4", "nist_f6"]}]
+        }
+      ]
+    },
+    {
+      "id": "real-blind-belgian-gp-2024-result",
+      "split": "holdout",
+      "tags": ["real_primary_sources", "genre_sports", "provisional_to_final", "explicit_correction", "same_event_hard_negative", "rapid_sequence"],
+      "profile": {
+        "role": "Formula One results editor",
+        "wants": ["2024 Belgian Grand Prix classification", "post-race penalties", "official winner changes"],
+        "beats": {"Formula One race results": 3.0, "FIA steward decisions": 2.9},
+        "briefing_style": "Treat provisional and final classifications as versioned states; separate unrelated penalties at the same event."
+      },
+      "fact_catalog": {
+        "spa_f1": "Max Verstappen received a ten-place grid penalty for exceeding his season engine allocation before the race.",
+        "spa_f2": "The provisional Belgian Grand Prix classification listed George Russell first, Lewis Hamilton second, and Oscar Piastri third.",
+        "spa_f3": "FIA stewards disqualified Russell's car after it was found 1.5 kilograms below the minimum weight.",
+        "spa_f4": "The final classification promoted Hamilton to first, Piastri to second, and Charles Leclerc to third, with Russell disqualified.",
+        "spa_f5": "A next-day reaction article restated the corrected result without another classification change."
+      },
+      "days": [
+        {
+          "date": "2024-07-26",
+          "documents": [{
+            "id": "rb-spa-01",
+            "source": "Formula 1",
+            "title": "Verstappen takes grid penalty at Spa",
+            "url": "https://www.formula1.com/en/latest/article/verstappen-admits-spa-tricky-to-find-the-balance-as-he-focuses-on-sundays.7moyWRa6m127FvTmpSI3ey",
+            "snippet": "A separate pre-race engine-allocation penalty affects another driver.",
+            "body": "Formula 1 reported that Max Verstappen would take a ten-place grid penalty after Red Bull fitted a fifth internal-combustion engine, exceeding the season allowance. It concerns the same Belgian Grand Prix and uses penalty and position language, but it is unrelated to the post-race weight finding on George Russell's car and does not decide the eventual winner.",
+            "published_at": "2024-07-26T12:00:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased", "same_event_hard_negative"]
+          }],
+          "expectations": [{"document_id": "rb-spa-01", "canonical_story_id": "verstappen-2024-belgian-gp-grid-penalty", "relationship": "new_story", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "eligible", "should_select": true, "required_fact_ids": ["spa_f1"], "forbidden_fact_ids": ["spa_f3", "spa_f4"]}]
+        },
+        {
+          "date": "2024-07-28",
+          "documents": [
+            {
+              "id": "rb-spa-02",
+              "source": "Federation Internationale de l'Automobile",
+              "title": "Provisional Belgian Grand Prix race classification",
+              "url": "https://www.fia.com/sites/default/files/decision-document/2024%20Belgian%20Grand%20Prix%20-%20Provisional%20Race%20Classification.pdf",
+              "snippet": "The first official classification shows Russell as winner but is explicitly provisional.",
+              "body": "The FIA's provisional classification placed George Russell first, Lewis Hamilton second, and Oscar Piastri third. The document was issued shortly after the race and was explicitly not the final classification. It is the initial state against which the later technical decision and corrected order must be assessed.",
+              "published_at": "2024-07-28T14:40:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased", "pdf_source", "provisional_status"]
+            },
+            {
+              "id": "rb-spa-03",
+              "source": "Federation Internationale de l'Automobile",
+              "title": "Stewards disqualify car 63 for technical non-compliance",
+              "url": "https://www.fia.com/sites/default/files/decision-document/2024%20Belgian%20Grand%20Prix%20-%20Infringement%20-%20Car%2063%20-%20Technical%20non-compliance%20%28Weight%29.pdf",
+              "snippet": "A post-race measurement invalidates the provisional winner's result.",
+              "body": "The stewards found that Russell's Mercedes weighed 796.5 kilograms after fuel was drained, below the 798.0-kilogram minimum. The team acknowledged no mitigating circumstance and the stewards disqualified car 63. This decision changes the race classification; it is not the earlier engine penalty applied to Verstappen.",
+              "published_at": "2024-07-28T16:48:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased", "pdf_source", "explicit_correction"]
+            },
+            {
+              "id": "rb-spa-04",
+              "source": "Federation Internationale de l'Automobile",
+              "title": "Final Belgian Grand Prix race classification",
+              "url": "https://www.fia.com/sites/default/files/decision-document/2024%20Belgian%20Grand%20Prix%20-%20Final%20Race%20Classification.pdf",
+              "snippet": "The final version promotes Hamilton and lists Russell as disqualified.",
+              "body": "The FIA's final classification recorded Lewis Hamilton as winner, Oscar Piastri second, and Charles Leclerc third, while George Russell appeared as disqualified. This authoritative version supersedes the provisional order rather than adding a second winner.",
+              "published_at": "2024-07-28T17:56:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased", "pdf_source", "versioned_result"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-spa-02", "canonical_story_id": "belgian-gp-2024-official-result", "relationship": "related_theme", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["spa_f2"], "forbidden_fact_ids": ["spa_f3", "spa_f4"]},
+            {"document_id": "rb-spa-03", "canonical_story_id": "belgian-gp-2024-official-result", "relationship": "same_story", "delta_type": "correction", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["spa_f3"], "forbidden_fact_ids": ["spa_f1"]},
+            {"document_id": "rb-spa-04", "canonical_story_id": "belgian-gp-2024-official-result", "relationship": "same_story", "delta_type": "resolved", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["spa_f4"], "forbidden_fact_ids": ["spa_f1"]}
+          ]
+        },
+        {
+          "date": "2024-07-29",
+          "documents": [{
+            "id": "rb-spa-05",
+            "source": "Formula 1",
+            "title": "Hamilton and Russell react to revised Spa result",
+            "url": "https://www.formula1.com/en/latest/article/hamilton-left-with-mixed-feelings-over-belgian-gp-win-as-russell-reacts-to.NpZUXQ6q3I75xxBx0ZKN0",
+            "snippet": "Driver reaction repeats the final order without a later sporting decision.",
+            "body": "Hamilton described mixed feelings about inheriting the victory and Russell called the disqualification heartbreaking. The article explains the same underweight finding and corrected podium already established by FIA documents. It adds reaction and colour but no appeal outcome, reinstatement, or further classification change.",
+            "published_at": "2024-07-29T09:07:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased", "retrospective"]
+          }],
+          "expectations": [{"document_id": "rb-spa-05", "canonical_story_id": "belgian-gp-2024-official-result", "relationship": "same_story", "delta_type": "unchanged", "material": false, "display": "omit", "profile_relevance": "must_select", "should_select": false, "required_fact_ids": [], "forbidden_fact_ids": ["spa_f1"]}]
+        }
+      ]
+    },
+    {
+      "id": "real-blind-damar-hamlin-2023",
+      "split": "holdout",
+      "tags": ["real_primary_sources", "genre_sports", "medical_and_competition_threads", "resolution", "same_team_hard_negative", "sensitive_event"],
+      "profile": {
+        "role": "NFL breaking-news editor",
+        "wants": ["Damar Hamlin January 2023 medical updates", "Bills-Bengals game status", "official NFL and Bills decisions"],
+        "beats": {"NFL player safety": 3.0, "game scheduling": 2.7},
+        "briefing_style": "Track medical and competition consequences of the same event without merging unrelated player injury transactions."
+      },
+      "fact_catalog": {
+        "ham_f1": "The Bills-Bengals game was suspended after Damar Hamlin collapsed and he was hospitalized in critical condition.",
+        "ham_f2": "The Bills later said Hamlin had suffered cardiac arrest and his heartbeat was restored on the field.",
+        "ham_f3": "The NFL decided the Week 17 game would not resume and would be recorded as no contest.",
+        "ham_f4": "Hamlin was discharged from Buffalo General on January 11 after further testing.",
+        "ham_f5": "Buffalo designated Micah Hyde and Jamison Crowder to return from injured reserve in unrelated transactions."
+      },
+      "days": [
+        {
+          "date": "2023-01-02",
+          "documents": [{
+            "id": "rb-ham-01",
+            "source": "Buffalo Bills and NFL",
+            "title": "NFL suspends Bills at Bengals game",
+            "url": "https://www.buffalobills.com/news/nfl-suspends-bills-at-bengals-game",
+            "snippet": "A medical emergency stops the game and leaves both player and competition outcomes open.",
+            "body": "The NFL suspended the Buffalo-Cincinnati game after Damar Hamlin collapsed, received immediate care from team and independent medical personnel, and was transported to a hospital. The Bills said he was in critical condition. The statement did not yet identify cardiac arrest, decide whether the game would resume, or report a discharge.",
+            "published_at": "2023-01-02T22:12:00-05:00",
+            "category": "real",
+            "tags": ["official_source", "paraphrased", "sensitive_medical"]
+          }],
+          "expectations": [{"document_id": "rb-ham-01", "canonical_story_id": "damar-hamlin-collapse-and-aftermath", "relationship": "new_story", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["ham_f1"], "forbidden_fact_ids": ["ham_f2", "ham_f3", "ham_f4"]}]
+        },
+        {
+          "date": "2023-01-03",
+          "documents": [{
+            "id": "rb-ham-02",
+            "source": "Buffalo Bills",
+            "title": "Bills issue medical update on Damar Hamlin",
+            "url": "https://www.buffalobills.com/news/bills-issued-this-update-on-damar-hamlin",
+            "snippet": "The team identifies cardiac arrest and successful on-field resuscitation.",
+            "body": "The Bills said Hamlin had experienced cardiac arrest following a hit. Medical personnel restored his heartbeat on the field before transferring him to the University of Cincinnati Medical Center, where he remained sedated and critical. This adds the diagnosis and emergency response while leaving recovery and game status unresolved.",
+            "published_at": "2023-01-03T08:29:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased", "sensitive_medical"]
+          }],
+          "expectations": [{"document_id": "rb-ham-02", "canonical_story_id": "damar-hamlin-collapse-and-aftermath", "relationship": "same_story", "delta_type": "material_update", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["ham_f2"], "forbidden_fact_ids": ["ham_f3", "ham_f4"]}]
+        },
+        {
+          "date": "2023-01-05",
+          "documents": [{
+            "id": "rb-ham-03",
+            "source": "Buffalo Bills and NFL",
+            "title": "NFL says Bills-Bengals game will not resume",
+            "url": "https://www.buffalobills.com/news/nfl-says-neutral-site-afc-championship-game-is-possible-bills-bengals-week-17-ga",
+            "snippet": "The league resolves the suspended game's competitive status while medical recovery continues.",
+            "body": "The NFL decided the Week 17 Bills-Bengals game would not resume and would be recorded as no contest. The release also described possible playoff-seeding and neutral-site consequences. This resolves the competition subthread, but it does not report that Hamlin had left hospital or that his medical recovery was complete.",
+            "published_at": "2023-01-05T21:34:00-05:00",
+            "category": "real",
+            "tags": ["official_source", "paraphrased", "long_source", "multi_subthread"]
+          }],
+          "expectations": [{"document_id": "rb-ham-03", "canonical_story_id": "damar-hamlin-collapse-and-aftermath", "relationship": "same_story", "delta_type": "resolved", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["ham_f3"], "forbidden_fact_ids": ["ham_f4"]}]
+        },
+        {
+          "date": "2023-01-11",
+          "documents": [
+            {
+              "id": "rb-ham-04",
+              "source": "Buffalo Bills",
+              "title": "Damar Hamlin released from Buffalo General Hospital",
+              "url": "https://www.buffalobills.com/news/bills-statement-damar-hamlin-home-released-from-buffalo-general-hospital",
+              "snippet": "The player leaves hospital after cardiac, neurological, and vascular evaluation.",
+              "body": "The Bills said Hamlin had been discharged from Buffalo General Medical Center after comprehensive testing and would continue rehabilitation at home and with the team. Discharge is a major medical recovery milestone, though it does not claim an immediate return to playing football.",
+              "published_at": "2023-01-11T16:30:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased", "sensitive_medical"]
+            },
+            {
+              "id": "rb-ham-05",
+              "source": "Buffalo Bills",
+              "title": "Bills designate Hyde and Crowder to return from injured reserve",
+              "url": "https://www.buffalobills.com/news/bills-designate-s-micah-hyde-wr-jamison-crowder-to-return-from-ir",
+              "snippet": "Same-team recovery news concerns two other players and routine roster rules.",
+              "body": "Buffalo opened return-to-practice windows for safety Micah Hyde and receiver Jamison Crowder after their separate injuries. The transaction appeared on the same date as Hamlin's discharge and shares team, recovery, medical, and return language, but it involves different players, injuries, and roster decisions.",
+              "published_at": "2023-01-11T17:04:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased", "same_day_hard_negative"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-ham-04", "canonical_story_id": "damar-hamlin-collapse-and-aftermath", "relationship": "same_story", "delta_type": "resolved", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["ham_f4"], "forbidden_fact_ids": ["ham_f5"]},
+            {"document_id": "rb-ham-05", "canonical_story_id": "bills-hyde-crowder-ir-return-2023", "relationship": "related_theme", "delta_type": "new", "material": false, "display": "continuing_bullet", "profile_relevance": "eligible", "should_select": true, "required_fact_ids": ["ham_f5"], "forbidden_fact_ids": ["ham_f4"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "real-blind-eurovision-joost-klein-2024",
+      "split": "holdout",
+      "tags": ["real_primary_sources", "genre_celebrity_culture", "competition_and_legal_threads", "multilingual_sources", "same_event_hard_negative", "resolution_without_reversal"],
+      "profile": {
+        "role": "European culture-news editor",
+        "wants": ["Joost Klein Eurovision 2024 participation", "Dutch Eurovision disqualification", "official investigation outcome"],
+        "beats": {"Eurovision Song Contest": 3.0, "artist eligibility and disputes": 2.8},
+        "briefing_style": "Distinguish contest decisions from the later criminal-investigation outcome and from other artists' results."
+      },
+      "fact_catalog": {
+        "joost_f1": "Joost Klein qualified for the Eurovision 2024 final with Europapa on May 9.",
+        "joost_f2": "The Netherlands was disqualified before the final after an alleged backstage threat; AVROTROS denied physical contact and objected to the sanction.",
+        "joost_f3": "Nemo won Eurovision 2024 for Switzerland with 591 points, a separate result at the same contest.",
+        "joost_f4": "In June the Swedish investigation was still pending and AVROTROS continued seeking an independent review.",
+        "joost_f5": "Swedish prosecutors closed the threat investigation in August for lack of proof, without reversing the EBU contest disqualification."
+      },
+      "days": [
+        {
+          "date": "2024-05-09",
+          "documents": [{
+            "id": "rb-joost-01",
+            "source": "AVROTROS",
+            "title": "Joost Klein qualifies for the Eurovision final",
+            "url": "https://www.avrotros.nl/article/joost-klein-is-door-naar-de-finale-van-het-eurovisie-songfestival~526/",
+            "snippet": "The Dutch entrant advances from the semifinal to the scheduled final.",
+            "body": "Dutch broadcaster AVROTROS announced in Dutch that Joost Klein and the song Europapa had qualified for the May 11 Eurovision final. It listed the other qualifiers and treated his final participation as expected. No disqualification or police investigation had yet been announced in this update.",
+            "published_at": "2024-05-09T22:00:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased", "non_english_source"]
+          }],
+          "expectations": [{"document_id": "rb-joost-01", "canonical_story_id": "joost-klein-eurovision-2024-eligibility", "relationship": "new_story", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["joost_f1"], "forbidden_fact_ids": ["joost_f2", "joost_f5"]}]
+        },
+        {
+          "date": "2024-05-11",
+          "documents": [
+            {
+              "id": "rb-joost-02",
+              "source": "AVROTROS",
+              "title": "Netherlands disqualified from Eurovision final",
+              "url": "https://www.avrotros.nl/article/nederland-gediskwalificeerd-van-eurovisie-songfestival~527/",
+              "snippet": "The broadcaster says the EBU removed Klein from the final and disputes the proportionality.",
+              "body": "AVROTROS reported that the EBU had disqualified the Netherlands following a backstage incident. The broadcaster described an alleged threatening movement toward a camera, said there had been no physical contact, and called the sanction disproportionate. These are attributed descriptions from an interested party; the document does not establish the later prosecutor's conclusion.",
+              "published_at": "2024-05-11T12:00:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased", "non_english_source", "attributed_claim"]
+            },
+            {
+              "id": "rb-joost-03",
+              "source": "European Broadcasting Union",
+              "title": "Switzerland wins the 68th Eurovision Song Contest",
+              "url": "https://www.ebu.ch/news/2024/05/country-ebu-member-member-has-won-the-68th-eurovision-song-contest-with-the-song--performed-by-artist",
+              "snippet": "Nemo wins the same final in a separate artist-result thread.",
+              "body": "The EBU announced that Nemo won Eurovision for Switzerland with The Code and 591 points, ahead of Croatia and Ukraine. This is the main contest-result story on the same date and shares Eurovision, artist, final, broadcaster, and eligibility context with Klein's removal. It does not decide the backstage investigation or restore the Netherlands to the final.",
+              "published_at": "2024-05-11T23:00:00Z",
+              "category": "real",
+              "tags": ["official_source", "paraphrased", "same_event_hard_negative"]
+            }
+          ],
+          "expectations": [
+            {"document_id": "rb-joost-02", "canonical_story_id": "joost-klein-eurovision-2024-eligibility", "relationship": "same_story", "delta_type": "status_change", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["joost_f2"], "forbidden_fact_ids": ["joost_f3", "joost_f5"]},
+            {"document_id": "rb-joost-03", "canonical_story_id": "eurovision-2024-nemo-win", "relationship": "related_theme", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "eligible", "should_select": true, "required_fact_ids": ["joost_f3"], "forbidden_fact_ids": ["joost_f2", "joost_f5"]}
+          ]
+        },
+        {
+          "date": "2024-06-06",
+          "documents": [{
+            "id": "rb-joost-04",
+            "source": "AVROTROS",
+            "title": "AVROTROS says Swedish investigation remains pending",
+            "url": "https://www.avrotros.nl/article/update-avrotros-met-betrekking-tot-het-eurovisie-songfestival~576/",
+            "snippet": "The legal inquiry stays open while the broadcaster repeats its objection to the contest decision.",
+            "body": "AVROTROS said the Swedish prosecutor's investigation had not concluded and reiterated its view that Klein's removal was disproportionate. It also sought a broader independent examination of the Eurovision process. The status checkpoint adds that the inquiry remained open, but it announces no charge, acquittal, contest reinstatement, or new winner.",
+            "published_at": "2024-06-06T12:00:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased", "non_english_source", "attributed_claim"]
+          }],
+          "expectations": [{"document_id": "rb-joost-04", "canonical_story_id": "joost-klein-eurovision-2024-eligibility", "relationship": "same_story", "delta_type": "incremental", "material": false, "display": "continuing_bullet", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["joost_f4"], "forbidden_fact_ids": ["joost_f5"]}]
+        },
+        {
+          "date": "2024-08-12",
+          "documents": [{
+            "id": "rb-joost-05",
+            "source": "Swedish Prosecution Authority",
+            "title": "Investigation concerning illegal threats in Malmo closed",
+            "url": "https://www.aklagare.se/en/for-the-media/press-releases/2024/august/investigation-concerning-illegal-threats-in-malmo-has-been-closed/",
+            "snippet": "Prosecutors close the investigation because intent and serious fear could not be proved.",
+            "body": "The Swedish Prosecution Authority closed the illegal-threat investigation. The prosecutor said the available evidence could not prove that the movement was capable of causing serious fear or that Klein had such intent. This resolves the criminal-investigation subthread; it does not say the EBU reversed the earlier contest disqualification or changed Eurovision's final result.",
+            "published_at": "2024-08-12T11:00:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased", "cross_source_resolution"]
+          }],
+          "expectations": [{"document_id": "rb-joost-05", "canonical_story_id": "joost-klein-eurovision-2024-eligibility", "relationship": "same_story", "delta_type": "resolved", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["joost_f5"], "forbidden_fact_ids": ["joost_f3"]}]
+        }
+      ]
+    },
+    {
+      "id": "real-blind-sag-aftra-2023-settlement",
+      "split": "holdout",
+      "tags": ["real_primary_sources", "genre_celebrity_culture", "labor_agreement_lifecycle", "same_union_hard_negative", "near_daily_status_changes", "resolution"],
+      "profile": {
+        "role": "Entertainment-industry labor editor",
+        "wants": ["2023 SAG-AFTRA TV and theatrical strike", "AMPTP tentative agreement", "board and member ratification"],
+        "beats": {"Hollywood labor": 3.0, "performer contracts": 2.8},
+        "briefing_style": "Preserve tentative, suspended-strike, board-approved, and ratified states; separate other SAG-AFTRA bargaining units."
+      },
+      "fact_catalog": {
+        "sag_f1": "The TV/Theatrical Negotiating Committee unanimously approved a tentative AMPTP agreement and set the strike to suspend on November 9.",
+        "sag_f2": "The 118-day TV and theatrical strike ended at 12:01 a.m. on November 9 while board and member votes remained ahead.",
+        "sag_f3": "The SAG-AFTRA National Board approved the tentative agreement 86 to 14 percent and recommended ratification.",
+        "sag_f4": "An interactive-media strike authorization concerned a different video-game contract despite overlapping AI and compensation issues.",
+        "sag_f5": "Members ratified the TV/Theatrical agreement 78.33 to 21.67 percent on December 5."
+      },
+      "days": [
+        {
+          "date": "2023-11-08",
+          "documents": [{
+            "id": "rb-sag-01",
+            "source": "SAG-AFTRA",
+            "title": "TV and theatrical tentative agreement reached",
+            "url": "https://www.sagaftra.org/tentative-agreement-reached",
+            "snippet": "Negotiators approve a deal and schedule suspension of the strike, pending later votes.",
+            "body": "SAG-AFTRA's negotiating committee unanimously approved a tentative agreement with the AMPTP. It said the strike would be suspended and pickets closed at 12:01 a.m. on November 9. The union summarized compensation, streaming, benefits, and AI provisions but said full details still awaited National Board review; members had not ratified it.",
+            "published_at": "2023-11-08T20:00:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased", "provisional_status"]
+          }],
+          "expectations": [{"document_id": "rb-sag-01", "canonical_story_id": "sag-aftra-2023-tv-theatrical-settlement", "relationship": "new_story", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["sag_f1"], "forbidden_fact_ids": ["sag_f3", "sag_f5"]}]
+        },
+        {
+          "date": "2023-11-09",
+          "documents": [{
+            "id": "rb-sag-02",
+            "source": "SAG-AFTRA",
+            "title": "Union leaders confirm the TV and theatrical strike has ended",
+            "url": "https://www.sagaftra.org/message-your-sag-aftra-president-and-chief-negotiator",
+            "snippet": "The scheduled suspension takes effect after 118 days, but contract approval is not final.",
+            "body": "SAG-AFTRA's president and chief negotiator said the television, theatrical, and streaming strike had ended at 12:01 a.m. after 118 days. They described the tentative deal and said the National Board would review it the next day. Ending strike activity is a concrete status change, distinct from board approval or a membership ratification vote.",
+            "published_at": "2023-11-09T12:00:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased"]
+          }],
+          "expectations": [{"document_id": "rb-sag-02", "canonical_story_id": "sag-aftra-2023-tv-theatrical-settlement", "relationship": "same_story", "delta_type": "status_change", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["sag_f2"], "forbidden_fact_ids": ["sag_f3", "sag_f5"]}]
+        },
+        {
+          "date": "2023-11-10",
+          "documents": [{
+            "id": "rb-sag-03",
+            "source": "SAG-AFTRA",
+            "title": "National Board approves tentative agreement",
+            "url": "https://www.sagaftra.org/sag-aftra-national-board-approves-tentative-agreement-recommends-ratification-2023-tvtheatrical",
+            "snippet": "The board recommends the deal to members after an 86-to-14-percent vote.",
+            "body": "The National Board approved the TV/Theatrical tentative agreement by 86 percent to 14 percent and recommended that members ratify it. The release provided additional contract details and announced the member voting schedule. Board approval advanced the agreement but did not substitute for the still-pending membership vote.",
+            "published_at": "2023-11-10T20:00:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased", "long_source"]
+          }],
+          "expectations": [{"document_id": "rb-sag-03", "canonical_story_id": "sag-aftra-2023-tv-theatrical-settlement", "relationship": "same_story", "delta_type": "status_change", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["sag_f3"], "forbidden_fact_ids": ["sag_f5"]}]
+        },
+        {
+          "date": "2023-11-29",
+          "documents": [{
+            "id": "rb-sag-04",
+            "source": "SAG-AFTRA",
+            "title": "Members approve video-game strike authorization",
+            "url": "https://www.sagaftra.org/members-approve-video-game-strike-authorization",
+            "snippet": "A different SAG-AFTRA contract remains in dispute over similar compensation and AI issues.",
+            "body": "A union magazine update discussed members' September authorization of a possible strike under the Interactive Media Agreement with video-game companies. It covers compensation, artificial intelligence, and safety, terms also prominent in the TV/Theatrical settlement. However, it involves another employer group, contract, negotiating committee, and potential strike and does not change the AMPTP deal's ratification state.",
+            "published_at": "2023-11-29T12:00:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased", "same_union_hard_negative"]
+          }],
+          "expectations": [{"document_id": "rb-sag-04", "canonical_story_id": "sag-aftra-interactive-media-negotiations-2023", "relationship": "related_theme", "delta_type": "new", "material": true, "display": "full_report", "profile_relevance": "eligible", "should_select": true, "required_fact_ids": ["sag_f4"], "forbidden_fact_ids": ["sag_f3", "sag_f5"]}]
+        },
+        {
+          "date": "2023-12-05",
+          "documents": [{
+            "id": "rb-sag-05",
+            "source": "SAG-AFTRA",
+            "title": "Members ratify 2023 TV and theatrical contracts",
+            "url": "https://www.sagaftra.org/sag-aftra-members-approve-2023-tvtheatrical-contracts-tentative-agreement",
+            "snippet": "The membership vote completes approval of the AMPTP settlement.",
+            "body": "SAG-AFTRA members approved the TV/Theatrical contracts by 78.33 percent to 21.67 percent. The union said the agreement would run retroactively from November 9, 2023 through June 30, 2026. Ratification resolves the tentative-agreement approval process; it does not settle the separate Interactive Media negotiations.",
+            "published_at": "2023-12-05T20:00:00Z",
+            "category": "real",
+            "tags": ["official_source", "paraphrased"]
+          }],
+          "expectations": [{"document_id": "rb-sag-05", "canonical_story_id": "sag-aftra-2023-tv-theatrical-settlement", "relationship": "same_story", "delta_type": "resolved", "material": true, "display": "full_report", "profile_relevance": "must_select", "should_select": true, "required_fact_ids": ["sag_f5"], "forbidden_fact_ids": ["sag_f4"]}]
+        }
+      ]
+    }
+  ]
+}

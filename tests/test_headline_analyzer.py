@@ -18,27 +18,26 @@ class _Client:
 
 
 class HeadlineAnalyzerTests(unittest.TestCase):
-    def test_compact_decision_keeps_every_consumed_score(self) -> None:
+    def test_compact_decision_uses_three_independent_axes_and_code_priority(self) -> None:
         properties = HEADLINE_ANALYSIS_JSON_SCHEMA.schema["properties"]["decisions"]["items"]["properties"]
         self.assertEqual(
             set(properties),
             {
                 "id",
-                "score",
-                "personal_relevance",
-                "impact",
                 "novelty",
+                "novelty_basis",
+                "impact",
+                "impact_basis",
                 "urgency",
-                "actionability",
-                "confidence",
-                "angle_type",
+                "urgency_basis",
             },
         )
-        self.assertNotIn("`reason`", HEADLINE_ANALYSIS_USER)
-        self.assertNotIn("`skip_reason`", HEADLINE_ANALYSIS_USER)
+        self.assertIn("nominal common sense", HEADLINE_ANALYSIS_USER)
+        self.assertIn("school shooting", HEADLINE_ANALYSIS_USER)
+        self.assertNotIn('"score"', HEADLINE_ANALYSIS_USER)
 
         analyzer = HeadlineAnalyzer(_Client(), batch_size=10)
-        analyzer._reset_multifactor_stats()
+        analyzer._reset_axis_stats()
         candidate = NewsCandidate(
             id="candidate-1",
             source="Example",
@@ -53,16 +52,12 @@ class HeadlineAnalyzerTests(unittest.TestCase):
                 "decisions": [
                     {
                         "id": candidate.id,
-                        "score": 8.0,
-                        "personal_relevance": 8.1,
-                        "impact": 8.2,
-                        "novelty": 8.3,
-                        "urgency": 8.4,
-                        "actionability": 8.5,
-                        "confidence": 8.6,
-                        "angle_type": "policy_change",
-                        "reason": "legacy prose must not survive",
-                        "skip_reason": "legacy prose must not survive",
+                        "novelty": 3,
+                        "novelty_basis": "reverses established knowledge",
+                        "impact": 2,
+                        "impact_basis": "meaningful sector consequences",
+                        "urgency": 1,
+                        "urgency_basis": "safe to wait a day",
                     }
                 ]
             },
@@ -76,18 +71,40 @@ class HeadlineAnalyzerTests(unittest.TestCase):
         self.assertEqual(
             (
                 decision.score,
-                decision.personal_relevance,
-                decision.impact,
                 decision.novelty,
+                decision.impact,
                 decision.urgency,
-                decision.actionability,
-                decision.confidence,
-                decision.angle_type,
+                decision.novelty_basis,
+                decision.impact_basis,
+                decision.urgency_basis,
             ),
-            (8.0, 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, "policy_change"),
+            (
+                6.5,
+                10.0,
+                6.6667,
+                3.3333,
+                "reverses established knowledge",
+                "meaningful sector consequences",
+                "safe to wait a day",
+            ),
         )
-        self.assertEqual(decision.reason, "")
-        self.assertIsNone(decision.skip_reason)
+
+    def test_priority_calculation_does_not_copy_one_axis(self) -> None:
+        self.assertEqual(HeadlineAnalyzer.priority_score(novelty=3, impact=0, urgency=0), 2.5)
+        self.assertEqual(HeadlineAnalyzer.priority_score(novelty=0, impact=3, urgency=0), 4.5)
+        self.assertEqual(HeadlineAnalyzer.priority_score(novelty=0, impact=0, urgency=3), 3.0)
+
+    def test_axis_metrics_expose_all_equal_model_behavior_without_forcing_difference(self) -> None:
+        analyzer = HeadlineAnalyzer(_Client(), batch_size=10)
+        analyzer._reset_axis_stats()
+        analyzer._record_axis_row(raw={}, novelty=3.3333, impact=3.3333, urgency=3.3333)
+        analyzer._record_axis_row(raw={}, novelty=0.0, impact=6.6667, urgency=10.0)
+        analyzer._emit_axis_metrics()
+
+        self.assertEqual(
+            analyzer.debug.analytics_payload()["metrics"]["headline.axes.all_equal_ratio"],
+            0.5,
+        )
 
     def test_output_budget_scales_to_batch_and_respects_both_ceilings(self) -> None:
         analyzer = HeadlineAnalyzer(_Client(2048), batch_size=20, max_new_tokens=1600)

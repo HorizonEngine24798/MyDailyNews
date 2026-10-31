@@ -1,24 +1,17 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import List
+from typing import List, Sequence
 
-from mydailynews.app.models import (
-    FilteringConfig,
-    NewsCandidate,
-    RunSourceSnapshot,
-    TopicConfig,
-)
+from mydailynews.app.models import NewsCandidate, RunSourceSnapshot, TopicConfig
+from mydailynews.pipeline.brief_specs import BriefSpec
 
 
 def build_snapshot(
     *,
     use_shared_snapshot: bool,
     now,
-    general_topics: List[TopicConfig],
-    detailed_topics: List[TopicConfig],
-    general_filtering: FilteringConfig,
-    detailed_filtering: FilteringConfig,
+    briefs: Sequence[BriefSpec],
     debug,
     fetch_headlines,
     fetch_topic_headlines,
@@ -29,14 +22,12 @@ def build_snapshot(
         return None
 
     with debug.span("snapshot.total"):
-        general_since = now - timedelta(hours=general_filtering.time_window_hours)
-        detailed_since = now - timedelta(hours=detailed_filtering.time_window_hours)
-        snapshot_since = min(general_since, detailed_since)
-        max_headlines_per_source = max(
-            general_filtering.max_headlines_per_source,
-            detailed_filtering.max_headlines_per_source,
-        )
-        shared_topics = merge_topics_for_snapshot(general_topics, detailed_topics)
+        if not briefs:
+            debug.set_metric("snapshot.enabled", False)
+            return None
+        snapshot_since = min(now - timedelta(hours=brief.filtering.time_window_hours) for brief in briefs)
+        max_headlines_per_source = max(brief.filtering.max_headlines_per_source for brief in briefs)
+        shared_topics = merge_topics_for_snapshot(*(brief.topics for brief in briefs))
 
         snapshot_warnings: List[str] = []
         with debug.span("snapshot.rss_fetch"):

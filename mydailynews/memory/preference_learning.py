@@ -6,6 +6,7 @@ from typing import Any, Dict, Iterable, List
 from urllib.parse import urlparse
 
 from mydailynews.app.models import HeadlineDecision, NewsCandidate
+from mydailynews.domain.text_similarity import normalized_word_text
 from mydailynews.memory.feedback import FeedbackEvent
 from mydailynews.memory.learned_preferences import LearnedPreferences
 
@@ -255,7 +256,7 @@ def _clean_label(value: Any, max_chars: int) -> str:
 
 
 def _normalize_text(value: str) -> str:
-    return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
+    return normalized_word_text(value)
 
 
 def _normalize_source(value: str) -> str:

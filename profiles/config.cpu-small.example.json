@@ -9,7 +9,6 @@
     "max_input_tokens": 3000,
     "max_new_tokens": 768,
     "json_retries": 1,
-    "enable_thinking": false,
     "manage_server": false,
     "server_executable": "",
     "server_model_path": "",
@@ -27,7 +26,6 @@
     "max_input_tokens": 3000,
     "max_new_tokens": 768,
     "json_retries": 1,
-    "enable_thinking": false,
     "manage_server": false,
     "server_executable": "",
     "server_model_path": "",
@@ -80,7 +78,6 @@
     "story_retention_days": 30,
     "recent_story_penalty": 0.6,
     "recent_lead_penalty": 1.1,
-    "material_update_boost": 0.9,
     "max_selected_per_story": 1,
     "max_selected_per_story_family": 2,
     "recall_prompt_enabled": true,
@@ -114,7 +111,7 @@
     "article_text_max_chars": 2500
   },
   "enrichment": {
-    "enabled": true,
+    "enabled": false,
     "mode": "story_llm",
     "max_story_threads": 5,
     "planner_max_questions_per_story": 3,
@@ -145,7 +142,6 @@
   "pipeline": {
     "default_series": [
       "briefs",
-      "enrichment",
       "narrative_brief"
     ]
   },
@@ -169,48 +165,13 @@
     "use_shared_snapshot": true
   },
   "analysis": {
-    "rollout": {
-      "enabled": true,
-      "profile": "safe_local",
-      "general": {"evidence_enabled": false, "delta_enabled": false},
-      "detailed": {
-        "evidence_enabled": true,
-        "delta_enabled": false,
-        "evidence_max_input_tokens": 3000,
-        "evidence_max_new_tokens": 512,
-        "evidence_max_articles": 4,
-        "evidence_max_articles_per_batch": 2
-      }
+    "general": {
+      "evidence_distillation": {"enabled": false, "model_role": "summary", "include_reader_qa": true, "max_input_tokens": 3000, "max_new_tokens": 512, "max_articles": 4, "max_articles_per_batch": 2, "max_articles_dropped_to_avoid_split": 1, "max_article_chars": 900, "max_context_sources_per_article": 2, "cache_ttl_seconds": 604800},
+      "delta_extraction": {"enabled": false, "model_role": "summary", "max_input_tokens": 2600, "max_new_tokens": 384, "max_articles": 3, "max_article_chars": 420, "max_prior_reports": 2, "cache_ttl_seconds": 604800}
     },
-    "evidence_distillation": {
-      "enabled": false,
-      "model_role": "summary",
-      "include_reader_qa": true,
-      "max_input_tokens": 3000,
-      "max_new_tokens": 512,
-      "max_articles": 4,
-      "max_articles_per_batch": 2,
-      "max_articles_dropped_to_avoid_split": 1,
-      "max_article_chars": 900,
-      "max_context_sources_per_article": 2,
-      "max_story_clusters": 4,
-      "max_claims_per_cluster": 4,
-      "max_questions": 4,
-      "cache_ttl_seconds": 604800
-    },
-    "delta_extraction": {
-      "enabled": false,
-      "model_role": "summary",
-      "input_source": "evidence_or_articles",
-      "require_prior_reports": false,
-      "max_input_tokens": 2600,
-      "max_new_tokens": 384,
-      "max_articles": 3,
-      "max_articles_per_batch": 2,
-      "max_articles_dropped_to_avoid_split": 1,
-      "max_article_chars": 420,
-      "max_prior_reports": 2,
-      "cache_ttl_seconds": 604800
+    "detailed": {
+      "evidence_distillation": {"enabled": true, "model_role": "summary", "include_reader_qa": true, "max_input_tokens": 3000, "max_new_tokens": 512, "max_articles": 4, "max_articles_per_batch": 2, "max_articles_dropped_to_avoid_split": 1, "max_article_chars": 900, "max_context_sources_per_article": 2, "cache_ttl_seconds": 604800},
+      "delta_extraction": {"enabled": false, "model_role": "summary", "max_input_tokens": 2600, "max_new_tokens": 384, "max_articles": 3, "max_article_chars": 420, "max_prior_reports": 2, "cache_ttl_seconds": 604800}
     }
   },
   "cache": {

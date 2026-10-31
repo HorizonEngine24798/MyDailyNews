@@ -23,6 +23,8 @@ from mydailynews.common.parallel import ordered_parallel_map
 from mydailynews.common.utils import canonical_article_url, compact_json, normalize_whitespace, stable_id, utc_now
 from mydailynews.common.warnings import extend_warnings
 from mydailynews.domain.article_identity import article_aliases_for_candidate
+from mydailynews.domain.text_similarity import normalized_word_text, word_tokens
+from mydailynews.pipeline.brief_specs import DEFAULT_BRIEF_NAMES
 from mydailynews.perspectives.sources import load_source_registry, match_source_by_domain, source_domain_map
 from mydailynews.retrieval.article import ArticleRetriever
 from mydailynews.retrieval.ddg import DuckDuckGoSearchRetriever
@@ -32,7 +34,7 @@ from mydailynews.retrieval.registry_rss import RegistryRssRetriever
 
 
 PERSPECTIVES_REPORT_SCHEMA_VERSION = "claim_led_perspectives_report.v4"
-STRUCTURED_BRIEF_NAMES = ("general", "detailed")
+STRUCTURED_BRIEF_NAMES = DEFAULT_BRIEF_NAMES
 MAX_CANONICAL_QUERIES = 5
 MAX_PLANNER_STORIES_PER_CALL = 4
 MAX_ANCHOR_QUERIES = 3
@@ -61,7 +63,6 @@ PERSPECTIVES_EVIDENCE_LIST_SCHEMA = {
         "additionalProperties": False,
     },
 }
-WORD_RE = re.compile(r"[a-z0-9]+", re.IGNORECASE)
 TAG_RE = re.compile(r"[^a-z0-9]+", re.IGNORECASE)
 QUERY_STOPWORDS = {
     "about",
@@ -94,24 +95,11 @@ QUERY_STOPWORDS = {
     "with",
 }
 COVERAGE_RELEVANCE_WEAK_TOKENS = QUERY_STOPWORDS | {
-    "ai",
-    "eu",
-    "uk",
-    "year",
-    "years",
-    "global",
     "latest",
     "live",
     "news",
-    "rule",
-    "rules",
-    "ruling",
-    "supreme",
-    "court",
     "update",
     "updates",
-    "us",
-    "world",
 }
 COUNTRY_ALIASES = {
     "u_s": "US",
@@ -516,7 +504,6 @@ def run_perspectives_report(
         output_dir=output_dir,
     )
     markdown_path, json_path = write_perspectives_report_outputs(output_dir, date, payload)
-    _record_perspectives_report_artifact(orchestrator, payload=payload, markdown_path=markdown_path, json_path=json_path)
 
     metadata = payload.get("metadata", {})
     orchestrator.debug.set_metric("module.perspectives_report.status", "completed")
@@ -1976,24 +1963,36 @@ def _coverage_relevance_decision(row: Dict[str, Any], story: Dict[str, Any]) -> 
     query_tokens = _coverage_match_tokens(str(row.get("retrieval_query") or ""))
     title_tokens = _coverage_match_tokens(str(row.get("title") or ""))
     evidence_tokens = _coverage_match_tokens(" ".join([str(row.get("title") or ""), str(row.get("snippet") or ""), str(row.get("context_text") or "")]))
-    query_title_hits = len(title_tokens.intersection(query_tokens))
     query_evidence_hits = len(evidence_tokens.intersection(query_tokens))
     story_tokens = _coverage_match_tokens(
         " ".join([str(story.get("story_title") or ""), str(story.get("summary") or ""), str(story.get("_seed_text") or "")])
     )
-    seed_evidence_hits = len(evidence_tokens.intersection(story_tokens))
     anchor_hits = _anchor_group_hits(row.get("retrieval_anchor_groups"), evidence_tokens)
     if anchor_hits >= 2:
         return True, "multiple_anchor_groups"
     if anchor_hits and query_evidence_hits >= 2:
         return True, "anchor_and_query_overlap"
-    if query_title_hits >= 2:
+    if _substantial_token_overlap(query_tokens, title_tokens, min_hits=2, min_fraction=0.5):
         return True, "query_title_overlap"
-    if query_evidence_hits >= 3:
+    if _substantial_token_overlap(query_tokens, evidence_tokens, min_hits=3, min_fraction=0.45):
         return True, "query_evidence_overlap"
-    if seed_evidence_hits >= 2:
+    if _substantial_token_overlap(story_tokens, evidence_tokens, min_hits=2, min_fraction=0.45):
         return True, "seed_story_overlap"
     return False, "insufficient_event_overlap"
+
+
+def _substantial_token_overlap(
+    left: set[str],
+    right: set[str],
+    *,
+    min_hits: int,
+    min_fraction: float,
+) -> bool:
+    if not left or not right:
+        return False
+    hits = len(left.intersection(right))
+    containment = hits / max(1, min(len(left), len(right)))
+    return hits >= max(1, int(min_hits)) and containment >= float(min_fraction)
 
 
 def _anchor_group_hits(value: Any, evidence_tokens: set[str]) -> int:
@@ -3183,34 +3182,6 @@ def _empty_plan(story: Dict[str, Any], status: str, diagnostics: List[str]) -> D
     }
 
 
-def _record_perspectives_report_artifact(orchestrator, *, payload: Dict[str, Any], markdown_path: Path, json_path: Path) -> None:
-    stage_payload_builder = getattr(orchestrator, "_stage_payload", None)
-    record_stage_artifact = getattr(orchestrator, "_record_stage_artifact", None)
-    if not callable(stage_payload_builder) or not callable(record_stage_artifact):
-        return
-    record_stage_artifact(
-        stage="perspectives_report",
-        brief_name="pipeline",
-        payload=stage_payload_builder(
-            stage="perspectives_report",
-            brief_name="pipeline",
-            summary={
-                "stories": payload.get("metadata", {}).get("story_count", 0),
-                "coverage_articles": payload.get("metadata", {}).get("coverage_article_count", 0),
-                "coverage_countries": payload.get("metadata", {}).get("coverage_source_country_count", 0),
-                "markdown_path": str(markdown_path),
-                "json_path": str(json_path),
-                "warnings": len(payload.get("warnings", [])),
-            },
-            next_stage_input={
-                "perspectives_report": payload,
-                "markdown_path": str(markdown_path),
-                "json_path": str(json_path),
-            },
-        ),
-    )
-
-
 def _phase(orchestrator, message: str) -> None:
     phase = getattr(getattr(orchestrator, "reporter", None), "phase", None)
     if callable(phase):
@@ -3226,11 +3197,11 @@ def _story_identity(story: Dict[str, Any]) -> str:
 
 
 def normalize_name(value: Any) -> str:
-    return " ".join(WORD_RE.findall(str(value or "").lower()))
+    return normalized_word_text(value)
 
 
 def _tokens(value: str) -> set[str]:
-    return {token.lower() for token in WORD_RE.findall(value or "") if len(token) > 1 and token.lower() not in QUERY_STOPWORDS}
+    return set(word_tokens(value, stopwords=QUERY_STOPWORDS, min_alpha_chars=2, keep_numbers=True))
 
 
 def _coverage_match_tokens(value: str) -> set[str]:

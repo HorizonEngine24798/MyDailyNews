@@ -11,3 +11,12 @@ state/
 .cache
 .codex_tmp*
 .pytest_tmp/
+.planning/
+docs/brittle-designs.md
+
+# Local CPU benchmark assets.
+.venv-cpu-test/
+config.cpu-*.json
+models/
+tools/llama.cpp/
+tools/vendor/

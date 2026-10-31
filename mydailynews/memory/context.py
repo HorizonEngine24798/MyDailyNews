@@ -6,19 +6,21 @@ from mydailynews.app.models import PriorReport, SelectedArticle
 from mydailynews.common.utils import datetime_to_iso
 from mydailynews.domain.candidate_annotations import candidate_memory_annotation
 from mydailynews.memory.coverage import CoverageMemoryStore
-from mydailynews.memory.story_index import StoryIndexRecord, StoryIndexStore
+from mydailynews.memory.story_retrieval import DEFAULT_CANDIDATE_THRESHOLD, StoryCandidateMatch
+from mydailynews.memory.story_store import StoryStore, story_baseline_payload
 
 
 def build_story_memory_context(
     *,
     selected: List[SelectedArticle],
     story_groups: Iterable[Any] | None,
-    story_index_store: StoryIndexStore | None,
+    story_store: StoryStore | None,
     coverage_store: CoverageMemoryStore | None,
     prior_reports: List[PriorReport],
     date: str,
     coverage_window_days: int = 10,
     max_baselines_per_story: int = 3,
+    candidate_threshold: float = DEFAULT_CANDIDATE_THRESHOLD,
 ) -> Dict[str, Any]:
     """Build the bounded story-memory view shared by analysis and briefing."""
     by_article_id = {article.candidate.id: article for article in selected}
@@ -44,17 +46,18 @@ def build_story_memory_context(
             key=key,
             group_title=group_title,
             articles=articles,
-            story_index_store=story_index_store,
+            story_store=story_store,
             coverage_store=coverage_store,
             prior_reports=prior_reports,
             date=date,
             coverage_window_days=coverage_window_days,
             max_baselines_per_story=max_baselines_per_story,
+            candidate_threshold=candidate_threshold,
         )
         for key, group_title, articles in current_groups
     ]
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "as_of_date": str(date or ""),
         "coverage_window_days": max(0, int(coverage_window_days)),
         "stories": stories,
@@ -66,24 +69,29 @@ def _story_context(
     key: str,
     group_title: str,
     articles: List[SelectedArticle],
-    story_index_store: StoryIndexStore | None,
+    story_store: StoryStore | None,
     coverage_store: CoverageMemoryStore | None,
     prior_reports: List[PriorReport],
     date: str,
     coverage_window_days: int,
     max_baselines_per_story: int,
+    candidate_threshold: float,
 ) -> Dict[str, Any]:
     representative = articles[0]
     annotation = candidate_memory_annotation(representative.candidate)
     baselines: List[Dict[str, Any]] = []
-    if story_index_store is not None:
-        for lexical_confidence, record in story_index_store.candidate_baselines(
-            representative.candidate,
+    if story_store is not None:
+        matches = _story_matches(
+            articles,
+            story_store=story_store,
             limit=max_baselines_per_story,
-        ):
+            candidate_threshold=candidate_threshold,
+            as_of_date=date,
+        )
+        for match in matches:
             coverage = (
                 coverage_store.recent_records(
-                    story_key=record.story_key,
+                    story_key=match.record.story_key,
                     as_of_date=date,
                     window_days=coverage_window_days,
                     limit=4,
@@ -93,36 +101,31 @@ def _story_context(
             )
             baselines.append(
                 {
-                    **_record_payload(record),
-                    "lexical_match_confidence": round(float(lexical_confidence), 4),
-                    "recent_coverage": [
-                        {
-                            "date": item.date,
-                            "brief_name": item.brief_name,
-                            "prominence": item.prominence,
-                            "title": item.title[:140],
-                            "article_ids": item.article_ids[:4],
-                        }
-                        for item in coverage
-                    ],
+                    **story_baseline_payload(match, max_facts=4),
+                    "recent_coverage": [_coverage_payload(item) for item in coverage],
                 }
             )
 
-    current_family = annotation.story_family_key if annotation else ""
-    prior_baselines = _prior_report_baselines(
-        prior_reports,
-        {item["story_key"] for item in baselines},
-        current_key=key,
-        current_family=current_family,
-    )
-    if prior_baselines:
-        for baseline in prior_baselines:
-            if not any(item.get("story_key") == baseline.get("story_key") for item in baselines):
-                baselines.append(baseline)
-            elif baseline.get("last_delta_summary"):
-                for item in baselines:
-                    if item.get("story_key") == baseline.get("story_key") and not item.get("last_delta_summary"):
-                        item.update({key: value for key, value in baseline.items() if value})
+    # Prior-report rows are a memory-disabled fallback only. When StoryStore is
+    # active every baseline must be an explicitly retrieved candidate so an
+    # unscored report row cannot bypass the bounded comparison set.
+    if story_store is None:
+        current_family = annotation.story_family_key if annotation else ""
+        prior_baselines = _prior_report_baselines(
+            prior_reports,
+            {item["story_key"] for item in baselines},
+            current_key=key,
+            current_family=current_family,
+            as_of_date=date,
+        )
+        if prior_baselines:
+            for baseline in prior_baselines:
+                if not any(item.get("story_key") == baseline.get("story_key") for item in baselines):
+                    baselines.append(baseline)
+                elif baseline.get("last_delta_summary"):
+                    for item in baselines:
+                        if item.get("story_key") == baseline.get("story_key") and not item.get("last_delta_summary"):
+                            item.update({field: value for field, value in baseline.items() if value})
 
     return {
         "story_key": key,
@@ -132,6 +135,55 @@ def _story_context(
         "current_articles": [_article_payload(article) for article in articles[:8]],
         "current_memory": _annotation_payload(annotation),
         "prior_baselines": baselines[: max(0, int(max_baselines_per_story))],
+    }
+
+
+def _story_matches(
+    articles: List[SelectedArticle],
+    *,
+    story_store: StoryStore,
+    limit: int,
+    candidate_threshold: float = DEFAULT_CANDIDATE_THRESHOLD,
+    as_of_date: str = "",
+) -> List[StoryCandidateMatch]:
+    by_story_key: Dict[str, StoryCandidateMatch] = {}
+    for article in articles:
+        matches = story_store.candidate_stories(
+            article.candidate,
+            source_text=article.article_text or article.candidate.snippet,
+            limit=max(3, int(limit) * 2),
+            min_score=candidate_threshold,
+        )
+        if as_of_date:
+            cutoff = str(as_of_date)[:10]
+            matches = [
+                match
+                for match in matches
+                if not str(match.record.last_seen or "")[:10]
+                or str(match.record.last_seen or "")[:10] < cutoff
+            ]
+        article.candidate.metadata["memory_prior_story_candidates"] = [
+            match.metadata() for match in matches
+        ]
+        for match in matches:
+            previous = by_story_key.get(match.record.story_key)
+            if previous is None or match.score > previous.score:
+                by_story_key[match.record.story_key] = match
+    output = sorted(
+        by_story_key.values(),
+        key=lambda match: (match.score, match.record.last_seen, match.record.story_key),
+        reverse=True,
+    )
+    return output[: max(0, min(3, int(limit)))]
+
+
+def _coverage_payload(item: Any) -> Dict[str, Any]:
+    return {
+        "date": item.date,
+        "brief_name": item.brief_name,
+        "prominence": item.prominence,
+        "title": item.title[:140],
+        "article_ids": item.article_ids[:4],
     }
 
 
@@ -166,35 +218,18 @@ def _annotation_payload(annotation: Any) -> Dict[str, Any]:
     }
 
 
-def _record_payload(record: StoryIndexRecord) -> Dict[str, Any]:
-    return {
-        "story_key": record.story_key,
-        "story_family_key": record.story_family_key,
-        "title": record.title,
-        "topic": record.topic,
-        "first_seen": record.first_seen,
-        "last_seen": record.last_seen,
-        "status": record.status,
-        "last_material_change_date": record.last_material_change_date,
-        "last_change_type": record.last_change_type,
-        "last_delta_summary": record.last_delta_summary,
-        "knowns": record.last_knowns,
-        "unknowns": record.last_unknowns,
-        "watch_signals": record.last_watch_signals,
-        "last_disposition": record.last_disposition,
-        "last_report_id": record.last_report_id,
-    }
-
-
 def _prior_report_baselines(
     prior_reports: List[PriorReport],
     known_keys: set[str],
     *,
     current_key: str,
     current_family: str,
+    as_of_date: str = "",
 ) -> List[Dict[str, Any]]:
     output: List[Dict[str, Any]] = []
     for report in prior_reports:
+        if as_of_date and str(report.date or "")[:10] >= str(as_of_date)[:10]:
+            continue
         rows = getattr(report, "story_baselines", [])
         if not isinstance(rows, list):
             continue

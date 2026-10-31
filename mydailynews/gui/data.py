@@ -21,6 +21,7 @@ from mydailynews.memory.feedback import FEEDBACK_ACTIONS, FeedbackStore
 from mydailynews.memory.health import memory_health_checks
 from mydailynews.memory.learned_preferences import LearnedPreferences, LearnedPreferencesStore
 from mydailynews.memory.preference_learning import apply_feedback_event
+from mydailynews.memory.story_store import StoryStore, story_record_from_payload
 from mydailynews.memory.repair import (
     coverage_row_id,
     delete_story_record,
@@ -40,9 +41,6 @@ AUTOCONFIG_TIMEOUT_MIN_SECONDS = 5
 AUTOCONFIG_TIMEOUT_MAX_SECONDS = 300
 LEARNED_NOTES_LIMIT = 2000
 MARKDOWN_TITLE_SCAN_LINES = 8
-STORY_TITLE_LIMIT = 140
-STORY_TOPIC_LIMIT = 120
-STORY_TOKEN_LIMIT = 24
 EDITABLE_CONFIG_SECTIONS = {
     "ai_summary",
     "ai_final",
@@ -282,24 +280,24 @@ class GuiDataService:
         state_dir = self._memory_state_dir(config)
         payload = export_memory(config, state_dir=state_dir)
         raw_coverage_records = _as_list(payload.get("coverage_records", []))
-        raw_story_index = _as_list(payload.get("story_index", []))
+        raw_story_store = _as_list(payload.get("story_store", []))
         raw_feedback_events = _as_list(payload.get("feedback_events", []))
         learned = payload.get("learned_preferences", {})
         learned_store = LearnedPreferencesStore.from_state_dir(state_dir)
         coverage_counts = Counter(_text(item, "story_key") for item in raw_coverage_records if _text(item, "story_key"))
-        story_index = [_story_index_row(item, coverage_counts) for item in raw_story_index]
+        story_store = [_story_store_row(item, coverage_counts) for item in raw_story_store]
         coverage_records = [_coverage_row(item, index=index) for index, item in enumerate(raw_coverage_records)]
         feedback_events = [_feedback_event_row(item, index=index) for index, item in enumerate(raw_feedback_events)]
         recall_packets = _recall_packets_summary(state_dir)
         health = memory_health_checks(
             state_dir=state_dir,
-            story_index=raw_story_index,
+            story_store=raw_story_store,
             coverage_records=raw_coverage_records,
             feedback_events=raw_feedback_events,
         )
         learned_summary = _learned_preferences_summary(learned, exists=learned_store.path.exists())
         payload["coverage_records"] = coverage_records
-        payload["story_index"] = story_index
+        payload["story_store"] = story_store
         payload["feedback_events"] = feedback_events
         payload["learned_preferences_summary"] = learned_summary
         payload["learned_preferences_file"] = {
@@ -313,9 +311,9 @@ class GuiDataService:
             "memory_enabled": bool(config.memory.enabled),
             "feedback_enabled": bool(config.memory.feedback_enabled),
             "coverage_records": len(coverage_records),
-            "story_index_records": len(story_index),
-            "story_index_active": sum(1 for item in story_index if item.get("status") == "active"),
-            "story_index_stale": sum(1 for item in story_index if item.get("status") == "stale"),
+            "story_store_records": len(story_store),
+            "story_store_active": sum(1 for item in story_store if item.get("status") == "active"),
+            "story_store_stale": sum(1 for item in story_store if item.get("status") == "stale"),
             "feedback_events": len(feedback_events),
             "feedback_counts": _feedback_counts(feedback_events),
             "learned_preferences_exists": learned_store.path.exists(),
@@ -324,9 +322,9 @@ class GuiDataService:
             "latest_recall_packet_date": recall_packets["latest"].get("date", ""),
             "health_warnings": len(health["warnings"]),
         }
-        payload["story_index_file"] = {
+        payload["story_store_file"] = {
             "schema_version": 1,
-            "stories": raw_story_index,
+            "stories": raw_story_store,
         }
         payload["feedback_actions"] = list(FEEDBACK_ACTIONS)
         return payload
@@ -336,11 +334,14 @@ class GuiDataService:
         summary = prune_memory(config, state_dir=self._memory_state_dir(config))
         return {"summary": summary, "memory": self.memory_snapshot()}
 
-    def save_story_index(self, payload: Any) -> Dict[str, Any]:
-        normalized = _normalize_story_index_payload(payload)
+    def save_story_store(self, payload: Any) -> Dict[str, Any]:
+        normalized = _normalize_story_store_payload(payload)
         config = self._load_config()
-        path = self._memory_state_dir(config) / "story_index.json"
-        self._write_json_atomic(path, normalized)
+        state_dir = self._memory_state_dir(config)
+        records = [story_record_from_payload(item) for item in normalized["stories"]]
+        StoryStore.from_state_dir(state_dir).replace_records(
+            [record for record in records if record is not None]
+        )
         return self.memory_snapshot()
 
     def repair_memory(self, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -858,7 +859,7 @@ def _safe_int(value: Any) -> int:
         return 0
 
 
-def _story_index_row(item: Any, coverage_counts: Counter[str]) -> Dict[str, Any]:
+def _story_store_row(item: Any, coverage_counts: Counter[str]) -> Dict[str, Any]:
     story_key = _text(item, "story_key")
     story_family_key = _text(item, "story_family_key")
     return {
@@ -967,39 +968,28 @@ def _text(item: Any, key: str) -> str:
     return str(value or "").strip()
 
 
-def _normalize_story_index_payload(payload: Any) -> Dict[str, Any]:
+def _normalize_story_store_payload(payload: Any) -> Dict[str, Any]:
     if isinstance(payload, list):
         stories = payload
     elif isinstance(payload, dict):
         stories = payload.get("stories", [])
     else:
-        raise ValueError("Story index payload must be an object or list.")
+        raise ValueError("Story store payload must be an object or list.")
     if not isinstance(stories, list):
-        raise ValueError("Story index stories must be a list.")
+        raise ValueError("Story store stories must be a list.")
     normalized: List[Dict[str, Any]] = []
     seen: set[str] = set()
     for raw in stories:
         if not isinstance(raw, dict):
             continue
-        story_key = str(raw.get("story_key", "") or "").strip()
+        record = story_record_from_payload(raw)
+        if record is None:
+            continue
+        story_key = record.story_key
         if not story_key or story_key in seen:
             continue
         seen.add(story_key)
-        status = str(raw.get("status", "active") or "active").strip().lower()
-        if status not in {"active", "stale"}:
-            status = "active"
-        normalized.append(
-            {
-                "story_key": story_key,
-                "story_family_key": str(raw.get("story_family_key", "") or "").strip(),
-                "title": str(raw.get("title", "") or "").strip()[:STORY_TITLE_LIMIT],
-                "topic": str(raw.get("topic", "") or "").strip()[:STORY_TOPIC_LIMIT],
-                "tokens": _string_list(raw.get("tokens"))[:STORY_TOKEN_LIMIT],
-                "first_seen": str(raw.get("first_seen", "") or "").strip(),
-                "last_seen": str(raw.get("last_seen", "") or "").strip(),
-                "status": status,
-            }
-        )
+        normalized.append(asdict(record))
     normalized.sort(key=lambda item: item["story_key"])
     return {"schema_version": 1, "stories": normalized}
 
