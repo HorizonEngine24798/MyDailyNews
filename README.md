@@ -23,6 +23,7 @@ Explore the GUI with bundled reports, audio, and memory fixtures:
 python gui.py --config fixtures/gui_demo/config.demo.json --port 8766
 ```
 
+
 Then open `http://127.0.0.1:8766`.
 
 
