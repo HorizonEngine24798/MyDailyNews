@@ -12,6 +12,9 @@ import requests
 from mydailynews.app.models import NewsCandidate
 from mydailynews.common.cache import CachedHttpClient, HTTPCache, JSONCache
 from mydailynews.domain.article_identity import article_aliases_for_candidate, article_url_alias
+from mydailynews.memory.story_retrieval import source_fact_texts
+from mydailynews.memory.story_store import story_record_from_payload
+from mydailynews.retrieval.article import ArticleRetriever
 from mydailynews.retrieval.article_cache import ArticleTextCache
 
 
@@ -124,6 +127,75 @@ class CacheStrategyTests(unittest.TestCase):
         self.assertIsNotNone(publisher_hit)
         self.assertEqual(wrapper_hit["article_id"], publisher_hit["article_id"])
         self.assertEqual(publisher_hit["resolved_url"], publisher_url)
+
+    def test_google_news_unresolved_wrapper_and_consent_wall_are_rejected(self) -> None:
+        temp_dir = self._temp_dir()
+        http_cache = HTTPCache(temp_dir, "articles")
+        retriever = ArticleRetriever("test-agent", max_chars=2000, http_cache=http_cache)
+        google_url = "https://news.google.com/rss/articles/CBMi-opaque-token?oc=5"
+        consent_html = (
+            "<html><body><h1>Before you continue to Google</h1>"
+            "<p>We use cookies and data, including IP addresses, to Deliver and maintain Google services "
+            "and Track outages and protect against spam, fraud, and abuse. "
+            "If you choose to “Accept all,” we will also use cookies and data.</p></body></html>"
+        )
+
+        with patch("mydailynews.common.cache.requests.get", return_value=FakeResponse(200, consent_html)) as mock_get:
+            text, status, resolved = retriever.fetch_text_with_url(google_url)
+
+        self.assertEqual(text, "")
+        self.assertEqual(status, "google_news_unresolved")
+        self.assertEqual(resolved, google_url)
+        _, kwargs = mock_get.call_args
+        self.assertIn("cookies", kwargs)
+        self.assertIn("SOCS", kwargs["cookies"])
+
+        cache = self._article_cache(temp_dir)
+        candidate = self._candidate(google_url)
+        aliases = article_aliases_for_candidate(candidate)
+        consent_text = (
+            "Before you continue to Google We use cookies and data, including IP addresses, to - "
+            "Deliver and maintain Google services - Track outages and protect against spam, fraud, and abuse."
+        )
+        self.assertEqual(
+            cache.store(
+                candidate=candidate,
+                aliases=aliases,
+                article_text=consent_text,
+                extraction_status="ok",
+                resolved_url=google_url,
+            ),
+            "",
+        )
+        self.assertIsNone(cache.get_by_aliases(aliases))
+
+        facts = source_fact_texts(candidate, source_text=consent_text)
+        self.assertEqual([kind for kind, _ in facts], ["headline"])
+
+        record = story_record_from_payload(
+            {
+                "story_key": "example-story",
+                "title": "Example headline",
+                "facts": [
+                    {
+                        "fact_id": "fact:08ff9171425b04e999f6",
+                        "text": consent_text,
+                        "kind": "source_sentence",
+                        "source_id": "candidate-1",
+                    },
+                    {
+                        "fact_id": "fact:valid123",
+                        "text": "Example headline",
+                        "kind": "headline",
+                        "source_id": "candidate-1",
+                    },
+                ],
+                "active_fact_ids": ["fact:08ff9171425b04e999f6", "fact:valid123"],
+            }
+        )
+        self.assertIsNotNone(record)
+        self.assertEqual([f.fact_id for f in record.facts], ["fact:valid123"])
+        self.assertEqual(record.active_fact_ids, ["fact:valid123"])
 
     def _temp_dir(self) -> str:
         path = TEMP_ROOT / self.id().rsplit(".", 1)[-1] / uuid.uuid4().hex

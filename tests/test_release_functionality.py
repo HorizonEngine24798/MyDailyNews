@@ -39,7 +39,7 @@ class ReleaseSmokeTests(unittest.TestCase):
 
         self.assertEqual(config.ai_summary.backend, "llama_cpp_server")
         self.assertEqual(config.ai_final.backend, "llama_cpp_server")
-        self.assertEqual(config.ai_summary.base_url, "http://127.0.0.1:1234/v1")
+        self.assertEqual(config.ai_summary.base_url, "http://127.0.0.1:8080/v1")
         self.assertFalse(config.ai_summary.manage_server)
         self.assertTrue(config.ai_summary.server_spec_default)
         self.assertEqual(config.ai_summary.server_executable, "")
@@ -185,11 +185,11 @@ class ReleaseSmokeTests(unittest.TestCase):
             load_config(path)
 
     def test_config_env_can_override_ai_base_url(self) -> None:
-        with patch.dict("os.environ", {"MYDAILYNEWS_AI_BASE_URL": "http://host.docker.internal:1234/v1"}):
+        with patch.dict("os.environ", {"MYDAILYNEWS_AI_BASE_URL": "http://host.docker.internal:8080/v1"}):
             config = load_config(REPO_ROOT / "config.example.json")
 
-        self.assertEqual(config.ai_summary.base_url, "http://host.docker.internal:1234/v1")
-        self.assertEqual(config.ai_final.base_url, "http://host.docker.internal:1234/v1")
+        self.assertEqual(config.ai_summary.base_url, "http://host.docker.internal:8080/v1")
+        self.assertEqual(config.ai_final.base_url, "http://host.docker.internal:8080/v1")
 
     def test_config_env_can_supply_gnews_backup_key(self) -> None:
         with patch.dict("os.environ", {"GNEWS_API_KEY": "env-gnews-key"}):

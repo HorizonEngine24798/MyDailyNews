@@ -832,6 +832,111 @@ class StoryStoreTests(unittest.TestCase):
         self.assertEqual(record.thread_events[-1].superseded_prior_evidence_ids, ["fact:state-28"])
         self.assertNotIn("fact:state-0", [fact_id for event in record.thread_events for fact_id in event.current_evidence_ids])
 
+    def test_same_run_story_cap_works_with_story_store_enabled(self) -> None:
+        with TemporaryDirectory() as raw_dir:
+            root = Path(raw_dir)
+            store = StoryStore.from_state_dir(root)
+            first = _candidate(
+                "dup-1",
+                "Glass Orchard northern gate closes for repair",
+                "The Glass Orchard northern gate closed for a month-long repair.",
+            )
+            second = _candidate(
+                "dup-2",
+                "Breaking: Glass Orchard northern gate closes for repair updates",
+                "Officials confirmed the Glass Orchard northern gate closed for repair.",
+            )
+            decisions = {
+                "dup-1": HeadlineDecision("dup-1", score=8.5, novelty=7.0, impact=7.0),
+                "dup-2": HeadlineDecision("dup-2", score=8.2, novelty=6.5, impact=7.0),
+            }
+            selected = select_articles(
+                [first, second],
+                decisions,
+                [TopicConfig(name="Invented")],
+                FilteringConfig(
+                    headline_score_cutoff=0.0,
+                    max_selected_articles=2,
+                    max_selected_per_source=0,
+                ),
+                user_memory=UserMemory(),
+                memory_config=MemoryConfig(enabled=True, max_selected_per_story=1),
+                story_store=store,
+                date="2026-03-01",
+            )
+
+            self.assertEqual([article.candidate.id for article in selected], ["dup-1"])
+            self.assertEqual(decisions["dup-2"].selection_reason_code, "skipped_story_cap")
+
+    def test_story_store_fallback_links_provisional_candidate_when_delta_skipped(self) -> None:
+        with TemporaryDirectory() as raw_dir:
+            root = Path(raw_dir)
+            store = StoryStore.from_state_dir(root)
+            day1 = _candidate(
+                "day1",
+                "Glass Orchard northern gate closes for repair",
+                "The Glass Orchard northern gate closed for a month-long repair.",
+            )
+            _annotate(day1, "glass-orchard-gate")
+            store.update_selected(
+                selected=[_article(day1)],
+                date="2026-03-01",
+                visible_article_ids=["day1"],
+            )
+
+            day2 = _candidate(
+                "day2",
+                "Glass Orchard northern gate repair enters second phase",
+                "The Glass Orchard northern gate repair entered its second phase after inspection.",
+            )
+            selected = select_articles(
+                [day2],
+                {"day2": HeadlineDecision("day2", score=8.4, novelty=7.0, impact=7.0)},
+                [TopicConfig(name="Invented")],
+                FilteringConfig(headline_score_cutoff=0.0, max_selected_articles=1, max_selected_per_source=0),
+                user_memory=UserMemory(),
+                memory_config=MemoryConfig(enabled=True),
+                story_store=store,
+                date="2026-03-02",
+            )
+            self.assertEqual(day2.metadata["memory_identity_state"], "provisional")
+
+            store.update_selected(
+                selected=selected,
+                date="2026-03-02",
+                visible_article_ids=["day2"],
+                delta_packet={},
+            )
+            records = store.records()
+            self.assertEqual(len(records), 1)
+            self.assertEqual(records[0].story_key, "glass-orchard-gate")
+            self.assertEqual(records[0].source_document_ids, ["day1", "day2"])
+            self.assertEqual(candidate_memory_annotation(day2).story_key, "glass-orchard-gate")
+
+    def test_multilingual_semantic_retrieval_links_cross_language_continuations(self) -> None:
+        with TemporaryDirectory() as raw_dir:
+            root = Path(raw_dir)
+            store = StoryStore.from_state_dir(root)
+            en_day1 = _candidate(
+                "epa-en-1",
+                "Administration Finalizes First-Ever National Drinking Water Standard for PFAS",
+                "The Environmental Protection Agency finalized enforceable limits on PFAS chemicals in public drinking water systems.",
+                category="policy",
+            )
+            _annotate(en_day1, "epa-pfas-drinking-water-standard")
+            store.update_selected(selected=[_article(en_day1)], date="2026-04-10")
+
+            es_day2 = _candidate(
+                "epa-es-2",
+                "La administración finaliza la primera norma nacional de agua potable para PFAS",
+                "La agencia estableció límites nacionales obligatorios para sustancias PFAS en el agua potable pública.",
+                category="policy",
+            )
+            matches = store.candidate_stories(es_day2, source_text=es_day2.snippet)
+            self.assertTrue(matches)
+            self.assertEqual(matches[0].record.story_key, "epa-pfas-drinking-water-standard")
+            self.assertIn("multilingual_semantic_match", matches[0].reasons)
+
 
 if __name__ == "__main__":
     unittest.main()

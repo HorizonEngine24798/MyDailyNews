@@ -22,7 +22,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG = REPO_ROOT / "config.local.json"
 DEFAULT_WRITE = REPO_ROOT / "config.recommended.json"
 DEFAULT_MODEL_CATALOG = REPO_ROOT / "profiles" / "model_catalog.json"
-DEFAULT_EXTERNAL_BASE_URL = "http://127.0.0.1:1234/v1"
+DEFAULT_EXTERNAL_BASE_URL = "http://127.0.0.1:8080/v1"
 STORY_ENRICHMENT_BUDGET_KEYS = (
     "max_context_chars_per_article",
     "max_story_threads",
@@ -161,6 +161,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-download-prompt", action="store_true", help="Do not prompt to download a recommended GGUF model.")
     parser.add_argument("--no-model-path-prompt", action="store_true", help="Do not prompt for an existing GGUF model path.")
     parser.add_argument("--no-preference-prompt", action="store_true", help="Do not prompt for pipeline usage preferences.")
+    parser.add_argument(
+        "--server-mode",
+        choices=("", "external", "managed"),
+        default="",
+        help="Configure external endpoint mode or managed llama-server mode.",
+    )
     return parser
 
 
@@ -194,7 +200,13 @@ def main(argv: list[str] | None = None) -> int:
         if preferences is not None:
             apply_pipeline_preferences(recommended, preferences)
 
+    if args.server_mode:
+        _apply_server_mode_preference(recommended, args.server_mode)
+    elif uses_managed_server(source_config):
+        _apply_server_mode_preference(recommended, "managed")
+
     if uses_managed_server(recommended):
+        _ensure_managed_server_runtime(recommended, source_config, tier)
         download_dir = Path(args.download_dir) if args.download_dir else Path(catalog.get("download_dir", "models"))
         model_path = existing_model_path(source_config)
         if model_path:
@@ -204,9 +216,14 @@ def main(argv: list[str] | None = None) -> int:
                 str(source_config.get("ai_summary", {}).get("server_model") or model["model_label"]),
             )
         else:
+            discovered_models = discover_local_gguf_models()
             prompted_path = "" if args.no_model_path_prompt else maybe_prompt_model_path(model)
             if prompted_path:
                 set_model_path(recommended, prompted_path, str(model["model_label"]))
+            elif discovered_models:
+                chosen_gguf = discovered_models[0]
+                print(f"Found local GGUF model: {chosen_gguf}")
+                set_model_path(recommended, str(chosen_gguf), chosen_gguf.stem)
             elif not args.no_download_prompt:
                 downloaded = maybe_prompt_download(model, download_dir)
                 if downloaded:
@@ -450,7 +467,7 @@ def maybe_prompt_pipeline_preferences() -> PipelinePreferences | None:
     analysis_depth = prompt_choice(
         "How much evidence/delta analysis do you want?",
         [
-            ("balanced", "Balanced", "evidence for both briefs, deltas for detailed mode"),
+            ("balanced", "Balanced", "evidence and deltas for both brief modes"),
             ("fast", "Fast", "skip evidence and delta extraction"),
             ("deep", "Deep", "evidence and deltas for both brief modes"),
         ],
@@ -585,7 +602,7 @@ def _apply_analysis_depth_preference(config: dict[str, Any], analysis_depth: str
     elif analysis_depth == "deep":
         enabled_by_mode = {"general": (True, True), "detailed": (True, True)}
     else:
-        enabled_by_mode = {"general": (True, False), "detailed": (True, True)}
+        enabled_by_mode = {"general": (True, True), "detailed": (True, True)}
     for mode_name, mode_config in (("general", general), ("detailed", detailed)):
         evidence_enabled, delta_enabled = enabled_by_mode[mode_name]
         mode_config.setdefault("evidence_distillation", {})["enabled"] = evidence_enabled
@@ -615,6 +632,10 @@ def _external_base_url(value: Any) -> str:
     raw = str(value or "").strip().rstrip("/")
     legacy_defaults = {
         "",
+        "http://127.0.0.1:1234",
+        "http://127.0.0.1:1234/v1",
+        "http://localhost:1234",
+        "http://localhost:1234/v1",
         "http://127.0.0.1:8080",
         "http://127.0.0.1:8080/v1",
         "http://localhost:8080",
@@ -788,7 +809,7 @@ def _apply_story_enrichment_budget(section: dict[str, Any], settings: dict[str, 
 def _apply_analysis(analysis: dict[str, Any], settings: dict[str, Any]) -> None:
     for old_key in ("rollout", "evidence_distillation", "delta_extraction"):
         analysis.pop(old_key, None)
-    enabled_defaults = {"general": (True, False), "detailed": (True, True)}
+    enabled_defaults = {"general": (True, True), "detailed": (True, True)}
     for mode, (evidence_enabled, delta_enabled) in enabled_defaults.items():
         mode_config = analysis.setdefault(mode, {})
         evidence = mode_config.setdefault("evidence_distillation", {})
@@ -823,6 +844,62 @@ def existing_model_path(config: dict[str, Any]) -> str:
         if path and not looks_like_placeholder(path) and Path(os.path.expandvars(os.path.expanduser(path))).exists():
             return path
     return ""
+
+
+def discover_local_gguf_models(search_dirs: list[Path] | None = None) -> list[Path]:
+    dirs = search_dirs if search_dirs is not None else [
+        Path.home() / ".lmstudio" / "models",
+        Path.home() / ".cache" / "lm-studio" / "models",
+        REPO_ROOT / "models",
+    ]
+    candidates: list[Path] = []
+    seen: set[Path] = set()
+    for root in dirs:
+        if not root.exists() or not root.is_dir():
+            continue
+        for path in root.rglob("*.gguf"):
+            if not path.is_file():
+                continue
+            resolved = path.resolve()
+            if resolved in seen:
+                continue
+            lower_name = path.name.lower()
+            lower_parts = {part.lower() for part in path.parts}
+            if (
+                lower_name.startswith("mmproj")
+                or lower_name.startswith("downloading_")
+                or "embed" in lower_name
+                or ".internal" in lower_parts
+            ):
+                continue
+            seen.add(resolved)
+            candidates.append(path)
+    candidates.sort(
+        key=lambda item: (item.stat().st_mtime, item.stat().st_size),
+        reverse=True,
+    )
+    return candidates
+
+
+def _ensure_managed_server_runtime(
+    config: dict[str, Any],
+    source_config: dict[str, Any],
+    tier: dict[str, Any],
+) -> None:
+    source_exec = ""
+    for section in ("ai_summary", "ai_final"):
+        raw = str(source_config.get(section, {}).get("server_executable") or "").strip()
+        if raw and not looks_like_placeholder(raw) and resolve_executable(raw):
+            source_exec = resolve_executable(raw)
+            break
+    resolved_exec = source_exec or resolve_executable("llama-server")
+    tier_args = [str(item) for item in tier.get("settings", {}).get("server_arguments", [])]
+    for section in ("ai_summary", "ai_final"):
+        ai = config.setdefault(section, {})
+        if resolved_exec and not ai.get("server_executable"):
+            ai["server_executable"] = resolved_exec
+        if not ai.get("server_arguments") and tier_args:
+            ai["server_arguments"] = list(tier_args)
 
 
 def set_model_path(config: dict[str, Any], model_path: str, model_label: str) -> None:
@@ -1003,6 +1080,14 @@ def resolve_executable(raw_path: str) -> str:
         return found
     if expanded in {"llama-cli", "llama-cli.exe"}:
         return shutil.which("llama-server.exe" if expanded.endswith(".exe") else "llama-server") or ""
+    if expanded.lower() in {"llama-server", "llama-server.exe", "auto"}:
+        local_appdata = os.environ.get("LOCALAPPDATA", "")
+        if local_appdata:
+            winget_packages = Path(local_appdata) / "Microsoft" / "WinGet" / "Packages"
+            if winget_packages.exists():
+                matches = sorted(winget_packages.glob("ggml.llamacpp*/**/llama-server.exe"))
+                if matches:
+                    return str(matches[-1])
     return ""
 
 

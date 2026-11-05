@@ -46,6 +46,8 @@ def main() -> int:
         output_path = Path(args.output)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(rendered + "\n", encoding="utf-8")
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     print(rendered)
     return 0
 

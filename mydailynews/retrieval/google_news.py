@@ -12,7 +12,7 @@ from mydailynews.diagnostics.debug import DebugLogger, safe_url
 from mydailynews.app.models import GoogleNewsSourceConfig, NewsCandidate, TopicConfig
 from mydailynews.common.parallel import ordered_parallel_map
 from mydailynews.scrapers.rss import RSSScraper
-from mydailynews.common.utils import normalize_url, normalize_whitespace, stable_id, strip_html
+from mydailynews.common.utils import GOOGLE_CONSENT_HEADERS, normalize_url, normalize_whitespace, stable_id, strip_html
 
 
 class GoogleNewsQueryRetriever:
@@ -113,7 +113,7 @@ class GoogleNewsQueryRetriever:
             f"&ceid={quote_plus(self.config.ceid)}"
         )
         self.debug.log("google_news.query", "fetching", topic=topic.name, query=query, url=safe_url(rss_url))
-        response = self.http.get_text(rss_url, timeout=20, allow_redirects=True)
+        response = self.http.get_text(rss_url, timeout=20, allow_redirects=True, headers=GOOGLE_CONSENT_HEADERS)
         self.debug.increment(f"cache.discovery.{response.cache_state}")
         if not response.ok:
             self._push_error(f"{topic.name}: HTTP error status={response.status_code}")

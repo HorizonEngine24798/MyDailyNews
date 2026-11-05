@@ -7,6 +7,7 @@ import shutil
 from typing import Iterable
 from urllib.parse import urlparse
 
+from mydailynews.ai.managed_llama_server import ManagedLlamaServerLease
 from mydailynews.app.models import AIConfig, AppConfig
 
 
@@ -107,8 +108,9 @@ def _ai_runtime_issues(section_name: str, config: AIConfig) -> list[RuntimeConfi
             )
         )
     else:
-        expanded_model_path = Path(os.path.expandvars(os.path.expanduser(model_path)))
-        if not expanded_model_path.exists():
+        resolved_model = ManagedLlamaServerLease._resolved_model_path(model_path)
+        expanded_model_path = Path(resolved_model)
+        if not expanded_model_path.exists() or expanded_model_path.is_dir():
             issues.append(
                 RuntimeConfigIssue(
                     section=section_name,
@@ -156,6 +158,9 @@ def _executable_is_resolvable(raw_path: str) -> bool:
     if expanded in {"llama-cli", "llama-cli.exe"}:
         sibling = "llama-server.exe" if expanded.endswith(".exe") else "llama-server"
         return shutil.which(sibling) is not None
+    resolved = ManagedLlamaServerLease._resolved_executable(raw_path)
+    if resolved and Path(resolved).parent != Path(".") and Path(resolved).exists():
+        return True
     return False
 
 

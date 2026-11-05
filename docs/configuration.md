@@ -6,7 +6,7 @@ Do not edit tracked defaults directly. Copy `config.example.json` to a local con
 
 ## Files
 
-- `config.example.json`: committed portable sample for LM Studio's local server.
+- `config.example.json`: committed portable sample for `llama-server` (`llama.cpp`).
 - `config.local.json`: ignored local working config.
 - `config.local*.json`: ignored machine-specific variants.
 - `config.recommended.json`: ignored autoconfig output.
@@ -20,11 +20,11 @@ Do not edit tracked defaults directly. Copy `config.example.json` to a local con
 Important fields:
 
 - `backend`: must be `llama_cpp_server`.
-- `base_url`: OpenAI-compatible endpoint, usually `http://127.0.0.1:1234/v1`.
+- `base_url`: OpenAI-compatible endpoint, usually `http://127.0.0.1:8080/v1`.
 - `server_model`: model label sent to the endpoint.
 - `context_window_tokens`: app-side record of the server's effective per-slot context window.
 - `max_input_tokens` and `max_new_tokens`: model-role ceilings. One shared resolver reserves context overhead and clamps every request so input plus output cannot exceed the context window.
-- `manage_server`: keep `false` for LM Studio or Docker.
+- `manage_server`: keep `false` for external `llama-server` or Docker.
 - `server_executable`, `server_model_path`, and `server_arguments`: only used when `manage_server=true`.
 
 Stage token fields are optional preferences. Leave them `null` to inherit the model-role ceilings; use positive values only when a stage has a measured reason to be smaller. Disabling work uses the stage's `enabled` flag, not a zero token budget.

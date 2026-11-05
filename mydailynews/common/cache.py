@@ -12,6 +12,12 @@ from urllib.parse import urlencode
 import requests
 
 from mydailynews.common.storage import CACHE_DATABASE_NAME, claim_migration, open_database, set_metadata
+from mydailynews.common.utils import (
+    GOOGLE_CONSENT_COOKIE,
+    GOOGLE_CONSENT_COOKIES,
+    is_consent_interstitial_text,
+    is_google_news_or_consent_url,
+)
 from mydailynews.diagnostics.debug import DebugLogger
 
 
@@ -340,6 +346,11 @@ class CachedHttpClient:
 
         request_headers = {"User-Agent": self.user_agent}
         request_headers.update(headers or {})
+        request_kwargs: Dict[str, Any] = {}
+        if is_google_news_or_consent_url(url):
+            if request_headers.get("Cookie") == GOOGLE_CONSENT_COOKIE:
+                request_headers.pop("Cookie", None)
+            request_kwargs["cookies"] = dict(GOOGLE_CONSENT_COOKIES)
 
         try:
             response = requests.get(
@@ -348,6 +359,7 @@ class CachedHttpClient:
                 headers=request_headers,
                 timeout=timeout,
                 allow_redirects=allow_redirects,
+                **request_kwargs,
             )
         except requests.RequestException:
             fallback = use_cache.get(cache_key) if use_cache and mode == self.NETWORK_FIRST else None
@@ -371,7 +383,7 @@ class CachedHttpClient:
             )
 
         body = response.text
-        if use_cache:
+        if use_cache and not is_consent_interstitial_text(body):
             use_cache.put(cache_key, response.status_code, body, headers=dict(response.headers))
         return HTTPFetchResult(
             ok=True,

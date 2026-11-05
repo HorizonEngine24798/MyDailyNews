@@ -3,7 +3,7 @@
   "user_agent": "MyDailyNews/1.0 (+local OpenAI-compatible news brief)",
   "ai_summary": {
     "backend": "llama_cpp_server",
-    "base_url": "http://127.0.0.1:1234/v1",
+    "base_url": "http://127.0.0.1:8080/v1",
     "server_model": "Qwen3-14B-Q4_K_M",
     "context_window_tokens": 16384,
     "max_input_tokens": 12000,
@@ -20,7 +20,7 @@
   },
   "ai_final": {
     "backend": "llama_cpp_server",
-    "base_url": "http://127.0.0.1:1234/v1",
+    "base_url": "http://127.0.0.1:8080/v1",
     "server_model": "Qwen3-14B-Q4_K_M",
     "context_window_tokens": 16384,
     "max_input_tokens": 12000,
@@ -62,7 +62,7 @@
   "analysis": {
     "general": {
       "evidence_distillation": {"enabled": true, "model_role": "summary", "include_reader_qa": true, "max_input_tokens": 8000, "max_new_tokens": 1000, "max_articles": 6, "max_articles_per_batch": 3, "max_articles_dropped_to_avoid_split": 2, "max_article_chars": 1400, "max_context_sources_per_article": 3, "cache_ttl_seconds": 604800},
-      "delta_extraction": {"enabled": false, "model_role": "summary", "max_input_tokens": 8000, "max_new_tokens": 1000, "max_articles": 6, "max_article_chars": 600, "max_prior_reports": 4, "cache_ttl_seconds": 604800}
+      "delta_extraction": {"enabled": true, "model_role": "summary", "max_input_tokens": 8000, "max_new_tokens": 1000, "max_articles": 6, "max_article_chars": 600, "max_prior_reports": 4, "cache_ttl_seconds": 604800}
     },
     "detailed": {
       "evidence_distillation": {"enabled": true, "model_role": "summary", "include_reader_qa": true, "max_input_tokens": 10000, "max_new_tokens": 1200, "max_articles": 8, "max_articles_per_batch": 4, "max_articles_dropped_to_avoid_split": 2, "max_article_chars": 1400, "max_context_sources_per_article": 3, "cache_ttl_seconds": 604800},

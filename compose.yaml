@@ -4,7 +4,7 @@ services:
     image: mydailynews:local
     working_dir: /app
     environment:
-      MYDAILYNEWS_AI_BASE_URL: http://host.docker.internal:1234/v1
+      MYDAILYNEWS_AI_BASE_URL: http://host.docker.internal:8080/v1
     volumes:
       - .:/app
     command: ["python", "main.py", "--config", "config.recommended.json"]
@@ -14,7 +14,7 @@ services:
     image: mydailynews:local
     working_dir: /app
     environment:
-      MYDAILYNEWS_AI_BASE_URL: http://host.docker.internal:1234/v1
+      MYDAILYNEWS_AI_BASE_URL: http://host.docker.internal:8080/v1
     volumes:
       - .:/app
     ports:

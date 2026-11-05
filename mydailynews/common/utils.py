@@ -12,6 +12,35 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 
 TRACKING_PARAMS = {"fbclid", "gclid", "igshid", "mc_cid", "mc_eid"}
+GOOGLE_NEWS_HOSTS = {"news.google.com"}
+GOOGLE_CONSENT_HOSTS = {"consent.google.com", "consent.youtube.com"}
+GOOGLE_SOCS_COOKIE_VALUE = "CAESHAgBEhJnd3NfMjAyMzA4MTAtMF9SQzIaAmVuIAEaBgiAo_CmBg"
+GOOGLE_CONSENT_COOKIE = f"SOCS={GOOGLE_SOCS_COOKIE_VALUE}"
+GOOGLE_CONSENT_COOKIES: Dict[str, str] = {"SOCS": GOOGLE_SOCS_COOKIE_VALUE}
+GOOGLE_CONSENT_HEADERS: Dict[str, str] = {"Cookie": GOOGLE_CONSENT_COOKIE}
+CONSENT_INTERSTITIAL_MARKERS = (
+    "before you continue to google",
+    "we use cookies and data, including ip addresses",
+    "deliver and maintain google services",
+    "if you choose to \"accept all,\" we will also use cookies and data",
+    "if you choose to \u201caccept all,\u201d we will also use cookies and data",
+    "if you choose to 'accept all,' we will also use cookies and data",
+)
+
+
+def is_google_news_or_consent_url(url: str) -> bool:
+    try:
+        host = (urlparse(str(url or "").strip()).netloc or "").lower()
+    except Exception:
+        return False
+    return host in GOOGLE_NEWS_HOSTS or host in GOOGLE_CONSENT_HOSTS
+
+
+def is_consent_interstitial_text(text: str) -> bool:
+    normalized = normalize_whitespace(str(text or "")).casefold()
+    if not normalized:
+        return False
+    return any(marker in normalized for marker in CONSENT_INTERSTITIAL_MARKERS)
 
 
 def utc_now() -> datetime:

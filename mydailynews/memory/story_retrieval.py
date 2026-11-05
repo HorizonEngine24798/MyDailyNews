@@ -6,7 +6,13 @@ import re
 from typing import Any, Iterable, List, Sequence
 
 from mydailynews.app.models import NewsCandidate
+from mydailynews.common.utils import is_consent_interstitial_text
 from mydailynews.domain.text_similarity import compare_token_sets, normalized_word_text, word_tokens
+from mydailynews.memory.multilingual_embeddings import (
+    candidate_record_texts,
+    prefetch_embeddings,
+    semantic_story_similarity,
+)
 from mydailynews.memory.story_keys import STOPWORDS, story_identity_for_candidate, story_tokens_for_candidate
 
 
@@ -71,8 +77,14 @@ def retrieve_story_candidates(
     embedding/cosine retrieval, rank fusion, and pairwise reranking.
     """
 
+    record_list = list(records)
+    if record_list:
+        prefetch_embeddings(candidate_record_texts(candidate, source_text, record_list))
     signals = source_signals(candidate, source_text=source_text)
-    matches = [_candidate_match(candidate, signals, record) for record in records]
+    matches = [
+        _candidate_match(candidate, signals, record, source_text=source_text)
+        for record in record_list
+    ]
     threshold = max(0.0, min(1.0, float(min_score)))
     matches = [match for match in matches if match.score >= threshold]
     matches.sort(
@@ -88,8 +100,10 @@ def retrieve_story_candidates(
 
 def source_signals(candidate: NewsCandidate, *, source_text: str = "") -> SourceSignals:
     title_tokens = _tokens(candidate.title)
+    clean_source = "" if is_consent_interstitial_text(source_text) else source_text
+    clean_snippet = "" if is_consent_interstitial_text(candidate.snippet) else candidate.snippet
     context_text = " ".join(
-        value for value in [candidate.snippet, source_text] if str(value or "").strip()
+        value for value in [clean_snippet, clean_source] if str(value or "").strip()
     )
     context_tokens = _tokens(context_text)
     metadata_tokens = _tokens(
@@ -107,9 +121,10 @@ def source_signals(candidate: NewsCandidate, *, source_text: str = "") -> Source
         if any(character.isdigit() for character in token)
     )
     capitalized = _capitalized_title_tokens(candidate.title)
+    body_capitalized = _capitalized_body_tokens(context_text)
     recurring = [token for token in title_tokens if token in set(context_tokens)]
     # Topic/category labels are broad recall context, not entity evidence.
-    entities = _dedupe([*capitalized, *recurring])[:24]
+    entities = _dedupe([*capitalized, *body_capitalized, *recurring])[:32]
     entity_set = set(entities)
     number_set = set(numbers)
     events = _dedupe(
@@ -139,12 +154,15 @@ def source_signals(candidate: NewsCandidate, *, source_text: str = "") -> Source
 def source_fact_texts(candidate: NewsCandidate, *, source_text: str = "") -> List[tuple[str, str]]:
     rows: List[tuple[str, str]] = []
     title = _clean_source_text(candidate.title, max_chars=280)
-    if title:
+    if title and not is_consent_interstitial_text(title):
         rows.append(("headline", title))
-    body = _clean_source_text(source_text or candidate.snippet, max_chars=2400)
+    raw_body = "" if is_consent_interstitial_text(source_text) else source_text
+    if not raw_body and not is_consent_interstitial_text(candidate.snippet):
+        raw_body = candidate.snippet
+    body = _clean_source_text(raw_body, max_chars=2400)
     for sentence in re.split(r"(?<=[.!?])\s+|[\r\n]+", body):
         text = _clean_source_text(sentence, max_chars=420)
-        if len(text) < 24:
+        if len(text) < 24 or is_consent_interstitial_text(text):
             continue
         rows.append(("source_sentence", text))
         if len(rows) >= 7:
@@ -183,6 +201,8 @@ def _candidate_match(
     candidate: NewsCandidate,
     current: SourceSignals,
     record: Any,
+    *,
+    source_text: str = "",
 ) -> StoryCandidateMatch:
     aliases = _dedupe([record.title, *record.aliases])
     record_tokens = _dedupe(
@@ -213,6 +233,20 @@ def _candidate_match(
     current_numbers = set(current.number_tokens)
     prior_numbers = set(record.number_tokens)
     numeric_conflict = bool(current_numbers and prior_numbers and current_numbers.isdisjoint(prior_numbers))
+    current_title_numbers = {
+        token for token in _tokens(candidate.title) if any(character.isdigit() for character in token)
+    }
+    prior_title_numbers = {
+        token
+        for value in aliases
+        for token in _tokens(value)
+        if any(character.isdigit() for character in token)
+    }
+    title_numeric_conflict = bool(
+        current_title_numbers
+        and prior_title_numbers
+        and current_title_numbers.isdisjoint(prior_title_numbers)
+    )
     score = (0.25 * lexical) + (0.18 * alias) + (0.24 * entity) + (0.13 * event) + (0.20 * fact)
     reasons: List[str] = []
     base_key = story_identity_for_candidate(candidate).story_key
@@ -227,15 +261,54 @@ def _candidate_match(
     if entity >= 0.55 and (event >= 0.25 or fact >= 0.25):
         score += 0.1
         reasons.append("entity_plus_event_or_fact")
+    elif not title_numeric_conflict and (
+        (lexical >= 0.25 and fact >= 0.22 and (entity >= 0.18 or alias >= 0.15))
+        or (lexical >= 0.20 and fact >= 0.35 and (entity >= 0.14 or alias >= 0.19))
+    ):
+        score += 0.07
+        reasons.append("multi_signal_corroboration")
     if fact >= 0.48:
         score += 0.08
         reasons.append("source_fact_overlap")
     if alias >= 0.58:
         reasons.append("title_alias_overlap")
+    title_sem, full_sem, max_sem = semantic_story_similarity(
+        candidate,
+        source_text=source_text,
+        record=record,
+    )
+    is_non_latin_script = any(
+        ord(ch) > 0x024F and ch.isalpha()
+        for text_val in (candidate.title, *aliases[:3])
+        for ch in str(text_val or "")
+    )
+    has_semantic_continuity = False
+    if not title_numeric_conflict:
+        if max_sem >= 0.885 or (is_non_latin_script and max_sem >= 0.845):
+            has_semantic_continuity = True
+            semantic_floor = 0.29 + (0.80 * max(0.0, max_sem - 0.845))
+            score = max(score + 0.18 + (0.65 * max(0.0, max_sem - 0.885)), semantic_floor)
+            reasons.append("multilingual_semantic_match")
+        elif max_sem >= 0.840 and lexical >= 0.25:
+            has_semantic_continuity = True
+            score = max(score + 0.19, 0.27)
+            reasons.append("semantic_lexical_corroboration")
     if numeric_conflict:
-        score -= 0.15 if entity < 0.8 or fact < 0.5 else 0.05
+        has_continuity_support = (
+            not title_numeric_conflict
+            and (
+                has_semantic_continuity
+                or (lexical >= 0.20 and fact >= 0.35)
+                or (lexical >= 0.27 and entity >= 0.23)
+            )
+        )
+        score -= 0.03 if (entity >= 0.8 or fact >= 0.5 or has_continuity_support) else 0.15
         reasons.append("numeric_conflict_penalty")
-    if max(alias, entity, fact) < 0.28:
+    if (
+        max(alias, entity, fact) < 0.28
+        and not has_semantic_continuity
+        and not (lexical >= 0.25 and (entity >= 0.22 or fact >= 0.22))
+    ):
         score *= 0.7
     score = round(max(0.0, min(1.0, score)), 4)
     return StoryCandidateMatch(
@@ -263,6 +336,21 @@ def _capitalized_title_tokens(title: str) -> List[str]:
         if has_case_signal or has_identifier_signal:
             output.extend(normalized)
     return _dedupe(output)
+
+
+def _capitalized_body_tokens(text: str) -> List[str]:
+    output: List[str] = []
+    for sentence in re.split(r"(?<=[.!?])\s+|[\r\n]+", str(text or "")):
+        chunks = re.findall(r"[^\W_][\w'’-]*", sentence, flags=re.UNICODE)
+        for index, chunk in enumerate(chunks):
+            if any(character.isdigit() for character in chunk):
+                continue
+            normalized = _tokens(chunk)
+            if not normalized:
+                continue
+            if chunk[:1].isupper() and (index > 0 or chunk.isupper()):
+                output.extend(normalized)
+    return _dedupe(output)[:18]
 
 
 def _similarity(left: Sequence[str], right: Sequence[str]) -> float:

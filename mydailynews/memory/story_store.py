@@ -9,7 +9,7 @@ from typing import Any, Dict, Iterable, List, Sequence
 
 from mydailynews.analysis.claim_delta import FACT_OPERATIONS
 from mydailynews.app.models import MemoryAnnotation, NewsCandidate, SelectedArticle
-from mydailynews.common.utils import datetime_to_iso
+from mydailynews.common.utils import datetime_to_iso, is_consent_interstitial_text
 from mydailynews.common.storage import (
     MEMORY_DATABASE_NAME,
     claim_migration,
@@ -246,6 +246,34 @@ class StoryStore:
 
             story_key = annotation.story_key
             previous = updated.get(story_key)
+            decision = decisions.get(str(article.candidate.id), {})
+            if (
+                previous is None
+                and not decision
+                and article.candidate.metadata.get("memory_identity_state") == "provisional"
+            ):
+                prior_candidates = article.candidate.metadata.get("memory_prior_story_candidates", [])
+                if isinstance(prior_candidates, list):
+                    for item in prior_candidates:
+                        if not isinstance(item, dict):
+                            continue
+                        candidate_key = str(item.get("story_key", "") or "").strip()
+                        try:
+                            candidate_score = float(item.get("score", 0.0) or 0.0)
+                        except (TypeError, ValueError):
+                            candidate_score = 0.0
+                        if candidate_score >= MATCH_CONFIDENCE_THRESHOLD and candidate_key in updated:
+                            story_key = candidate_key
+                            previous = updated[candidate_key]
+                            annotation = replace(
+                                annotation,
+                                story_key=story_key,
+                                story_family_key=previous.story_family_key or annotation.story_family_key,
+                                story_title=previous.title or annotation.story_title,
+                            )
+                            set_memory_annotation(article.candidate, annotation)
+                            article.candidate.metadata["memory_identity_state"] = "fallback_linked"
+                            break
             candidate_identity = story_identity_for_candidate(article.candidate)
             current_signals = source_signals(
                 article.candidate,
@@ -253,7 +281,6 @@ class StoryStore:
             )
             is_visible = str(article.candidate.id) in visible_ids
             current_facts = current_facts_by_article_id.get(str(article.candidate.id), [])
-            decision = decisions.get(str(article.candidate.id), {})
             decision_article_ids = _string_list(
                 decision.get("article_ids", [article.candidate.id]),
                 max_items=max(1, len(current_facts_by_article_id)),
@@ -397,7 +424,7 @@ class StoryStore:
             as_of_date=date,
             stale_after_days=stale_after_days,
             retention_days=retention_days,
-            prune=True,
+            prune=False,
         )
         return self.replace_records(records, database=database)
 
@@ -860,7 +887,7 @@ def _fact_from_payload(raw: Any) -> SourceFact | None:
     fact_id = str(raw.get("fact_id", "") or "").strip()
     text = str(raw.get("text", "") or "").strip()
     source_id = str(raw.get("source_id", "") or "").strip()
-    if not fact_id or not text or not source_id:
+    if not fact_id or not text or not source_id or is_consent_interstitial_text(text):
         return None
     return SourceFact(
         fact_id=fact_id,

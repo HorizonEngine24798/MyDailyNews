@@ -5,7 +5,7 @@ from typing import Any, Dict, Iterable
 
 from mydailynews.app.models import NewsCandidate
 from mydailynews.common.cache import JSONCache
-from mydailynews.common.utils import datetime_to_iso
+from mydailynews.common.utils import datetime_to_iso, is_consent_interstitial_text, is_google_news_or_consent_url
 from mydailynews.diagnostics.debug import DebugLogger
 from mydailynews.domain.article_identity import (
     article_aliases_for_candidate,
@@ -63,7 +63,13 @@ class ArticleTextCache:
             return ""
         status = str(extraction_status or "").strip()
         text = str(article_text or "").strip()
-        if status not in CACHEABLE_EXTRACTION_STATUSES or not text:
+        effective_resolved = str(resolved_url or candidate.url or "").strip()
+        if (
+            status not in CACHEABLE_EXTRACTION_STATUSES
+            or not text
+            or is_consent_interstitial_text(text)
+            or (is_google_news_or_consent_url(candidate.url) and is_google_news_or_consent_url(effective_resolved))
+        ):
             return ""
 
         resolved_alias = article_url_alias(resolved_url)
@@ -130,4 +136,11 @@ class ArticleTextCache:
             return False
         if record.get("schema_version") != ARTICLE_TEXT_CACHE_SCHEMA:
             return False
-        return bool(str(record.get("article_text", "")).strip())
+        text = str(record.get("article_text", "")).strip()
+        if not text or is_consent_interstitial_text(text):
+            return False
+        url = str(record.get("url", "") or "").strip()
+        resolved_url = str(record.get("resolved_url", "") or url).strip()
+        if is_google_news_or_consent_url(url) and is_google_news_or_consent_url(resolved_url):
+            return False
+        return True

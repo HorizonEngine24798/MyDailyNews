@@ -4,7 +4,7 @@ import re
 from typing import Any
 
 from mydailynews.app.models import SelectedArticle
-from mydailynews.common.utils import datetime_to_iso
+from mydailynews.common.utils import datetime_to_iso, is_consent_interstitial_text
 from mydailynews.story_grouping.models import StoryGroup
 
 
@@ -84,7 +84,9 @@ def planner_article_payload(article: SelectedArticle, excerpt_chars: int) -> dic
         "extraction_status": article.extraction_status,
     }
     if excerpt_chars > 0:
-        payload["article_excerpt"] = clean_text(article.article_text or article.candidate.snippet, excerpt_chars)
+        article_text = "" if is_consent_interstitial_text(article.article_text) else article.article_text
+        snippet = "" if is_consent_interstitial_text(article.candidate.snippet) else article.candidate.snippet
+        payload["article_excerpt"] = clean_text(article_text or snippet, excerpt_chars)
     return payload
 
 

@@ -141,7 +141,7 @@ class AutoconfigTests(unittest.TestCase):
         recommended = autoconfig.build_recommended_config(source, tier, model)
 
         self.assertEqual(source, source_before)
-        self.assertEqual(recommended["ai_summary"]["base_url"], "http://127.0.0.1:1234/v1")
+        self.assertEqual(recommended["ai_summary"]["base_url"], "http://127.0.0.1:8080/v1")
         self.assertEqual(recommended["ai_summary"]["server_model"], "Qwen3-8B-Q4_K_M")
         self.assertEqual(recommended["ai_summary"]["context_window_tokens"], 8192)
         self.assertEqual(recommended["ai_summary"]["max_input_tokens"], 6000)
@@ -484,7 +484,7 @@ class AutoconfigTests(unittest.TestCase):
 
         self.assertEqual(rc, 0)
         written = json.loads(target_path.read_text(encoding="utf-8"))
-        self.assertEqual(written["ai_summary"]["base_url"], "http://127.0.0.1:1234/v1")
+        self.assertEqual(written["ai_summary"]["base_url"], "http://127.0.0.1:8080/v1")
         self.assertFalse(written["ai_summary"]["manage_server"])
         self.assertEqual(written["ai_summary"]["server_model_path"], "")
         self.assertEqual(written["ai_final"]["server_model_path"], "")

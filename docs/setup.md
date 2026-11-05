@@ -5,8 +5,8 @@ These commands assume Git Bash on Windows. On macOS or Linux, use `source .venv/
 ## Requirements
 
 - Python 3.10 through 3.12. Python 3.12 is the safest default because the optional Kokoro TTS dependency supports 3.10 through 3.12.
-- LM Studio, llama.cpp, or another OpenAI-compatible local server.
-- A model loaded and served at `http://127.0.0.1:1234` when using the default LM Studio path.
+- `llama.cpp` (`llama-server`) or another OpenAI-compatible local server.
+- A model loaded and served at `http://127.0.0.1:8080` when using the default `llama-server` path.
 
 ## Install
 
@@ -27,13 +27,13 @@ test -f config.local.json || cp config.example.json config.local.json
 python tools/autoconfig.py --config config.local.json --write config.recommended.json
 ```
 
-Autoconfig detects hardware best-effort, probes the configured endpoint when possible, and asks about the default run shape. It keeps MyDailyNews in external-server mode by default; LM Studio still owns model loading and serving.
+Autoconfig detects hardware best-effort, probes the configured endpoint when possible, and asks about the default run shape. It keeps MyDailyNews in external-server mode by default; `llama-server` still owns model loading and serving.
 
 Edit `config.local.json` first if you need different feeds, topics, or reader preferences. Run autoconfig again after changing hardware-sensitive settings.
 
 ## Run The Pipeline
 
-Start LM Studio's local server, then run:
+Start `llama-server`, then run:
 
 ```bash
 python main.py --config config.recommended.json
@@ -87,7 +87,7 @@ docker compose run --rm app
 docker compose up gui
 ```
 
-Compose sets `MYDAILYNEWS_AI_BASE_URL=http://host.docker.internal:1234/v1` inside the container so the app can reach LM Studio on the host. See [Docker](docker.md).
+Compose sets `MYDAILYNEWS_AI_BASE_URL=http://host.docker.internal:8080/v1` inside the container so the app can reach `llama-server` on the host. See [Docker](docker.md).
 
 ## TTS
 

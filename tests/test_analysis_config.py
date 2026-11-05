@@ -23,12 +23,12 @@ class AnalysisConfigTests(unittest.TestCase):
 
     def test_public_configs_preserve_materialized_effective_settings(self) -> None:
         expected = {
-            "config.example.json": ((True, False, 8000, 8000), (True, True, 10000, 8000)),
+            "config.example.json": ((True, True, 8000, 8000), (True, True, 10000, 8000)),
             "config.cpu-small.example.json": ((False, False, 3000, 2600), (True, False, 3000, 2600)),
-            "config.nvidia-8gb.example.json": ((False, False, 5000, 4200), (True, True, 5000, 4200)),
-            "config.nvidia-12gb.example.json": ((True, False, 8000, 8000), (True, True, 10000, 8000)),
-            "config.nvidia-24gb.example.json": ((True, False, 16000, 14000), (True, True, 18000, 14000)),
-            "config.remote-server.example.json": ((True, False, 10000, 8000), (True, True, 10000, 8000)),
+            "config.nvidia-8gb.example.json": ((False, True, 5000, 4200), (True, True, 5000, 4200)),
+            "config.nvidia-12gb.example.json": ((True, True, 8000, 8000), (True, True, 10000, 8000)),
+            "config.nvidia-24gb.example.json": ((True, True, 16000, 14000), (True, True, 18000, 14000)),
+            "config.remote-server.example.json": ((True, True, 10000, 8000), (True, True, 10000, 8000)),
         }
 
         for filename, brief_values in expected.items():

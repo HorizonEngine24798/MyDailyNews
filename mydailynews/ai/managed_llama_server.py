@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+import shutil
 import subprocess
 import threading
 import time
@@ -371,7 +372,39 @@ class ManagedLlamaServerLease:
         if not text:
             return ""
         expanded = os.path.expandvars(os.path.expanduser(text))
-        return str(Path(expanded))
+        if text.lower() in {"auto", "lmstudio", "lmstudio_models"}:
+            expanded_path = Path.home() / ".lmstudio" / "models"
+        else:
+            expanded_path = Path(expanded)
+        if expanded_path.exists() and expanded_path.is_dir():
+            discovered = ManagedLlamaServerLease.discover_gguf_models_in_dir(expanded_path)
+            if discovered:
+                return str(discovered[0])
+        return str(expanded_path)
+
+    @staticmethod
+    def discover_gguf_models_in_dir(directory: Path) -> list[Path]:
+        if not directory.exists() or not directory.is_dir():
+            return []
+        candidates: list[Path] = []
+        for path in directory.rglob("*.gguf"):
+            if not path.is_file():
+                continue
+            lower_name = path.name.lower()
+            lower_parts = {part.lower() for part in path.parts}
+            if (
+                lower_name.startswith("mmproj")
+                or lower_name.startswith("downloading_")
+                or "embed" in lower_name
+                or ".internal" in lower_parts
+            ):
+                continue
+            candidates.append(path)
+        candidates.sort(
+            key=lambda item: (item.stat().st_mtime, item.stat().st_size),
+            reverse=True,
+        )
+        return candidates
 
     @staticmethod
     def _resolved_executable(raw_path: str) -> str:
@@ -388,7 +421,20 @@ class ManagedLlamaServerLease:
             sibling = path.with_name("llama-server")
             if sibling.exists():
                 return str(sibling)
-        return str(path) if path.parent != Path(".") else expanded
+        if path.parent != Path("."):
+            return str(path)
+        found = shutil.which(expanded)
+        if found:
+            return found
+        if expanded.lower() in {"llama-server", "llama-server.exe", "auto"}:
+            local_appdata = os.environ.get("LOCALAPPDATA", "")
+            if local_appdata:
+                winget_packages = Path(local_appdata) / "Microsoft" / "WinGet" / "Packages"
+                if winget_packages.exists():
+                    matches = sorted(winget_packages.glob("ggml.llamacpp*/**/llama-server.exe"))
+                    if matches:
+                        return str(matches[-1])
+        return expanded
 
     @staticmethod
     def _host_port_from_base_url(base_url: str) -> tuple[str, int]:

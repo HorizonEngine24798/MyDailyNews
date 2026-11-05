@@ -1,6 +1,6 @@
 # Managed llama-server Mode
 
-Most users should skip this page. MyDailyNews defaults to an already-running OpenAI-compatible server such as LM Studio at `http://127.0.0.1:1234/v1`.
+Most users should skip this page. MyDailyNews defaults to an already-running OpenAI-compatible `llama-server` at `http://127.0.0.1:8080/v1`.
 
 Use managed mode only when you want MyDailyNews to start and stop a local `llama-server` process.
 
@@ -54,9 +54,9 @@ External mode is the normal path:
 ```json
 {
   "manage_server": false,
-  "base_url": "http://127.0.0.1:1234/v1",
+  "base_url": "http://127.0.0.1:8080/v1",
   "server_model": "your-loaded-model-label"
 }
 ```
 
-Use external mode for LM Studio, Docker, an already-running `llama-server`, or any compatible local endpoint.
+Use external mode for an already-running `llama-server`, Docker, or any compatible local endpoint.

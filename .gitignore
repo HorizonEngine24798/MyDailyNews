@@ -2,6 +2,7 @@ __pycache__/
 *.pyc
 *.pyc.*
 config.local*.json
+config.recommended.json
 !config.example.json
 output/
 output*/
@@ -12,7 +13,7 @@ state/
 .codex_tmp*
 .pytest_tmp/
 .planning/
-docs/brittle-designs.md
+docs/handover*.md
 
 # Local CPU benchmark assets.
 .venv-cpu-test/

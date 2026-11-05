@@ -9,9 +9,15 @@ from urllib.parse import unquote, urlparse
 import requests
 import trafilatura
 
-from mydailynews.common.cache import CachedHttpClient, HTTPCache
+from mydailynews.common.cache import CachedHttpClient, HTTPCache, HTTPFetchResult
 from mydailynews.diagnostics.debug import DebugLogger, safe_url
-from mydailynews.common.utils import normalize_whitespace
+from mydailynews.common.utils import (
+    GOOGLE_CONSENT_COOKIES,
+    GOOGLE_CONSENT_HEADERS,
+    is_consent_interstitial_text,
+    is_google_news_or_consent_url,
+    normalize_whitespace,
+)
 
 
 GOOGLE_NEWS_HOST = "news.google.com"
@@ -41,10 +47,18 @@ class ArticleRetriever:
     def fetch_text_with_url(self, url: str) -> Tuple[str, str, str]:
         self.debug.log("article.fetch", "starting", url=safe_url(url), max_chars=self.max_chars)
         response, effective_url = self._fetch_article_response(url)
+        if self._is_google_news_article_url(url) and (
+            effective_url == url or is_google_news_or_consent_url(effective_url)
+        ):
+            self.debug.log("article.fetch", "google_news_unresolved", url=safe_url(url))
+            return "", "google_news_unresolved", url
         if not response.ok:
             self.debug.log("article.fetch", "http_error", status=response.status_code, url=safe_url(effective_url))
             status = f"http_{response.status_code}" if response.status_code else "request_failed"
             return "", status, effective_url
+        if is_consent_interstitial_text(response.text):
+            self.debug.log("article.fetch", "consent_wall", url=safe_url(effective_url), cache=response.cache_state)
+            return "", "consent_wall", effective_url
         try:
             text = trafilatura.extract(
                 response.text,
@@ -55,6 +69,9 @@ class ArticleRetriever:
                 include_tables=False,
             )
             cleaned = normalize_whitespace(text or "")
+            if is_consent_interstitial_text(cleaned):
+                self.debug.log("article.fetch", "consent_wall", url=safe_url(effective_url), cache=response.cache_state)
+                return "", "consent_wall", effective_url
             if len(cleaned) < ARTICLE_OK_MIN_CHARS:
                 self.debug.log(
                     "article.fetch",
@@ -78,14 +95,15 @@ class ArticleRetriever:
 
     def _fetch_article_response(self, url: str):
         if not self._is_google_news_article_url(url):
-            return self.http.get_text(url, timeout=20, allow_redirects=True), url
+            headers = GOOGLE_CONSENT_HEADERS if is_google_news_or_consent_url(url) else None
+            return self.http.get_text(url, timeout=20, allow_redirects=True, headers=headers), url
 
         resolved_url = self._resolve_google_news_url(url)
-        if resolved_url != url:
+        if resolved_url != url and not is_google_news_or_consent_url(resolved_url):
             response = self.http.get_text(resolved_url, timeout=20, allow_redirects=True)
             return response, resolved_url
 
-        return self.http.get_text(url, timeout=20, allow_redirects=True), url
+        return HTTPFetchResult(ok=False, status_code=0, text="", headers={}, cache_state="network"), url
 
     def _resolve_google_news_url(self, url: str) -> str:
         cached = self._resolved_url_cache.get(url)
@@ -93,12 +111,31 @@ class ArticleRetriever:
             return cached
 
         decoded = self._decode_embedded_google_news_url(url)
-        if decoded:
+        if decoded and not is_google_news_or_consent_url(decoded):
             self._resolved_url_cache[url] = decoded
             self.debug.log("article.fetch", "google_news_decoded", url=safe_url(url), resolved=safe_url(decoded))
             return decoded
 
-        wrapper = self.http.get_text(url, timeout=20, allow_redirects=True)
+        wrapper = self.http.get_text(
+            url,
+            timeout=20,
+            allow_redirects=True,
+            headers=GOOGLE_CONSENT_HEADERS,
+        )
+        if wrapper.ok and wrapper.cache_state != "network" and (
+            is_consent_interstitial_text(wrapper.text)
+            or not (self._html_attr(wrapper.text, "data-n-a-sg") and self._html_attr(wrapper.text, "data-n-a-ts"))
+        ):
+            refreshed = self.http.get_text(
+                url,
+                timeout=20,
+                allow_redirects=True,
+                headers=GOOGLE_CONSENT_HEADERS,
+                cache_mode=CachedHttpClient.NETWORK_FIRST,
+            )
+            if refreshed.ok:
+                wrapper = refreshed
+
         if not wrapper.ok:
             self.debug.log(
                 "article.fetch",
@@ -109,7 +146,7 @@ class ArticleRetriever:
             return url
 
         resolved = self._resolve_google_news_from_html(url, wrapper.text)
-        if resolved:
+        if resolved and not is_google_news_or_consent_url(resolved):
             self._resolved_url_cache[url] = resolved
             self.debug.log("article.fetch", "google_news_resolved", url=safe_url(url), resolved=safe_url(resolved))
             return resolved
@@ -118,7 +155,7 @@ class ArticleRetriever:
         return url
 
     def _resolve_google_news_from_html(self, url: str, html_text: str) -> str:
-        article_id = self._google_news_article_id(url)
+        article_id = self._html_attr(html_text, "data-n-a-id") or self._google_news_article_id(url)
         signature = self._html_attr(html_text, "data-n-a-sg")
         timestamp = self._html_attr(html_text, "data-n-a-ts")
         if not article_id or not signature or not timestamp:
@@ -173,7 +210,9 @@ class ArticleRetriever:
                 headers={
                     "User-Agent": self.user_agent,
                     "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+                    "Referer": "https://news.google.com/",
                 },
+                cookies=dict(GOOGLE_CONSENT_COOKIES),
                 timeout=20,
             )
         except Exception:
@@ -239,7 +278,7 @@ class ArticleRetriever:
 
     @staticmethod
     def _html_attr(text: str, name: str) -> str:
-        match = re.search(rf'{re.escape(name)}="([^"]+)"', text or "")
+        match = re.search(rf'{re.escape(name)}=["\']([^"\']+)["\']', text or "")
         return match.group(1).strip() if match else ""
 
     @staticmethod

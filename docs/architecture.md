@@ -12,7 +12,7 @@ CLI or GUI -> config loader -> runtime checks -> NewsOrchestrator
     -> output/, state/memory/, .cache/mydailynews/
 ```
 
-By default, MyDailyNews expects an already-running local server such as LM Studio at `http://127.0.0.1:1234/v1`. It sends `/chat/completions` requests and leaves the server running.
+By default, MyDailyNews expects an already-running local `llama-server` (`llama.cpp`) at `http://127.0.0.1:8080/v1`. It sends `/chat/completions` requests and leaves the server running.
 
 The managed `llama-server` path is still available for advanced users. Set `manage_server=true` with `server_executable`, `server_model_path`, and `server_arguments` to let MyDailyNews start and stop `llama-server`. See [managed llama-server mode](llama_cpp_setup.md).
 

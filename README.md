@@ -37,7 +37,7 @@ Then open `http://127.0.0.1:8766`.
 ## What It Does
 
 - Builds general and topic-focused news briefs from RSS, Google News, and configured topic searches.
-- Uses a local `/v1/chat/completions` endpoint; the default is LM Studio at `http://127.0.0.1:1234/v1`.
+- Uses a local `/v1/chat/completions` endpoint; the default is `llama-server` (`llama.cpp`) at `http://127.0.0.1:8080/v1`.
 - Writes inspectable local artifacts under `output/`, `state/memory/`, and `.cache/mydailynews/`.
 - Can run from the CLI, Docker, or the local GUI.
 - Keeps optional local memory for coverage, story repetition, feedback, and learned preferences.
@@ -71,7 +71,7 @@ flowchart LR
 
 ## Start Here
 
-Use [setup](docs/setup.md) for install, config, first run, GUI, Docker, TTS, and test commands. The default path uses LM Studio or another already-running OpenAI-compatible local server.
+Use [setup](docs/setup.md) for install, config, first run, GUI, Docker, TTS, and test commands. The default path uses `llama-server` (`llama.cpp`) or another already-running OpenAI-compatible local server.
 
 ## Docs
 
@@ -85,7 +85,7 @@ Use [setup](docs/setup.md) for install, config, first run, GUI, Docker, TTS, and
 - [Docker](docs/docker.md): container usage.
 - [Hardware profiles](docs/hardware_profiles.md): model and context sizing.
 - [TTS audio](docs/tts.md): Kokoro setup and audio output.
-- [Managed llama-server mode](docs/llama_cpp_setup.md): advanced alternative to LM Studio/external server mode.
+- [Managed llama-server mode](docs/llama_cpp_setup.md): advanced alternative to external `llama-server` mode.
 - [Troubleshooting](docs/troubleshooting.md): common startup and output issues.
 
 ## Outputs

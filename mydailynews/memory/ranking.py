@@ -11,6 +11,7 @@ from mydailynews.memory.story_keys import StoryIdentity, story_identity_for_cand
 
 
 MAX_PROVISIONAL_COVERAGE_PENALTY = 0.35
+MAX_EXACT_REPEAT_PROVISIONAL_PENALTY = 1.2
 
 
 def annotate_candidates_with_memory(
@@ -26,6 +27,7 @@ def annotate_candidates_with_memory(
         return {"enabled": False, "annotated": 0}
 
     run_identities: List[StoryIdentity] = []
+    run_key_by_prior_story: Dict[str, StoryIdentity] = {}
     annotated = 0
     reduced_keys: set[str] = set()
     covered_keys: set[str] = set()
@@ -37,11 +39,26 @@ def annotate_candidates_with_memory(
 
     for candidate in candidates:
         coverage_story_key = ""
+        matches = []
         if story_store is not None:
             base_identity = story_identity_for_candidate(candidate)
+            decision = decisions.get(candidate.id)
+            decision_context = " ".join(
+                str(part or "").strip()
+                for part in (
+                    getattr(decision, "reason", ""),
+                    getattr(decision, "novelty_basis", ""),
+                    getattr(decision, "impact_basis", ""),
+                    getattr(decision, "urgency_basis", ""),
+                )
+                if str(part or "").strip()
+            )
+            combined_source_text = " ".join(
+                part for part in (candidate.snippet, decision_context) if str(part or "").strip()
+            )
             matches = story_store.candidate_stories(
                 candidate,
-                source_text=candidate.snippet,
+                source_text=combined_source_text,
                 min_score=float(memory_config.story_candidate_threshold),
             )
             candidate.metadata["memory_prior_story_candidates"] = [match.metadata() for match in matches]
@@ -49,17 +66,38 @@ def annotate_candidates_with_memory(
             if matches:
                 candidate_links += 1
                 coverage_story_key = matches[0].record.story_key
-            current_key = provisional_story_key(
-                candidate,
-                occupied_story_keys=[*occupied_story_keys, *(item.story_key for item in run_identities)],
+            strong_prior_key = (
+                matches[0].record.story_key
+                if (matches and matches[0].score >= MATCH_CONFIDENCE_THRESHOLD)
+                else ""
             )
+            same_run_match = run_key_by_prior_story.get(strong_prior_key) if strong_prior_key else None
+            if same_run_match is None:
+                candidate_same_run = _match_same_run_story(base_identity, run_identities)
+                if any(item.story_key == candidate_same_run.story_key for item in run_identities):
+                    same_run_match = candidate_same_run
+            if same_run_match is not None:
+                current_key = same_run_match.story_key
+                family_key = same_run_match.story_family_key
+            else:
+                current_key = provisional_story_key(
+                    candidate,
+                    occupied_story_keys=[*occupied_story_keys, *(item.story_key for item in run_identities)],
+                )
+                family_key = (
+                    matches[0].record.story_family_key
+                    if (matches and matches[0].score >= MATCH_CONFIDENCE_THRESHOLD and matches[0].record.story_family_key)
+                    else base_identity.story_family_key
+                )
             identity = StoryIdentity(
                 story_key=current_key,
-                story_family_key=base_identity.story_family_key,
+                story_family_key=family_key,
                 story_title=base_identity.story_title,
                 tokens=base_identity.tokens,
                 match_confidence=(matches[0].score if matches else base_identity.match_confidence),
             )
+            if strong_prior_key and strong_prior_key not in run_key_by_prior_story:
+                run_key_by_prior_story[strong_prior_key] = identity
         else:
             base_identity = story_identity_for_candidate(candidate)
             identity = _match_same_run_story(base_identity, run_identities)
@@ -94,7 +132,19 @@ def annotate_candidates_with_memory(
             today_policy = "deprioritize_repeat"
             reason = "Recently covered in the memory window; delta analysis has not established a new fact."
             if story_store is not None and adjustment < 0.0:
-                adjustment = max(adjustment, -MAX_PROVISIONAL_COVERAGE_PENALTY)
+                is_exact_repeat = bool(
+                    matches
+                    and (
+                        "exact_title_alias" in matches[0].reasons
+                        or "exact_generated_story_key" in matches[0].reasons
+                    )
+                )
+                cap = (
+                    MAX_EXACT_REPEAT_PROVISIONAL_PENALTY
+                    if is_exact_repeat
+                    else MAX_PROVISIONAL_COVERAGE_PENALTY
+                )
+                adjustment = max(adjustment, -cap)
                 today_policy = "await_delta"
                 reason = (
                     "Retrieved history was recently covered, but current facts have not yet "
@@ -178,7 +228,7 @@ def memory_selection_summary(
 
 def _match_same_run_story(identity: StoryIdentity, existing: List[StoryIdentity]) -> StoryIdentity:
     best: tuple[float, StoryIdentity] | None = None
-    identity_title_tokens = identity.story_key.split("-")
+    identity_title_tokens = identity.story_key.split("--", 1)[0].split("-")
     for other in existing:
         # Same-run matching is only a conservative bridge for coverage memory.
         # Full identity tokens also contain topic and snippet text, which can
@@ -187,7 +237,7 @@ def _match_same_run_story(identity: StoryIdentity, existing: List[StoryIdentity]
         # narrower evidence here and leave broader grouping to the AI stage.
         confidence = token_overlap_confidence(
             identity_title_tokens,
-            other.story_key.split("-"),
+            other.story_key.split("--", 1)[0].split("-"),
         )
         if confidence < MATCH_CONFIDENCE_THRESHOLD:
             continue

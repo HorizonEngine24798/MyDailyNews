@@ -17,15 +17,15 @@ Then run:
 python main.py --config config.recommended.json
 ```
 
-## LM Studio Connection
+## llama-server Connection
 
-Make sure LM Studio's local server is started and reachable at:
+Make sure `llama-server` is started and reachable at:
 
 ```text
-http://127.0.0.1:1234
+http://127.0.0.1:8080
 ```
 
-In Docker, Compose overrides the app to use `http://host.docker.internal:1234/v1`.
+In Docker, Compose overrides the app to use `http://host.docker.internal:8080/v1`.
 
 ## Startup Timeout
 
@@ -39,9 +39,9 @@ Common causes:
 
 - model too large for VRAM or RAM
 - context window too large
-- wrong LM Studio GPU offload/runtime setting
+- wrong `llama-server` GPU offload/runtime setting
 - port already in use
-- LM Studio local server not started
+- `llama-server` not started
 
 ## Invalid JSON
 

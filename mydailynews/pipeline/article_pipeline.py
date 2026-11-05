@@ -4,6 +4,7 @@ from typing import Dict, List, Tuple
 
 from mydailynews.app.models import ContextSource, SelectedArticle
 from mydailynews.common.parallel import ordered_parallel_map
+from mydailynews.common.utils import is_consent_interstitial_text, is_google_news_or_consent_url
 from mydailynews.domain.article_identity import article_aliases_for_candidate
 from mydailynews.retrieval.article_cache import ArticleTextCache
 
@@ -13,12 +14,14 @@ STORY_THREAD_CONTEXT_KINDS = {"story_llm_research_context", "story_thread_contex
 
 def _apply_article_fetch_result(article: SelectedArticle, text: str, status: str, resolved_url: str) -> None:
     original_url = article.candidate.url
-    if resolved_url and resolved_url != original_url:
+    if resolved_url and resolved_url != original_url and not is_google_news_or_consent_url(resolved_url):
         article.candidate.metadata.setdefault("original_url", original_url)
         article.candidate.metadata["resolved_url"] = resolved_url
         article.candidate.url = resolved_url
-    article.article_text = text or article.candidate.snippet
-    article.extraction_status = status
+    clean_text = "" if is_consent_interstitial_text(text) else text
+    clean_snippet = "" if is_consent_interstitial_text(article.candidate.snippet) else article.candidate.snippet
+    article.article_text = clean_text or clean_snippet
+    article.extraction_status = "consent_wall" if (text and not clean_text) else status
 
 
 def populate_article_texts(
