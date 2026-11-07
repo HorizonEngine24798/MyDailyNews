@@ -24,386 +24,54 @@ from mydailynews.common.utils import canonical_article_url, compact_json, normal
 from mydailynews.common.warnings import extend_warnings
 from mydailynews.domain.article_identity import article_aliases_for_candidate
 from mydailynews.domain.text_similarity import normalized_word_text, word_tokens
-from mydailynews.pipeline.brief_specs import DEFAULT_BRIEF_NAMES
+from mydailynews.perspectives.rendering import (
+    _append_evidence_section,
+    _as_list,
+    _count_text,
+    _evidence_items,
+    _string_list,
+    _text_items,
+    _unique_text,
+    _validated_article_ids,
+    render_perspectives_report_markdown,
+    write_perspectives_report_outputs,
+)
+from mydailynews.perspectives.schemas import (
+    ARTICLE_CONTEXT_MAX_CHARS,
+    ARTICLE_CONTEXT_TOKEN_BUDGET,
+    ARTICLE_FETCH_MAX_CHARS,
+    COUNTRY_ALIASES,
+    COVERAGE_RELEVANCE_WEAK_TOKENS,
+    EVIDENCE_TYPES,
+    LANGUAGE_ALIASES,
+    MAX_ANCHOR_QUERIES,
+    MAX_ARTICLES_FOR_REPORT,
+    MAX_ARTICLES_PER_SOURCE,
+    MAX_CANONICAL_QUERIES,
+    MAX_CONTEXT_PARAGRAPHS,
+    MAX_PLANNER_STORIES_PER_CALL,
+    MAX_SELECTED_SOURCES,
+    MEANINGFUL_PARAGRAPH_MIN_CHARS,
+    MIN_COVERAGE_RELEVANCE_SCORE,
+    PERSPECTIVES_CLAIM_SYNTHESIS_SCHEMA,
+    PERSPECTIVES_EVIDENCE_LIST_SCHEMA,
+    PERSPECTIVES_FRAMING_SCHEMA,
+    PERSPECTIVES_PLANNER_SCHEMA,
+    PERSPECTIVES_REPORT_SCHEMA_VERSION,
+    PERSPECTIVES_VERIFIER_SCHEMA,
+    QUERY_STOPWORDS,
+    REGION_ALIASES,
+    RELATIONSHIPS,
+    STRUCTURED_BRIEF_NAMES,
+    TAG_RE,
+    VERDICTS,
+)
 from mydailynews.perspectives.sources import load_source_registry, match_source_by_domain, source_domain_map
 from mydailynews.retrieval.article import ArticleRetriever
 from mydailynews.retrieval.ddg import DuckDuckGoSearchRetriever
 from mydailynews.retrieval.gdelt import GdeltDocRetriever
 from mydailynews.retrieval.gnews import GNewsRetriever
 from mydailynews.retrieval.registry_rss import RegistryRssRetriever
-
-
-PERSPECTIVES_REPORT_SCHEMA_VERSION = "claim_led_perspectives_report.v4"
-STRUCTURED_BRIEF_NAMES = DEFAULT_BRIEF_NAMES
-MAX_CANONICAL_QUERIES = 5
-MAX_PLANNER_STORIES_PER_CALL = 4
-MAX_ANCHOR_QUERIES = 3
-MAX_SELECTED_SOURCES = 12
-MAX_ARTICLES_PER_SOURCE = 2
-MAX_ARTICLES_FOR_REPORT = MAX_SELECTED_SOURCES * MAX_ARTICLES_PER_SOURCE
-MIN_COVERAGE_RELEVANCE_SCORE = 2
-ARTICLE_CONTEXT_TOKEN_BUDGET = 500
-ARTICLE_CONTEXT_MAX_CHARS = ARTICLE_CONTEXT_TOKEN_BUDGET * 4
-ARTICLE_FETCH_MAX_CHARS = ARTICLE_CONTEXT_MAX_CHARS * 4
-MAX_CONTEXT_PARAGRAPHS = 4
-MEANINGFUL_PARAGRAPH_MIN_CHARS = 240
-RELATIONSHIPS = {"originates", "independently_supports", "reports_or_quotes", "qualifies", "disputes", "context_only"}
-VERDICTS = {"supported", "mostly_supported", "mixed", "contradicted", "unresolved", "not_checkable_yet"}
-EVIDENCE_TYPES = {"primary", "origin", "independent", "counterevidence"}
-PERSPECTIVES_EVIDENCE_LIST_SCHEMA = {
-    "type": "array",
-    "maxItems": MAX_ARTICLES_FOR_REPORT,
-    "items": {
-        "type": "object",
-        "properties": {
-            "text": {"type": "string"},
-            "article_ids": {"type": "array", "items": {"type": "string"}, "maxItems": MAX_ARTICLES_FOR_REPORT},
-        },
-        "required": ["text", "article_ids"],
-        "additionalProperties": False,
-    },
-}
-TAG_RE = re.compile(r"[^a-z0-9]+", re.IGNORECASE)
-QUERY_STOPWORDS = {
-    "about",
-    "after",
-    "again",
-    "against",
-    "amid",
-    "and",
-    "are",
-    "as",
-    "at",
-    "be",
-    "by",
-    "for",
-    "from",
-    "has",
-    "have",
-    "in",
-    "into",
-    "is",
-    "it",
-    "its",
-    "new",
-    "of",
-    "on",
-    "over",
-    "says",
-    "the",
-    "to",
-    "with",
-}
-COVERAGE_RELEVANCE_WEAK_TOKENS = QUERY_STOPWORDS | {
-    "latest",
-    "live",
-    "news",
-    "update",
-    "updates",
-}
-COUNTRY_ALIASES = {
-    "u_s": "US",
-    "us": "US",
-    "u_sa": "US",
-    "usa": "US",
-    "united_states": "US",
-    "america": "US",
-    "uk": "GB",
-    "u_k": "GB",
-    "great_britain": "GB",
-    "britain": "GB",
-    "united_kingdom": "GB",
-    "uae": "AE",
-    "u_a_e": "AE",
-    "united_arab_emirates": "AE",
-    "argentina": "AR",
-    "australia": "AU",
-    "bangladesh": "BD",
-    "brazil": "BR",
-    "canada": "CA",
-    "france": "FR",
-    "germany": "DE",
-    "hong_kong": "HK",
-    "india": "IN",
-    "indonesia": "ID",
-    "italy": "IT",
-    "japan": "JP",
-    "new_zealand": "NZ",
-    "nigeria": "NG",
-    "pakistan": "PK",
-    "qatar": "QA",
-    "saudi_arabia": "SA",
-    "singapore": "SG",
-    "south_africa": "ZA",
-    "south_korea": "KR",
-    "republic_of_korea": "KR",
-    "turkey": "TR",
-}
-LANGUAGE_ALIASES = {
-    "arabic": "ar",
-    "chinese": "zh",
-    "english": "en",
-    "french": "fr",
-    "german": "de",
-    "hindi": "hi",
-    "italian": "it",
-    "japanese": "ja",
-    "korean": "ko",
-    "portuguese": "pt",
-    "russian": "ru",
-    "spanish": "es",
-}
-REGION_ALIASES = {
-    "east_asia": "east_asia",
-    "eastern_asia": "east_asia",
-    "middle_east": "middle_east",
-    "mideast": "middle_east",
-    "north_america": "north_america",
-    "northern_america": "north_america",
-    "latin_america": "latin_america",
-    "south_america": "latin_america",
-    "south_asia": "south_asia",
-    "southern_asia": "south_asia",
-}
-
-PERSPECTIVES_PLANNER_SCHEMA = JSONSchemaSpec(
-    name="perspectives_query_plan",
-    schema={
-        "type": "object",
-        "properties": {
-            "plans": {
-                "type": "array",
-                "maxItems": MAX_PLANNER_STORIES_PER_CALL,
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "story_id": {"type": "string"},
-                        "queries": {"type": "array", "items": {"type": "string"}, "minItems": 3, "maxItems": MAX_CANONICAL_QUERIES},
-                        "anchor_groups": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "kind": {"type": "string"},
-                                    "terms": {"type": "array", "items": {"type": "string"}, "minItems": 1},
-                                },
-                                "required": ["kind", "terms"],
-                                "additionalProperties": False,
-                            },
-                            "maxItems": 4,
-                        },
-                        "story_loci": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "label": {"type": "string"},
-                                    "country": {"type": "string"},
-                                    "kind": {"type": "string", "enum": ["event_site", "affected_area"]},
-                                    "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
-                                    "reason": {"type": "string"},
-                                },
-                                "required": ["label", "country", "kind", "confidence", "reason"],
-                                "additionalProperties": False,
-                            },
-                            "maxItems": 3,
-                        },
-                        "target_tags": {
-                            "type": "object",
-                            "properties": {
-                                "countries": {"type": "array", "items": {"type": "string"}, "minItems": 1},
-                                "regions": {"type": "array", "items": {"type": "string"}, "minItems": 1},
-                                "languages": {"type": "array", "items": {"type": "string"}},
-                            },
-                            "required": ["countries", "regions"],
-                            "additionalProperties": False,
-                        },
-                        "verification_targets": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "claim_id": {"type": "string"},
-                                    "importance_reason": {"type": "string"},
-                                    "required_evidence_types": {"type": "array", "items": {"type": "string"}},
-                                    "queries": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "object",
-                                            "properties": {
-                                                "query": {"type": "string"},
-                                                "evidence_type": {"type": "string"},
-                                            },
-                                            "required": ["query", "evidence_type"],
-                                        },
-                                        "maxItems": 2,
-                                    },
-                                },
-                                "required": ["claim_id", "importance_reason", "required_evidence_types", "queries"],
-                            },
-                            "maxItems": 2,
-                        },
-                    },
-                    "required": ["story_id", "queries", "story_loci", "target_tags", "verification_targets"],
-                    "additionalProperties": False,
-                },
-            },
-        },
-        "required": ["plans"],
-        "additionalProperties": False,
-    },
-)
-PERSPECTIVES_VERIFIER_SCHEMA = JSONSchemaSpec(
-    name="perspectives_claim_verification",
-    schema={
-        "type": "object",
-        "properties": {
-            "claim_id": {"type": "string"},
-            "verdict": {"type": "string"},
-            "verdict_scope": {"type": "string"},
-            "supporting_evidence": {"type": "array", "items": {"type": "object"}},
-            "contradicting_evidence": {"type": "array", "items": {"type": "object"}},
-            "reasoning_summary": {"type": "string"},
-            "source_independence": {"type": "string"},
-            "limitations": {"type": "array", "items": {"type": "string"}},
-            "what_would_change_the_verdict": {"type": "string"},
-        },
-        "required": [
-            "claim_id", "verdict", "verdict_scope", "supporting_evidence", "contradicting_evidence",
-            "reasoning_summary", "source_independence", "limitations", "what_would_change_the_verdict",
-        ],
-    },
-)
-PERSPECTIVES_CLAIM_SYNTHESIS_SCHEMA = JSONSchemaSpec(
-    name="perspectives_claim_led_synthesis",
-    schema={
-        "type": "object",
-        "properties": {
-            "story_id": {"type": "string"},
-            "framing_report": {
-                "type": "object",
-                "properties": {
-                    "synthesis": {"type": "string"},
-                    "synthesis_article_ids": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "maxItems": MAX_ARTICLES_FOR_REPORT,
-                    },
-                    "shared_facts": PERSPECTIVES_EVIDENCE_LIST_SCHEMA,
-                    "repetition_without_independent_support": PERSPECTIVES_EVIDENCE_LIST_SCHEMA,
-                    "verified_or_independently_supported_claims": PERSPECTIVES_EVIDENCE_LIST_SCHEMA,
-                    "qualified_disputed_or_unresolved_claims": PERSPECTIVES_EVIDENCE_LIST_SCHEMA,
-                    "country_source_comparison": PERSPECTIVES_EVIDENCE_LIST_SCHEMA,
-                    "coverage_limitations": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "maxItems": MAX_ARTICLES_FOR_REPORT,
-                    },
-                },
-                "required": [
-                    "synthesis",
-                    "synthesis_article_ids",
-                    "shared_facts",
-                    "repetition_without_independent_support",
-                    "verified_or_independently_supported_claims",
-                    "qualified_disputed_or_unresolved_claims",
-                    "country_source_comparison",
-                    "coverage_limitations",
-                ],
-                "additionalProperties": False,
-            },
-            "claim_perspectives": {
-                "type": "array",
-                "maxItems": 2,
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "claim_id": {"type": "string"},
-                        "coverage": {
-                            "type": "array",
-                            "maxItems": MAX_ARTICLES_FOR_REPORT,
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "article_id": {"type": "string"},
-                                    "relationship": {"type": "string", "enum": sorted(RELATIONSHIPS)},
-                                    "evidence_basis": {"type": "string"},
-                                    "explanation": {"type": "string"},
-                                },
-                                "required": ["article_id", "relationship", "evidence_basis", "explanation"],
-                                "additionalProperties": False,
-                            },
-                        },
-                        "synthesis": {"type": "string"},
-                        "coverage_limitations": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "maxItems": MAX_ARTICLES_FOR_REPORT,
-                        },
-                        "card": {
-                            "type": "object",
-                            "properties": {
-                                "title": {"type": "string"},
-                                "reporting_summary": {"type": "string"},
-                                "evidence_check": {"type": "string"},
-                                "qualification": {"type": "string"},
-                                "limitations": {"type": "string"},
-                            },
-                            "additionalProperties": False,
-                        },
-                    },
-                    "required": ["claim_id", "coverage", "synthesis", "coverage_limitations", "card"],
-                    "additionalProperties": False,
-                },
-            },
-        },
-        "required": ["story_id", "framing_report", "claim_perspectives"],
-        "additionalProperties": False,
-    },
-)
-PERSPECTIVES_FRAMING_SCHEMA = JSONSchemaSpec(
-    name="perspectives_framing_report",
-    schema={
-        "type": "object",
-        "properties": {
-            "stories": {
-                "type": "array",
-                "minItems": 1,
-                "maxItems": 1,
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "story_id": {"type": "string"},
-                        "synthesis": {"type": "string"},
-                        "synthesis_article_ids": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "maxItems": MAX_ARTICLES_FOR_REPORT,
-                        },
-                        "shared_facts": PERSPECTIVES_EVIDENCE_LIST_SCHEMA,
-                        "country_source_comparison": PERSPECTIVES_EVIDENCE_LIST_SCHEMA,
-                        "coverage_limitations": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "maxItems": MAX_ARTICLES_FOR_REPORT,
-                        },
-                    },
-                    "required": [
-                        "story_id",
-                        "synthesis",
-                        "synthesis_article_ids",
-                        "shared_facts",
-                        "country_source_comparison",
-                        "coverage_limitations",
-                    ],
-                    "additionalProperties": False,
-                },
-            }
-        },
-        "required": ["stories"],
-        "additionalProperties": False,
-    },
-)
 
 
 def run_perspectives_report(
@@ -1303,98 +971,6 @@ def build_perspectives_report_payload(
         },
         "warnings": _unique_text(warnings),
     }
-
-
-def write_perspectives_report_outputs(output_dir: Path, date: str, payload: Dict[str, Any]) -> tuple[Path, Path]:
-    markdown_path = output_dir / f"{date}_perspectives_report.md"
-    json_path = output_dir / f"{date}_perspectives_report.json"
-    output_dir.mkdir(parents=True, exist_ok=True)
-    markdown_path.write_text(render_perspectives_report_markdown(payload), encoding="utf-8")
-    write_json(json_path, payload)
-    return markdown_path, json_path
-
-
-def render_perspectives_report_markdown(payload: Dict[str, Any]) -> str:
-    date = str(payload.get("date", "") or "")
-    metadata = payload.get("metadata", {}) if isinstance(payload.get("metadata"), dict) else {}
-    lines = [
-        f"# Perspectives Report - {date}",
-        "",
-        f"_Stories: {metadata.get('story_count', 0)} | Coverage articles: {metadata.get('coverage_article_count', 0)} | Source countries: {metadata.get('coverage_source_country_count', 0)}_",
-        "",
-    ]
-    for story in _as_list(payload.get("stories")):
-        if not isinstance(story, dict):
-            continue
-        title = str(story.get("story_title") or story.get("story_id") or "Story")
-        lines.extend([f"## {title}", ""])
-        plan = story.get("planner", {}) if isinstance(story.get("planner"), dict) else {}
-        coverage_quality = story.get("coverage_quality", {}) if isinstance(story.get("coverage_quality"), dict) else {}
-        lines.append(
-            f"_Planner: {plan.get('status', 'unknown')} | Coverage: {coverage_quality.get('status', 'unknown')} | Providers: {_count_text(story.get('coverage_provider_counts') or {}) or 'none'}_"
-        )
-        lines.append("")
-        framing = story.get("framing_report", {}) if isinstance(story.get("framing_report"), dict) else {}
-        synthesis = normalize_whitespace(str(framing.get("synthesis") or ""))
-        if synthesis:
-            lines.extend(["### Bottom line", synthesis, ""])
-        _append_evidence_section(lines, "What coverage agrees on", framing.get("shared_facts"))
-        _append_evidence_section(lines, "Repeated claims without independent support", framing.get("repetition_without_independent_support"))
-        _append_evidence_section(lines, "Claims supported by retrieved evidence", framing.get("verified_or_independently_supported_claims"))
-        _append_evidence_section(lines, "Qualified, disputed, or unresolved claims", framing.get("qualified_disputed_or_unresolved_claims"))
-        _append_evidence_section(lines, "Where the framing differs", framing.get("country_source_comparison"))
-        limitations = _string_list(framing.get("coverage_limitations")) + _string_list(coverage_quality.get("thin_reasons"))
-        if limitations:
-            lines.append("### What the coverage cannot establish")
-            for item in _unique_text(limitations):
-                lines.append(f"- {item}")
-            lines.append("")
-    warnings = _string_list(payload.get("warnings"))
-    if warnings:
-        lines.append("## Diagnostics")
-        for warning in warnings:
-            lines.append(f"- {warning}")
-        lines.append("")
-    references = []
-    seen: set[str] = set()
-    for story in _as_list(payload.get("stories")):
-        if not isinstance(story, dict):
-            continue
-        for article in _as_list(story.get("coverage_articles")):
-            if not isinstance(article, dict):
-                continue
-            title = str(article.get("title") or "").strip()
-            source = str(article.get("source_name") or article.get("domain") or "").strip()
-            url = str(article.get("canonical_url") or article.get("url") or "").strip()
-            key = url or f"{title}|{source}"
-            if not key or key in seen:
-                continue
-            seen.add(key)
-            references.append((title, source, url))
-        for document in _as_list(story.get("verification_documents")):
-            if not isinstance(document, dict):
-                continue
-            title = str(document.get("title") or "").strip()
-            source = str(document.get("source") or "").strip()
-            url = str(document.get("url") or "").strip()
-            key = url or f"{title}|{source}"
-            if not key or key in seen:
-                continue
-            seen.add(key)
-            references.append((title, source, url))
-    if references:
-        lines.append("## References")
-        for title, source, url in references:
-            if title and source:
-                lines.append(f"- {title} ({source})")
-            elif title:
-                lines.append(f"- {title}")
-            elif source:
-                lines.append(f"- {source}")
-            if url:
-                lines.append(f"  {url}")
-        lines.append("")
-    return "\n".join(lines).strip() + "\n"
 
 
 def _planner_prompt(*, date: str, inputs: Dict[str, Any], source_registry: List[Dict[str, Any]], config: Any) -> str:
@@ -2931,68 +2507,6 @@ def _retrieval_query_summary(requests: List[Dict[str, Any]]) -> List[Dict[str, A
     ]
 
 
-def _append_evidence_section(lines: List[str], title: str, items: Any) -> None:
-    evidence = _evidence_items(items)
-    if not evidence:
-        return
-    lines.append(f"### {title}")
-    for item in evidence:
-        lines.append(f"- {item['text']}")
-    lines.append("")
-
-
-def _evidence_items(
-    value: Any,
-    *,
-    known_article_ids: set[str] | None = None,
-    story_id: str = "",
-    warnings: List[str] | None = None,
-) -> List[Dict[str, Any]]:
-    items = value if isinstance(value, list) else [value] if value else []
-    output: List[Dict[str, Any]] = []
-    for item in items:
-        if isinstance(item, dict):
-            text = normalize_whitespace(str(item.get("text") or item.get("summary") or item.get("point") or item.get("claim") or ""))
-            article_ids = _validated_article_ids(
-                item.get("article_ids") or item.get("evidence_article_ids"),
-                known_article_ids,
-                story_id,
-                warnings,
-            )
-        else:
-            text = normalize_whitespace(str(item or ""))
-            article_ids = []
-        if text:
-            output.append({"text": text, "article_ids": article_ids})
-    return output
-
-
-def _validated_article_ids(
-    value: Any,
-    known_article_ids: set[str] | None,
-    story_id: str,
-    warnings: List[str] | None,
-) -> List[str]:
-    article_ids = _string_list(value)
-    if known_article_ids is None:
-        return article_ids
-    unknown = [article_id for article_id in article_ids if article_id not in known_article_ids]
-    if unknown and warnings is not None:
-        warnings.append(f"perspectives_report: framing response used unknown article_ids for {story_id!r}: {', '.join(unknown)}")
-    return [article_id for article_id in article_ids if article_id in known_article_ids]
-
-
-def _text_items(value: Any) -> List[str]:
-    items = value if isinstance(value, list) else [value] if isinstance(value, str) else []
-    output: List[str] = []
-    for item in items:
-        raw = item.get("text") if isinstance(item, dict) else item
-        text = normalize_whitespace(str(raw or ""))
-        if text:
-            output.append(text)
-    return output
-
-
 def _load_coverage_registry() -> tuple[List[Dict[str, Any]], List[str]]:
     try:
         return load_source_registry(), []
@@ -3224,34 +2738,8 @@ def _short_text(value: Any, max_chars: int) -> str:
     return text[: max(1, int(max_chars))] if text else ""
 
 
-def _count_text(counts: Dict[str, Any]) -> str:
-    return ", ".join(f"{key} {value}" for key, value in sorted(counts.items()) if value)
-
-
 def _sorted_counter(counter: Counter[str]) -> Dict[str, int]:
     return {key: int(value) for key, value in sorted(counter.items()) if value}
-
-
-def _as_list(value: Any) -> List[Any]:
-    return value if isinstance(value, list) else []
-
-
-def _string_list(value: Any) -> List[str]:
-    if isinstance(value, str):
-        items = [value]
-    elif isinstance(value, list):
-        items = value
-    else:
-        items = []
-    output: List[str] = []
-    seen: set[str] = set()
-    for item in items:
-        text = str(item or "").strip()
-        key = text.lower()
-        if text and key not in seen:
-            seen.add(key)
-            output.append(text)
-    return output
 
 
 def _text_list(value: Any, *, max_items: int, max_chars: int) -> List[str]:
@@ -3268,16 +2756,4 @@ def _normalize_anchor_groups(value: Any) -> List[Dict[str, Any]]:
             output.append({"kind": _short_text(item.get("kind") or "anchor", 24), "terms": terms})
         if len(output) >= 4:
             break
-    return output
-
-
-def _unique_text(values: List[str]) -> List[str]:
-    output: List[str] = []
-    seen: set[str] = set()
-    for value in values:
-        text = str(value or "").strip()
-        key = text.lower()
-        if text and key not in seen:
-            seen.add(key)
-            output.append(text)
     return output

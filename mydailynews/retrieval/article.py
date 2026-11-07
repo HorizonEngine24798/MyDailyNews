@@ -12,6 +12,7 @@ import trafilatura
 from mydailynews.common.cache import CachedHttpClient, HTTPCache, HTTPFetchResult
 from mydailynews.diagnostics.debug import DebugLogger, safe_url
 from mydailynews.common.utils import (
+    BROWSER_ARTICLE_HEADERS,
     GOOGLE_CONSENT_COOKIES,
     GOOGLE_CONSENT_HEADERS,
     is_consent_interstitial_text,
@@ -96,11 +97,28 @@ class ArticleRetriever:
     def _fetch_article_response(self, url: str):
         if not self._is_google_news_article_url(url):
             headers = GOOGLE_CONSENT_HEADERS if is_google_news_or_consent_url(url) else None
-            return self.http.get_text(url, timeout=20, allow_redirects=True, headers=headers), url
+            response = self.http.get_text(url, timeout=20, allow_redirects=True, headers=headers)
+            if not response.ok and response.status_code in {401, 403} and not is_google_news_or_consent_url(url):
+                response = self.http.get_text(
+                    url,
+                    timeout=20,
+                    allow_redirects=True,
+                    headers=BROWSER_ARTICLE_HEADERS,
+                    cache_mode=CachedHttpClient.NETWORK_FIRST,
+                )
+            return response, url
 
         resolved_url = self._resolve_google_news_url(url)
         if resolved_url != url and not is_google_news_or_consent_url(resolved_url):
             response = self.http.get_text(resolved_url, timeout=20, allow_redirects=True)
+            if not response.ok and response.status_code in {401, 403}:
+                response = self.http.get_text(
+                    resolved_url,
+                    timeout=20,
+                    allow_redirects=True,
+                    headers=BROWSER_ARTICLE_HEADERS,
+                    cache_mode=CachedHttpClient.NETWORK_FIRST,
+                )
             return response, resolved_url
 
         return HTTPFetchResult(ok=False, status_code=0, text="", headers={}, cache_state="network"), url

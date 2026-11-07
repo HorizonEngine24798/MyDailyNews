@@ -166,8 +166,8 @@ class ReleaseSmokeTests(unittest.TestCase):
                 "us_voa_en",
                 "us_voa_en",
                 "ru_tass_en",
-                "cn_china_daily_en",
-                "cn_china_daily_en",
+                "cn_cgtn_en",
+                "cn_cgtn_en",
                 "pl_notes_from_poland",
             ],
         )

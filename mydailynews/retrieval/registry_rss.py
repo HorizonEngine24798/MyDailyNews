@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import calendar
 from datetime import datetime, timedelta, timezone
-from email.utils import parsedate_to_datetime
 import json
 from typing import Any, Dict, List, Tuple
 
@@ -12,6 +10,12 @@ from mydailynews.common.cache import CachedHttpClient, HTTPCache
 from mydailynews.common.utils import canonical_article_url, normalize_whitespace, stable_id, strip_html
 from mydailynews.diagnostics.debug import DebugLogger
 from mydailynews.domain.text_similarity import word_tokens
+from mydailynews.scrapers.rss import (
+    parse_rss_date_string,
+    parse_rss_entry_datetime,
+    repair_or_fallback_rss_feed,
+    strip_google_news_source_suffix,
+)
 
 
 SEARCH_STOPWORDS = {
@@ -85,12 +89,27 @@ class RegistryRssRetriever:
             return self._articles_by_source[source_id], self._warnings_by_source.get(source_id, [])
         articles: List[Dict[str, Any]] = []
         warnings: List[str] = []
+        homepage_url = str(source.get("homepage_url") or "")
         for feed_url in source.get("feed_urls") or []:
             response = self.http.get_text(str(feed_url), timeout=20, allow_redirects=True)
-            if not response.ok:
+            parsed = parse_feed_articles(response.text, feed_url=str(feed_url), source=source) if response.ok else []
+            if not parsed:
+                repaired_text, repaired_url, repair_mode = repair_or_fallback_rss_feed(
+                    self.http,
+                    str(feed_url),
+                    homepage_url=homepage_url,
+                )
+                if repaired_text:
+                    parsed = parse_feed_articles(
+                        repaired_text,
+                        feed_url=repaired_url,
+                        source=source,
+                        strip_source_suffix=(repair_mode == "google_news_site_fallback"),
+                    )
+            if not parsed and not response.ok:
                 warnings.append(f"registry_rss: {source_id} feed failed ({response.status_code}).")
                 continue
-            articles.extend(parse_feed_articles(response.text, feed_url=str(feed_url), source=source))
+            articles.extend(parsed)
         self._articles_by_source[source_id] = articles
         self._warnings_by_source[source_id] = warnings
         return articles, warnings
@@ -140,7 +159,13 @@ def _tokens(value: Any) -> set[str]:
     )
 
 
-def parse_feed_articles(feed_text: str, *, feed_url: str, source: Dict[str, Any]) -> List[Dict[str, Any]]:
+def parse_feed_articles(
+    feed_text: str,
+    *,
+    feed_url: str,
+    source: Dict[str, Any],
+    strip_source_suffix: bool = False,
+) -> List[Dict[str, Any]]:
     stripped = (feed_text or "").lstrip()
     if stripped.startswith("{"):
         return _parse_json_feed(stripped, source)
@@ -148,10 +173,13 @@ def parse_feed_articles(feed_text: str, *, feed_url: str, source: Dict[str, Any]
     articles: List[Dict[str, Any]] = []
     for entry in parsed.entries:
         url = str(entry.get("link") or feed_url or "").strip()
-        title = normalize_whitespace(strip_html(str(entry.get("title") or "")))
+        raw_title = normalize_whitespace(strip_html(str(entry.get("title") or "")))
+        title = strip_google_news_source_suffix(raw_title) if strip_source_suffix else raw_title
         if not url or not title:
             continue
         feed_summary, feed_content, snippet = _entry_texts(entry)
+        if strip_source_suffix and snippet.lower().startswith(title.lower()):
+            snippet = normalize_whitespace(snippet[len(title) :].lstrip(" -–—:"))
         articles.append(
             {
                 "url": url,
@@ -223,15 +251,12 @@ def _clean_feed_text(value: Any) -> str:
 
 
 def _entry_date(entry: Any) -> str:
+    parsed = parse_rss_entry_datetime(entry)
+    if parsed is not None:
+        return parsed.isoformat()
     for field in ("published", "updated", "created"):
-        parsed_field = f"{field}_parsed"
-        try:
-            if entry.get(parsed_field):
-                return datetime.fromtimestamp(calendar.timegm(entry[parsed_field]), tz=timezone.utc).isoformat()
-            if entry.get(field):
-                return _parse_date_string(str(entry.get(field)))
-        except Exception:
-            continue
+        if entry.get(field):
+            return _parse_date_string(str(entry.get(field)))
     return ""
 
 
@@ -239,22 +264,13 @@ def _parse_date_string(value: str) -> str:
     text = str(value or "").strip()
     if not text:
         return ""
-    try:
-        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
-    except ValueError:
-        try:
-            parsed = parsedate_to_datetime(text)
-        except Exception:
-            return text
-    return (parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)).astimezone(timezone.utc).isoformat()
+    parsed = parse_rss_date_string(text)
+    return parsed.isoformat() if parsed is not None else text
 
 
 def _fresh_enough(value: Any, cutoff: datetime) -> bool:
     text = str(value or "").strip()
     if not text:
         return True
-    try:
-        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
-    except ValueError:
-        return True
-    return (parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)) >= cutoff
+    parsed = parse_rss_date_string(text)
+    return True if parsed is None else parsed >= cutoff

@@ -197,6 +197,180 @@ class StoryDeltaEditorTests(unittest.TestCase):
             set(re.findall(r"story-card-\d{3}", client.last_user)),
         )
 
+    def test_multi_article_cards_do_not_starve_subsequent_cards_from_editor_prompt(self) -> None:
+        articles = [_article(index) for index in range(1, 16)]
+        story_memory = {
+            "stories": [
+                {
+                    "story_key": "story-1",
+                    "current_title": "Story 1",
+                    "current_article_ids": [f"article-{i}" for i in range(1, 8)],
+                    "prior_baselines": [],
+                },
+                {
+                    "story_key": "story-2",
+                    "current_title": "Story 2",
+                    "current_article_ids": [f"article-{i}" for i in range(8, 13)],
+                    "prior_baselines": [],
+                },
+                {
+                    "story_key": "story-3",
+                    "current_title": "Story 3",
+                    "current_article_ids": ["article-13"],
+                    "prior_baselines": [],
+                },
+                {
+                    "story_key": "story-4",
+                    "current_title": "Story 4",
+                    "current_article_ids": ["article-14"],
+                    "prior_baselines": [],
+                },
+                {
+                    "story_key": "story-5",
+                    "current_title": "Story 5",
+                    "current_article_ids": ["article-15"],
+                    "prior_baselines": [],
+                },
+            ]
+        }
+        client = _BudgetClient()
+        client.max_input_tokens = 14000
+        client.config.max_input_tokens = 14000
+        analyzer = StoryDeltaAnalyzer(
+            client,
+            DeltaExtractionConfig(
+                enabled=True,
+                max_input_tokens=14000,
+                max_new_tokens=512,
+                max_articles=12,
+                max_article_chars=400,
+            ),
+        )
+
+        packet = analyzer.extract(
+            articles,
+            UserMemory(),
+            "Rank the most important current developments.",
+            story_memory,
+        )
+
+        self.assertEqual(len(client.submitted_card_ids), 5)
+        self.assertEqual(analyzer.warnings, [])
+        self.assertFalse(
+            any("Fail-open coverage" in row["reason"] for row in packet["story_decisions"])
+        )
+
+    def test_verified_unchanged_card_is_programmatically_omitted_even_if_editor_promotes_it(self) -> None:
+        cards = [
+            {
+                **_card(1),
+                "change_type": "unchanged",
+                "operation_validation": {"safe_to_apply": True},
+            },
+            {
+                **_card(2),
+                "change_type": "unchanged",
+                "operation_validation": {"safe_to_apply": False},
+            },
+        ]
+        raw = {
+            "decisions": [
+                {
+                    "card_id": "story-card-001",
+                    "disposition": "continuing_bullet",
+                    "materiality": 1,
+                    "summary": "Repeated coverage.",
+                    "basis": "Editor kept it as a bullet despite zero new facts.",
+                },
+                {
+                    "card_id": "story-card-002",
+                    "disposition": "omit",
+                    "materiality": 0,
+                    "summary": "Unverified repeat.",
+                    "basis": "Editor tried to omit an unvalidated card.",
+                },
+            ]
+        }
+
+        decisions = _validated_editor_decisions(raw, cards)
+
+        self.assertEqual(decisions[0]["disposition"], "omit")
+        self.assertEqual(decisions[0]["materiality"], 0)
+        self.assertIn("Programmatically omitted", decisions[0]["basis"])
+        self.assertEqual(decisions[1]["disposition"], "full_report")
+
+    def test_high_confidence_baseline_links_continuing_story_when_add_operations_omit_prior_fact_ids(self) -> None:
+        article = _article(1)
+        story_memory = {
+            "stories": [
+                {
+                    "story_key": "us-blockade-middle-east-tightens",
+                    "current_title": "US blockade in Middle East tightens",
+                    "current_article_ids": [article.candidate.id],
+                    "prior_baselines": [
+                        {
+                            "story_key": "iran-war-hormuz-crisis",
+                            "title": "Iran war Hormuz shipping crisis",
+                            "candidate_score": 0.65,
+                            "candidate_signals": {"numeric_conflict": False},
+                            "source_facts": [
+                                {
+                                    "fact_id": "fact:hormuz-1",
+                                    "text": "Tanker traffic halted in the Strait of Hormuz.",
+                                    "source_id": "prior-1",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ]
+        }
+
+        class _AddWithoutPriorIdsClient:
+            config = SimpleNamespace(backend="test", effective_model_label="test")
+
+            def complete_json(self, system, user, **kwargs):
+                if kwargs["json_schema"].name == "fact_operations":
+                    comparison = json.loads(
+                        user.split("Story comparison:\n", 1)[1].split("\n\nReturn", 1)[0]
+                    )
+                    return {
+                        "story_key": comparison["story_key"],
+                        "operations": [
+                            {
+                                "operation": "add",
+                                "current_evidence_id": claim["claim_id"],
+                                "prior_fact_ids": [],
+                            }
+                            for claim in comparison["current_evidence"]
+                        ],
+                    }
+                return {
+                    "decisions": [
+                        {
+                            "card_id": "story-card-001",
+                            "disposition": "full_report",
+                            "materiality": 2,
+                            "summary": "US blockade tightened around the Strait of Hormuz.",
+                            "basis": "Substantive escalation of the continuing crisis.",
+                        }
+                    ]
+                }
+
+        packet = StoryDeltaAnalyzer(
+            _AddWithoutPriorIdsClient(),
+            DeltaExtractionConfig(enabled=True),
+        ).extract(
+            [article],
+            UserMemory(),
+            "Track continuing geopolitical developments.",
+            story_memory,
+        )
+
+        decision = packet["story_decisions"][0]
+        self.assertEqual(decision["story_key"], "iran-war-hormuz-crisis")
+        self.assertEqual(decision["change_type"], "incremental")
+
 
 if __name__ == "__main__":
     unittest.main()

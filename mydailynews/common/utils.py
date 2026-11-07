@@ -18,6 +18,15 @@ GOOGLE_SOCS_COOKIE_VALUE = "CAESHAgBEhJnd3NfMjAyMzA4MTAtMF9SQzIaAmVuIAEaBgiAo_Cm
 GOOGLE_CONSENT_COOKIE = f"SOCS={GOOGLE_SOCS_COOKIE_VALUE}"
 GOOGLE_CONSENT_COOKIES: Dict[str, str] = {"SOCS": GOOGLE_SOCS_COOKIE_VALUE}
 GOOGLE_CONSENT_HEADERS: Dict[str, str] = {"Cookie": GOOGLE_CONSENT_COOKIE}
+BROWSER_ARTICLE_HEADERS: Dict[str, str] = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/131.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+}
 CONSENT_INTERSTITIAL_MARKERS = (
     "before you continue to google",
     "we use cookies and data, including ip addresses",
@@ -25,6 +34,11 @@ CONSENT_INTERSTITIAL_MARKERS = (
     "if you choose to \"accept all,\" we will also use cookies and data",
     "if you choose to \u201caccept all,\u201d we will also use cookies and data",
     "if you choose to 'accept all,' we will also use cookies and data",
+    "we also use cookies and data to tailor the experience to be age-appropriate",
+    "non-personalized content is influenced by things like the content",
+    "non-personalized ads are influenced by the content",
+    "tailored ads based on past activity from this browser, like previous google searches",
+    "details about managing your privacy settings",
 )
 
 

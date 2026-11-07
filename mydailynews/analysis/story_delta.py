@@ -195,11 +195,13 @@ class StoryDeltaAnalyzer:
             for owner in prior_story_keys_by_id.get(prior_id, set())
             if owner
         })
-        resolved_key = (
-            referenced_prior_story_keys[0]
-            if validation.safe_to_apply and len(referenced_prior_story_keys) == 1
-            else current_key
-        )
+        fallback_prior_key = _high_confidence_baseline_key(baselines)
+        if validation.safe_to_apply and len(referenced_prior_story_keys) == 1:
+            resolved_key = referenced_prior_story_keys[0]
+        elif validation.safe_to_apply and not referenced_prior_story_keys and fallback_prior_key:
+            resolved_key = fallback_prior_key
+        else:
+            resolved_key = current_key
 
         member_articles = [by_id[article_id] for article_id in article_ids]
         return {
@@ -230,7 +232,10 @@ class StoryDeltaAnalyzer:
                 "diagnostics": list(validation.diagnostics),
             },
             "operation_signal": publication_policy_for_operations(validation, request),
-            "change_type": _change_type_for_operations(validation),
+            "change_type": _change_type_for_operations(
+                validation,
+                anchored_to_prior=bool(fallback_prior_key),
+            ),
             "editorial_signals": [
                 {
                     "article_id": article.candidate.id,
@@ -315,15 +320,10 @@ class StoryDeltaAnalyzer:
             key=lambda item: (*_story_card_priority(item[1]), -item[0]),
             reverse=True,
         )
-        article_limit = max(1, int(self.config.max_articles))
-        submitted_cards: List[Dict[str, Any]] = []
-        submitted_articles = 0
-        for _, card in ranked_cards:
-            article_count = max(1, len(card.get("article_ids", [])))
-            if submitted_cards and submitted_articles + article_count > article_limit:
-                break
-            submitted_cards.append(card)
-            submitted_articles += article_count
+        card_limit = max(1, int(self.config.max_articles))
+        submitted_cards: List[Dict[str, Any]] = [
+            card for _, card in ranked_cards[:card_limit]
+        ]
 
         max_text_chars = max(120, int(self.config.max_article_chars))
         variants = [
@@ -409,11 +409,41 @@ class StoryDeltaAnalyzer:
         return result
 
 
-def _change_type_for_operations(validation: FactOperationValidation) -> str:
+def _high_confidence_baseline_key(baselines: List[Dict[str, Any]]) -> str:
+    if not baselines:
+        return ""
+    top = baselines[0]
+    top_key = str(top.get("story_key", "") or "").strip()
+    try:
+        top_score = float(top.get("candidate_score", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        top_score = 0.0
+    signals = (
+        top.get("candidate_signals", {})
+        if isinstance(top.get("candidate_signals"), dict)
+        else {}
+    )
+    if not top_key or top_score < 0.42 or bool(signals.get("numeric_conflict")):
+        return ""
+    if len(baselines) > 1:
+        try:
+            runner_up_score = float(baselines[1].get("candidate_score", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            runner_up_score = 0.0
+        if runner_up_score >= 0.42 and (top_score - runner_up_score) < 0.08:
+            return ""
+    return top_key
+
+
+def _change_type_for_operations(
+    validation: FactOperationValidation,
+    *,
+    anchored_to_prior: bool = False,
+) -> str:
     if not validation.safe_to_apply:
         return "uncertain"
     if not any(item.prior_fact_ids for item in validation.operations):
-        return "new"
+        return "incremental" if anchored_to_prior else "new"
     operations = {item.operation for item in validation.operations}
     if operations == {"repeat"}:
         return "unchanged"
@@ -573,22 +603,36 @@ def _validated_editor_decisions(
             disposition = "full_report"
         operation_validation = card.get("operation_validation", {})
         unsafe = not bool(operation_validation.get("safe_to_apply", False))
-        if disposition == "omit" and unsafe:
-            disposition = "full_report"
-        try:
-            materiality_level = max(0, min(3, int(raw.get("materiality", 0))))
-        except (TypeError, ValueError):
+        change_type = str(card.get("change_type", "") or "").strip()
+        if not unsafe and change_type == "unchanged":
+            disposition = "omit"
             materiality_level = 0
+            basis = str(
+                raw.get("basis", "")
+                if str(raw.get("disposition", "")).strip() == "omit"
+                else "Programmatically omitted because all verified facts repeat prior coverage."
+            ).strip()
+        else:
+            if disposition == "omit" and unsafe:
+                disposition = "full_report"
+            try:
+                materiality_level = max(0, min(3, int(raw.get("materiality", 0))))
+            except (TypeError, ValueError):
+                materiality_level = 0
+            basis = str(
+                raw.get("basis", "")
+                or "Fail-open coverage because the editor decision was missing or invalid."
+            ).strip()
         output.append(
             {
                 "card_id": card_id,
                 "disposition": disposition,
                 "materiality": materiality_level,
                 "summary": str(raw.get("summary", "") or card.get("title", "")).strip()[:200],
-                "basis": str(
-                    raw.get("basis", "")
-                    or "Fail-open coverage because the editor decision was missing or invalid."
-                ).strip()[:200],
+                "basis": (
+                    basis
+                    or "Programmatically omitted because all verified facts repeat prior coverage."
+                )[:200],
             }
         )
     full_report_indexes = [

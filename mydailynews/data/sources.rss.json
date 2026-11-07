@@ -148,8 +148,23 @@
       "regions": ["middle_east"],
       "category": "world",
       "tags": ["world", "middle_east", "sa"],
+      "enabled": false,
+      "notes": "Inactive: feed blocked by HTTP 403. Replaced by sa_saudi_gazette."
+    },
+    {
+      "source_id": "sa_saudi_gazette",
+      "name": "Saudi Gazette",
+      "country": "SA",
+      "language": "en",
+      "source_type": "newspaper",
+      "homepage_url": "https://saudigazette.com.sa/",
+      "feed_urls": ["https://saudigazette.com.sa/rssFeed/74"],
+      "sitemap_urls": [],
+      "regions": ["middle_east", "global"],
+      "category": "world",
+      "tags": ["world", "middle_east", "global", "sa"],
       "enabled": true,
-      "notes": "Verified 2026-07-16: HTTP 200, RSS feed returned 10 items."
+      "notes": "Verified 2026-11-05: HTTP 200, valid RSS feed with 50 items."
     },
     {
       "source_id": "il_times_of_israel",
@@ -164,7 +179,22 @@
       "category": "world",
       "tags": ["world", "middle_east", "il"],
       "enabled": false,
-      "notes": "Inactive: known-dead feed returned HTTP 403."
+      "notes": "Inactive: known-dead feed returned HTTP 403. Replaced by il_jerusalem_post."
+    },
+    {
+      "source_id": "il_jerusalem_post",
+      "name": "The Jerusalem Post",
+      "country": "IL",
+      "language": "en",
+      "source_type": "newspaper",
+      "homepage_url": "https://www.jpost.com/",
+      "feed_urls": ["https://www.jpost.com/rss/rssfeedsfrontpage.aspx"],
+      "sitemap_urls": [],
+      "regions": ["middle_east", "global"],
+      "category": "world",
+      "tags": ["world", "middle_east", "global", "il"],
+      "enabled": true,
+      "notes": "Verified 2026-11-07: HTTP 200, valid RSS feed with 23 items."
     },
     {
       "source_id": "tr_anadolu_en",
@@ -179,7 +209,22 @@
       "category": "world",
       "tags": ["world", "middle_east", "europe", "tr"],
       "enabled": false,
-      "notes": "Inactive: known-dead feed returned HTTP 404."
+      "notes": "Inactive: known-dead feed returned HTTP 404. Replaced by tr_anadolu_world_en."
+    },
+    {
+      "source_id": "tr_anadolu_world_en",
+      "name": "Anadolu Agency World",
+      "country": "TR",
+      "language": "en",
+      "source_type": "state_media",
+      "homepage_url": "https://www.aa.com.tr/en",
+      "feed_urls": ["https://www.aa.com.tr/en/rss/default?cat=world"],
+      "sitemap_urls": [],
+      "regions": ["middle_east", "europe", "global"],
+      "category": "world",
+      "tags": ["world", "middle_east", "europe", "global", "tr"],
+      "enabled": true,
+      "notes": "Verified 2026-11-07: HTTP 200, valid RSS feed with 30 items."
     },
     {
       "source_id": "gb_guardian_world",
@@ -254,7 +299,22 @@
       "category": "world",
       "tags": ["world", "europe", "it"],
       "enabled": false,
-      "notes": "Inactive: known-dead feed returned HTTP 404."
+      "notes": "Inactive: known-dead feed returned HTTP 404. Replaced by it_the_local_en."
+    },
+    {
+      "source_id": "it_the_local_en",
+      "name": "The Local Italy",
+      "country": "IT",
+      "language": "en",
+      "source_type": "newspaper",
+      "homepage_url": "https://www.thelocal.it/",
+      "feed_urls": ["https://www.thelocal.it/feeds/rss.php"],
+      "sitemap_urls": [],
+      "regions": ["europe", "global"],
+      "category": "world",
+      "tags": ["world", "europe", "global", "it"],
+      "enabled": true,
+      "notes": "Verified 2026-11-07: HTTP 200, valid RSS feed with 20 items."
     },
     {
       "source_id": "in_the_hindu",
@@ -344,7 +404,22 @@
       "category": "world",
       "tags": ["world", "south_asia", "bd"],
       "enabled": false,
-      "notes": "Inactive: known-dead feed returned HTTP 404."
+      "notes": "Inactive: known-dead feed returned HTTP 404. Replaced by bd_daily_star."
+    },
+    {
+      "source_id": "bd_daily_star",
+      "name": "The Daily Star",
+      "country": "BD",
+      "language": "en",
+      "source_type": "newspaper",
+      "homepage_url": "https://www.thedailystar.net/",
+      "feed_urls": ["https://www.thedailystar.net/frontpage/rss.xml"],
+      "sitemap_urls": [],
+      "regions": ["south_asia", "global"],
+      "category": "world",
+      "tags": ["world", "south_asia", "global", "bd"],
+      "enabled": true,
+      "notes": "Verified 2026-11-07: HTTP 200, valid RSS feed with 10 items."
     },
     {
       "source_id": "np_kathmandu_post",
@@ -554,7 +629,22 @@
       "category": "world",
       "tags": ["world", "official", "europe", "eu"],
       "enabled": false,
-      "notes": "Inactive: known-dead feed returned HTTP 404. EU marks institution rather than ISO country."
+      "notes": "Inactive: known-dead feed returned HTTP 404. Replaced by eu_council_press. EU marks institution rather than ISO country."
+    },
+    {
+      "source_id": "eu_council_press",
+      "name": "Council of the European Union",
+      "country": "EU",
+      "language": "en",
+      "source_type": "official",
+      "homepage_url": "https://www.consilium.europa.eu/en/",
+      "feed_urls": ["https://www.consilium.europa.eu/en/rss/pressreleases.ashx"],
+      "sitemap_urls": [],
+      "regions": ["official", "europe", "global"],
+      "category": "world",
+      "tags": ["world", "official", "europe", "global", "eu"],
+      "enabled": true,
+      "notes": "Verified 2026-11-07: HTTP 200, valid RSS feed with 20 items. EU marks institution rather than ISO country."
     },
     {
       "source_id": "gb_bbc_technology",
@@ -718,8 +808,26 @@
       "regions": ["east_asia", "global"],
       "category": "world",
       "tags": ["world", "east_asia", "global", "cn"],
+      "enabled": false,
+      "notes": "Inactive: China Daily retired its /rss/ endpoints (HTTP 404). Replaced by cn_cgtn_en."
+    },
+    {
+      "source_id": "cn_cgtn_en",
+      "name": "CGTN English",
+      "country": "CN",
+      "language": "en",
+      "source_type": "state_media",
+      "homepage_url": "https://www.cgtn.com/",
+      "feed_urls": [
+        "https://www.cgtn.com/subscribe/rss/section/china.xml",
+        "https://www.cgtn.com/subscribe/rss/section/world.xml"
+      ],
+      "sitemap_urls": [],
+      "regions": ["east_asia", "global"],
+      "category": "world",
+      "tags": ["world", "east_asia", "global", "cn"],
       "enabled": true,
-      "notes": "English feeds listed on China Daily's RSS page; state-affiliated newspaper."
+      "notes": "Verified 2026-11-05: HTTP 200, 50 items per feed; state-affiliated international broadcaster."
     },
     {
       "source_id": "pl_notes_from_poland",
@@ -928,8 +1036,23 @@
       "regions": ["southeast_asia", "global"],
       "category": "world",
       "tags": ["world", "southeast_asia", "global", "vn"],
+      "enabled": false,
+      "notes": "Inactive: feed returns 0 items. Replaced by vn_vnexpress_en."
+    },
+    {
+      "source_id": "vn_vnexpress_en",
+      "name": "VnExpress International",
+      "country": "VN",
+      "language": "en",
+      "source_type": "newspaper",
+      "homepage_url": "https://e.vnexpress.net/",
+      "feed_urls": ["https://e.vnexpress.net/rss/world.rss"],
+      "sitemap_urls": [],
+      "regions": ["southeast_asia", "global"],
+      "category": "world",
+      "tags": ["world", "southeast_asia", "global", "vn"],
       "enabled": true,
-      "notes": "Verified 2026-07-16: HTTP 200, valid RSS feed. Vietnamese English-language outlet."
+      "notes": "Verified 2026-11-05: HTTP 200, valid RSS feed with 60 items. Vietnamese English-language outlet."
     },
     {
       "source_id": "co_el_tiempo",

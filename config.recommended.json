@@ -1,0 +1,396 @@
+{
+  "output_dir": "output",
+  "user_agent": "MyDailyNews/1.0 (+local OpenAI-compatible news brief)",
+  "ai_summary": {
+    "backend": "llama_cpp_server",
+    "base_url": "http://127.0.0.1:8080/v1",
+    "server_model": "Qwen3.5-35B-A3B-Uncensored-HauhauCS-Aggressive-Q3_K_M",
+    "context_window_tokens": 32768,
+    "max_input_tokens": 22000,
+    "max_new_tokens": 4096,
+    "token_estimation_chars_per_token": 4.0,
+    "json_retries": 1,
+    "manage_server": true,
+    "server_executable": "C:\\Users\\user\\AppData\\Local\\Microsoft\\WinGet\\Packages\\ggml.llamacpp_Microsoft.Winget.Source_8wekyb3d8bbwe\\llama-server.exe",
+    "server_model_path": "C:\\Users\\user\\.lmstudio\\models\\HauhauCS\\Qwen3.5-35B-A3B-Uncensored-HauhauCS-Aggressive\\Qwen3.5-35B-A3B-Uncensored-HauhauCS-Aggressive-Q3_K_M.gguf",
+    "server_arguments": [
+      "--no-webui",
+      "--reasoning",
+      "off",
+      "-ngl",
+      "999",
+      "-c",
+      "32768",
+      "-np",
+      "1"
+    ],
+    "server_log_dir": "output/diagnostics/llama_server",
+    "server_startup_timeout_seconds": 180,
+    "server_shutdown_timeout_seconds": 15,
+    "server_auto_stop": true,
+    "server_spec_default": true,
+    "request_timeout_seconds": 360
+  },
+  "ai_final": {
+    "backend": "llama_cpp_server",
+    "base_url": "http://127.0.0.1:8080/v1",
+    "server_model": "Qwen3.5-35B-A3B-Uncensored-HauhauCS-Aggressive-Q3_K_M",
+    "context_window_tokens": 32768,
+    "max_input_tokens": 22000,
+    "max_new_tokens": 4096,
+    "token_estimation_chars_per_token": 4.0,
+    "json_retries": 1,
+    "manage_server": true,
+    "server_executable": "C:\\Users\\user\\AppData\\Local\\Microsoft\\WinGet\\Packages\\ggml.llamacpp_Microsoft.Winget.Source_8wekyb3d8bbwe\\llama-server.exe",
+    "server_model_path": "C:\\Users\\user\\.lmstudio\\models\\HauhauCS\\Qwen3.5-35B-A3B-Uncensored-HauhauCS-Aggressive\\Qwen3.5-35B-A3B-Uncensored-HauhauCS-Aggressive-Q3_K_M.gguf",
+    "server_arguments": [
+      "--no-webui",
+      "--reasoning",
+      "off",
+      "-ngl",
+      "999",
+      "-c",
+      "32768",
+      "-np",
+      "1"
+    ],
+    "server_log_dir": "output/diagnostics/llama_server",
+    "server_startup_timeout_seconds": 180,
+    "server_shutdown_timeout_seconds": 15,
+    "server_auto_stop": true,
+    "server_spec_default": true,
+    "request_timeout_seconds": 360
+  },
+  "general_topics": [
+    {
+      "name": "World and politics",
+      "description": "Major international, geopolitical, diplomatic, legal, election, conflict, and public policy developments that a general reader should know.",
+      "queries": [
+        "top world news today",
+        "major politics world news",
+        "geopolitics diplomacy conflict latest"
+      ],
+      "enabled": true,
+      "max_results": 16
+    },
+    {
+      "name": "Business and economy",
+      "description": "Major macroeconomic, market, central bank, trade, corporate, energy, and labor developments.",
+      "queries": [
+        "top business economy news today",
+        "global economy markets central banks",
+        "trade tariffs energy economy news"
+      ],
+      "enabled": true,
+      "max_results": 14
+    },
+    {
+      "name": "Technology and science",
+      "description": "Major technology, AI, cybersecurity, space, health, science, and climate developments with broad impact.",
+      "queries": [
+        "top technology science news today",
+        "AI cybersecurity science climate latest",
+        "space health science breakthrough news"
+      ],
+      "enabled": true,
+      "max_results": 14
+    },
+    {
+      "name": "United States",
+      "description": "Major US national stories, policy, courts, economy, public safety, and social developments.",
+      "queries": [
+        "top US news today",
+        "US politics courts economy news",
+        "major United States news latest"
+      ],
+      "enabled": true,
+      "max_results": 12
+    }
+  ],
+  "topics_to_examine": [
+    {
+      "name": "United Arab Emirates",
+      "description": "Major UAE developments across policy, economy, technology, infrastructure, energy, diplomacy, security, and society.",
+      "queries": [
+        "United Arab Emirates news today",
+        "Dubai Abu Dhabi policy economy technology",
+        "UAE Gulf regional news business"
+      ],
+      "enabled": true,
+      "max_results": 14,
+      "max_selected_articles": 3
+    },
+    {
+      "name": "Gaming",
+      "description": "Major video game industry, platform, esports, regulation, labor, monetization, publishing, hardware, and market developments.",
+      "queries": [
+        "video game industry news today",
+        "gaming business esports regulation",
+        "console PC mobile gaming major releases"
+      ],
+      "enabled": true,
+      "max_results": 14,
+      "max_selected_articles": 3
+    },
+    {
+      "name": "Artificial intelligence",
+      "description": "Major AI model, infrastructure, policy, safety, semiconductor, enterprise adoption, lab, platform, and market developments.",
+      "queries": [
+        "artificial intelligence news policy today",
+        "AI regulation chips models safety",
+        "AI companies infrastructure semiconductors"
+      ],
+      "enabled": true,
+      "max_results": 14,
+      "max_selected_articles": 3
+    }
+  ],
+  "user_memory": {
+    "role": "Early-career male UAE-based AI engineer",
+    "geography_focus": [
+      "United States",
+      "South Korea",
+      "United Arab Emirates"
+    ],
+    "time_horizon": "tactical",
+    "beats": {
+      "AI and technology policy": 1.0
+    },
+    "wants": [
+      "policy change",
+      "regulatory enforcement",
+      "market-moving guidance"
+    ],
+    "avoid": [
+      "celebrity news",
+      "sports scores",
+      "earnings without guidance change"
+    ],
+    "portfolio_or_stake_notes": "Tracks AI infrastructure, enterprise software, and macro-policy shifts affecting long-horizon direction of the industry.",
+    "preferred_depth": "analytical",
+    "avoided_topics": [
+      "celebrity gossip",
+      "minor sports updates"
+    ],
+    "preferred_sources": [
+      "BBC World",
+      "NPR",
+      "Ars Technica"
+    ],
+    "avoided_sources": [],
+    "briefing_style": "Concise, explanatory, practical, and skeptical of hype.",
+    "custom_instructions": "Prefer narrative shifts, evidence that challenges yesterday's framing, and important developments over routine announcements. Include uncertainty when the available sources are thin."
+  },
+  "memory": {
+    "enabled": true,
+    "state_dir": "state/memory",
+    "coverage_window_days": 10,
+    "coverage_retention_days": 30,
+    "story_stale_after_days": 7,
+    "story_retention_days": 30,
+    "story_candidate_threshold": 0.25,
+    "recent_story_penalty": 0.6,
+    "recent_lead_penalty": 1.1,
+    "max_selected_per_story": 1,
+    "max_selected_per_story_family": 2,
+    "recall_prompt_enabled": true,
+    "save_recall_packets": true,
+    "feedback_enabled": true
+  },
+  "general_filtering": {
+    "time_window_hours": 36,
+    "headline_score_cutoff": 7.0,
+    "max_headlines_per_source": 16,
+    "max_candidates_for_ai": 80,
+    "max_headlines_per_ai_batch": 16,
+    "headline_max_input_tokens": 18000,
+    "headline_max_new_tokens": 2800,
+    "headline_single_replay_max_new_tokens": 1200,
+    "max_selected_articles": 16,
+    "fill_selected_articles": true,
+    "article_text_max_chars": 6000
+  },
+  "filtering": {
+    "time_window_hours": 36,
+    "headline_score_cutoff": 7.0,
+    "max_headlines_per_source": 16,
+    "max_candidates_for_ai": 80,
+    "max_headlines_per_ai_batch": 16,
+    "headline_max_input_tokens": 18000,
+    "headline_max_new_tokens": 2800,
+    "headline_single_replay_max_new_tokens": 1200,
+    "max_selected_articles": 12,
+    "fill_selected_articles": false,
+    "article_text_max_chars": 6000
+  },
+  "enrichment": {
+    "enabled": false,
+    "mode": "story_llm",
+    "max_context_chars_per_article": 4200,
+    "max_story_threads": 16,
+    "planner_max_questions_per_story": 5,
+    "planner_require_article_disposition": true,
+    "planner_allow_misc_group": true,
+    "planner_misc_story_id": "misc",
+    "enrich_misc_story": false,
+    "omitted_article_policy": "skip",
+    "max_queries_per_story": null,
+    "excerpt_strategy": "relevant_windows",
+    "selected_excerpt_lead_chars": 900,
+    "selected_excerpt_window_chars": 900,
+    "selected_excerpt_max_windows": 3,
+    "research_excerpt_lead_chars": 500,
+    "research_excerpt_window_chars": 700,
+    "research_excerpt_max_windows": 2,
+    "planner_max_input_tokens": 22000,
+    "planner_max_new_tokens": 4096,
+    "search_results_per_query": 20,
+    "max_fetched_research_pages_per_story": 10,
+    "max_selected_article_excerpt_chars": 5200,
+    "max_research_excerpt_chars": 4000,
+    "synthesis_max_input_tokens": 22000,
+    "synthesis_max_new_tokens": 4096,
+    "cache_ttl_seconds": 604800
+  },
+  "pipeline": {
+    "default_series": [
+      "briefs",
+      "narrative_brief"
+    ]
+  },
+  "runtime": {
+    "max_http_workers": 4,
+    "max_article_workers": 4,
+    "use_shared_snapshot": true
+  },
+  "narrative_briefing": {
+    "enabled": true,
+    "max_input_tokens": null,
+    "max_new_tokens": null,
+    "target_words": 1800,
+    "editorial_style": "Write like a sharp human news editor, not a consultant memo. Use clear narrative paragraphs, concrete verbs, and varied sentence rhythm. Avoid repeated Status/Impact/Operational Implication labels. Do not address the reader as an operator. Use bullets sparingly, only for genuinely scannable watch items. Prefer 'what changed, why it matters, what remains uncertain' woven into prose."
+  },
+  "tts": {
+    "enabled": false,
+    "modules": [
+      "narrative_brief"
+    ],
+    "backend": "kokoro",
+    "model_id": "hexgrad/Kokoro-82M",
+    "voice": "af_heart",
+    "lang_code": "a",
+    "speed": 1.0,
+    "max_chunk_chars": 1200
+  },
+  "perspectives_report": {
+    "enabled": false,
+    "gnews_api_key": "",
+    "coverage_scope": [],
+    "coverage_regions": [],
+    "coverage_timespan_days": 7,
+    "coverage_max_records_per_story": 75,
+    "minimum_source_countries": 4,
+    "verification_enabled": true,
+    "verification_claims_per_story": 2,
+    "verification_claims_per_run": 12,
+    "verification_queries_per_claim": 2,
+    "verification_documents_per_claim": 4
+  },
+  "analysis": {
+    "general": {
+      "evidence_distillation": {
+        "enabled": true,
+        "model_role": "summary",
+        "include_reader_qa": true,
+        "max_input_tokens": 18000,
+        "max_new_tokens": 2200,
+        "max_articles": 16,
+        "max_articles_per_batch": 8,
+        "max_articles_dropped_to_avoid_split": 2,
+        "max_article_chars": 1200,
+        "max_context_sources_per_article": 3,
+        "cache_ttl_seconds": 604800
+      },
+      "delta_extraction": {
+        "enabled": true,
+        "model_role": "summary",
+        "max_input_tokens": 14000,
+        "max_new_tokens": 1600,
+        "max_articles": 12,
+        "max_article_chars": 600,
+        "max_prior_reports": 4,
+        "cache_ttl_seconds": 604800
+      }
+    },
+    "detailed": {
+      "evidence_distillation": {
+        "enabled": true,
+        "model_role": "summary",
+        "include_reader_qa": true,
+        "max_input_tokens": 18000,
+        "max_new_tokens": 2200,
+        "max_articles": 16,
+        "max_articles_per_batch": 8,
+        "max_articles_dropped_to_avoid_split": 2,
+        "max_article_chars": 1400,
+        "max_context_sources_per_article": 3,
+        "cache_ttl_seconds": 604800
+      },
+      "delta_extraction": {
+        "enabled": true,
+        "model_role": "summary",
+        "max_input_tokens": 14000,
+        "max_new_tokens": 1600,
+        "max_articles": 12,
+        "max_article_chars": 600,
+        "max_prior_reports": 4,
+        "cache_ttl_seconds": 604800
+      }
+    }
+  },
+  "cache": {
+    "enabled": true,
+    "dir": ".cache/mydailynews",
+    "discovery_mode": "network_first",
+    "article_text_retention_days": 3,
+    "enrichment_retention_days": 30,
+    "http_retention_days": 7,
+    "ai_enabled": true,
+    "synth_fresh_seconds": 604800
+  },
+  "sources": {
+    "google_news": {
+      "enabled": true,
+      "days": 7,
+      "max_results_per_topic": 12,
+      "language": "en-US",
+      "region": "US",
+      "ceid": "US:en"
+    },
+    "prior_reports": {
+      "enabled": true,
+      "days": 7,
+      "max_reports": 5,
+      "max_chars_per_report": 1800,
+      "output_dir": "output"
+    },
+    "rss": [
+      "gb_bbc_world",
+      "gb_bbc_technology",
+      "us_npr",
+      "us_nyt_world",
+      "us_nyt_technology",
+      "gb_guardian_world",
+      "us_ars_technica",
+      "gb_sky_news",
+      "in_times_of_india",
+      "in_hindustan_times",
+      "in_india_today",
+      "us_pbs_newshour",
+      "us_voa_en",
+      "ru_tass_en",
+      "cn_cgtn_en",
+      "pl_notes_from_poland"
+    ]
+  }
+}
