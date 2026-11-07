@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, List
+from urllib.parse import urlparse
 
 from mydailynews.briefing.output import write_json
 from mydailynews.common.utils import normalize_whitespace
+from mydailynews.domain.text_similarity import normalized_word_text, word_tokens
+from mydailynews.perspectives.schemas import COVERAGE_RELEVANCE_WEAK_TOKENS, QUERY_STOPWORDS
 
 
 def write_perspectives_report_outputs(output_dir: Path, date: str, payload: Dict[str, Any]) -> tuple[Path, Path]:
@@ -197,3 +201,84 @@ def _unique_text(values: List[str]) -> List[str]:
             seen.add(key)
             output.append(text)
     return output
+
+
+def normalize_name(value: Any) -> str:
+    return normalized_word_text(value)
+
+
+def _tokens(value: str) -> set[str]:
+    return set(word_tokens(value, stopwords=QUERY_STOPWORDS, min_alpha_chars=2, keep_numbers=True))
+
+
+def _coverage_match_tokens(value: str) -> set[str]:
+    return {token for token in _tokens(value) if token not in COVERAGE_RELEVANCE_WEAK_TOKENS}
+
+
+def _hostname(url: str) -> str:
+    parsed = urlparse(str(url or ""))
+    host = (parsed.hostname or "").lower()
+    return host[4:] if host.startswith("www.") else host
+
+
+def _known_or_unknown(value: Any) -> str:
+    text = str(value or "").strip()
+    return text if text else "unknown"
+
+
+def _short_text(value: Any, max_chars: int) -> str:
+    text = normalize_whitespace(str(value or ""))
+    return text[: max(1, int(max_chars))] if text else ""
+
+
+def _sorted_counter(counter: Counter[str]) -> Dict[str, int]:
+    return {key: int(value) for key, value in sorted(counter.items()) if value}
+
+
+def _text_list(value: Any, *, max_items: int, max_chars: int) -> List[str]:
+    return _unique_text([_short_text(item, max_chars) for item in _string_list(value)])[:max_items]
+
+
+def _normalize_anchor_groups(value: Any) -> List[Dict[str, Any]]:
+    output: List[Dict[str, Any]] = []
+    for item in value if isinstance(value, list) else []:
+        if not isinstance(item, dict):
+            continue
+        terms = _text_list(item.get("terms"), max_items=8, max_chars=80)
+        if terms:
+            output.append({"kind": _short_text(item.get("kind") or "anchor", 24), "terms": terms})
+        if len(output) >= 4:
+            break
+    return output
+
+
+def _story_article_ids(story: Dict[str, Any]) -> List[str]:
+    return [str(item) for item in story.get("article_ids", [])]
+
+
+def _story_identity(story: Dict[str, Any]) -> str:
+    return str(story.get("story_id", "") or normalize_name(story.get("story_title", "")) or "story")
+
+
+def _article_summary(articles: List[Dict[str, Any]]) -> str:
+    parts = [str(article.get("snippet") or article.get("headline") or "") for article in articles[:5]]
+    return _short_text(" ".join(parts), 800)
+
+
+def _empty_plan(story: Dict[str, Any], status: str, diagnostics: List[str]) -> Dict[str, Any]:
+    return {
+        "story_id": _story_identity(story),
+        "status": status,
+        "queries": [],
+        "anchor_groups": [],
+        "story_loci": [],
+        "target_tags": {
+            "raw": {"countries": [], "languages": [], "regions": []},
+            "normalized": {"countries": [], "languages": [], "regions": []},
+            "rejected": {"countries": [], "languages": [], "regions": []},
+        },
+        "selected_sources": [],
+        "verification_targets": [],
+        "diagnostics": diagnostics,
+    }
+

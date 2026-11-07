@@ -1,157 +1,83 @@
 # MyDailyNews Architecture
 
-MyDailyNews is a local-first pipeline around an OpenAI-compatible chat endpoint. The app owns fetching, ranking, prompting, local state, and output files. The model server owns model loading, GPU offload, context size, and serving.
+Local-first news pipeline around an OpenAI-compatible `/v1/chat/completions` endpoint (default: `llama-server` at `http://127.0.0.1:8080/v1`). App owns retrieval, hybrid ranking, prompting, validation, local SQLite state, and output rendering; server owns model execution.
 
-## Runtime Model
-
-Default runtime:
+## Runtime Flow
 
 ```text
-CLI or GUI -> config loader -> runtime checks -> NewsOrchestrator
-    -> retrieval, ranking, analysis, AI calls
-    -> output/, state/memory/, .cache/mydailynews/
+CLI / GUI -> config loader -> runtime checks -> NewsOrchestrator
+  -> retrieval, ranking, story grouping, delta analysis, AI calls
+  -> output/, state/memory/, .cache/mydailynews/
 ```
 
-By default, MyDailyNews expects an already-running local `llama-server` (`llama.cpp`) at `http://127.0.0.1:8080/v1`. It sends `/chat/completions` requests and leaves the server running.
+For managed `llama-server` mode (`manage_server=true`), see [llama_cpp_setup.md](llama_cpp_setup.md).
 
-The managed `llama-server` path is still available for advanced users. Set `manage_server=true` with `server_executable`, `server_model_path`, and `server_arguments` to let MyDailyNews start and stop `llama-server`. See [managed llama-server mode](llama_cpp_setup.md).
-
-## Overall Flow
+## Pipeline Overview
 
 ```mermaid
 flowchart LR
-    CONFIG["config + runtime checks"] --> BRIEFS["briefs module"]
-    SOURCES["feeds, searches,<br/>prior reports"] --> BRIEFS
-    MEMORY["state/memory<br/>coverage + preferences"] --> BRIEFS
-    BRIEFS --> BRIEF_CALLS["LLM calls:<br/>score, group, evidence,<br/>delta, final brief"]
-    BRIEF_CALLS --> STRUCTURED["structured briefs<br/>Markdown + JSON"]
-    BRIEF_CALLS --> HANDOFF["handoff<br/>selected articles + story boundaries"]
-    HANDOFF --> ENRICH["optional enrichment module"]
-    ENRICH --> ENRICH_CALLS["LLM calls:<br/>plan threads + synthesize<br/>per enriched story"]
-    ENRICH_CALLS --> ENRICHED["enrichment context<br/>Markdown + JSON"]
-    STRUCTURED --> NARRATIVE["narrative brief<br/>1 LLM call"]
-    ENRICHED --> NARRATIVE
+    CONFIG["config + runtime checks"] --> BRIEFS["briefs"]
+    SOURCES["RSS (2-step self-healing),<br/>searches, prior reports"] --> BRIEFS
+    MEMORY["state/memory<br/>stories, E5 vectors, prefs"] --> BRIEFS
+    BRIEFS --> STRUCTURED["general + detailed briefs<br/>Markdown + JSON"]
+    BRIEFS --> HANDOFF["handoff JSON"]
+    HANDOFF --> ENRICH["enrichment (opt-in)"]
+    STRUCTURED --> PERSPECTIVES["perspectives_report (opt-in)"]
+    ENRICH --> PERSPECTIVES
+    STRUCTURED --> NARRATIVE["narrative_brief"]
+    ENRICH --> NARRATIVE
+    PERSPECTIVES --> NARRATIVE
     MEMORY --> NARRATIVE
-    NARRATIVE --> TTS["optional TTS"]
+    NARRATIVE --> TTS["tts (opt-in)"]
     STRUCTURED --> OUTPUT["output/"]
-    ENRICHED --> OUTPUT
+    ENRICH --> OUTPUT
+    PERSPECTIVES --> OUTPUT
     NARRATIVE --> OUTPUT
     TTS --> OUTPUT
     BRIEFS --> MEMORY
-    BRIEFS --> CACHE[".cache/mydailynews"]
-    ENRICH --> CACHE
 ```
+
+Default series: `briefs -> narrative_brief`. When `perspectives_report` is enabled, it runs before `narrative_brief` so verified claim cards feed narrative synthesis. `tts` runs last.
 
 ## Briefs Module
 
 ```mermaid
 flowchart TD
-    SNAPSHOT["source snapshot<br/>feeds + searches + prior reports"] --> SCORE["headline scoring"]
-    SUMMARY["summary_ai_client"] --> SCORE_CALL["LLM: headline scoring<br/>ceil(candidates / batch_size)<br/>plus single-item replays on bad JSON"]
-    SCORE_CALL --> SCORE
+    SNAPSHOT["source snapshot<br/>feeds + searches + prior reports"] --> SCORE["LLM: headline scoring"]
     SCORE --> SELECT["deterministic selection<br/>caps, priority, learned prefs"]
-    MEMORY["state/memory"] --> SELECT
-    SELECT --> FETCH["article text fetch"]
-    FETCH --> GROUP["story grouping"]
-    SUMMARY --> GROUP_CALL["LLM: story grouping<br/>0..N planner calls"]
-    GROUP_CALL --> GROUP
-    GROUP --> EVIDENCE["evidence distillation"]
-    FETCH --> EVIDENCE
-    ANALYSIS["analysis client<br/>summary or final"] --> EVIDENCE_CALL["LLM: evidence<br/>0..N article batches"]
-    EVIDENCE_CALL --> EVIDENCE
-    GROUP --> HISTORY["deterministic bounded<br/>history retrieval<br/>up to 3 candidates per story"]
-    FETCH --> HISTORY
-    MEMORY --> HISTORY
-    GROUP --> OPERATIONS["per-story fact-operation comparison<br/>bounded facts from all retrieved candidates"]
-    FETCH --> OPERATIONS
-    HISTORY --> OPERATIONS
-    ANALYSIS --> OPERATION_CALL["LLM: fact operations<br/>0..1 comparison per story"]
-    OPERATION_CALL --> OPERATIONS
-    OPERATIONS --> VALIDATE["structural validation<br/>IDs, ownership, coverage, conflicts"]
-    VALIDATE --> CARDS["validated current<br/>story cards"]
-    ANALYSIS --> EDITOR_CALL["LLM: selection editor<br/>one bounded comparative call"]
-    CARDS --> EDITOR_CALL
-    EDITOR_CALL --> DELTA["editorial story decisions"]
-    EVIDENCE --> FINAL_BRIEF["final brief generation"]
-    DELTA --> FINAL_BRIEF
-    MEMORY --> FINAL_BRIEF
-    FINAL["final_ai_client"] --> FINAL_CALL["LLM: final brief<br/>1 call per brief<br/>general and detailed"]
-    FINAL_CALL --> FINAL_BRIEF
-    FINAL_BRIEF --> REPORTS["general + detailed<br/>Markdown/JSON"]
-    FINAL_BRIEF --> HANDOFF["handoff JSON"]
-    FINAL_BRIEF --> MEMORY_QUEUE["deferred memory writes<br/>after every brief is analyzed"]
-    MEMORY_QUEUE --> MEMORY
-    SCORE_CALL --> AI_CACHE["AI synth cache"]
-    GROUP_CALL --> AI_CACHE
-    EVIDENCE_CALL --> AI_CACHE
-    OPERATION_CALL --> AI_CACHE
-    EDITOR_CALL --> AI_CACHE
-    FETCH --> HTTP_CACHE["HTTP/article cache"]
-    REPORTS --> OUTPUT["output/"]
-    HANDOFF --> OUTPUT
+    SELECT --> FETCH["article fetch<br/>SOCS cookie + consent-wall hard-stop"]
+    FETCH --> GROUP["LLM: story grouping"]
+    GROUP --> PARTITION["deterministic event-cohesion<br/>bucket partitioning"]
+    PARTITION --> EVIDENCE["LLM: evidence distillation"]
+    PARTITION --> HISTORY["hybrid retrieval<br/>lexical + multilingual-e5-small<br/>up to 3 prior story candidates"]
+    HISTORY --> OPERATIONS["LLM: per-story fact operations<br/>add / repeat / replace / resolve / uncertain"]
+    OPERATIONS --> VALIDATE["structural validation +<br/>high-confidence baseline resolution"]
+    VALIDATE --> EDITOR["LLM: comparative card editor<br/>1 card per story budget;<br/>verified unchanged clamped to omit"]
+    EVIDENCE --> FINAL["LLM: final brief<br/>general + detailed"]
+    EDITOR --> FINAL
+    FINAL --> OUTPUT["output/ + deferred memory writeback"]
 ```
 
-## Enrichment Module
+## Perspectives Module (`mydailynews/perspectives/`)
 
-```mermaid
-flowchart TD
-    HANDOFF["brief handoff<br/>or same-day brief JSON"] --> INPUTS["selected articles<br/>+ reusable story boundaries"]
-    INPUTS --> TEXT["ensure article text"]
-    TEXT --> PLAN["story-thread planning"]
-    SUMMARY["summary_ai_client"] --> PLAN_CALL["LLM: plan story threads<br/>0..N planner calls<br/>skipped if shared grouping exists"]
-    PLAN_CALL --> PLAN
-    PLAN --> SEARCH["search for context<br/>DDG HTML retrieval"]
-    SEARCH --> FETCH["fetch research pages"]
-    FETCH --> SYNTH["synthesize compact<br/>story context"]
-    SUMMARY --> SYNTH_CALL["LLM: synthesize context<br/>1 call per enriched story thread"]
-    SYNTH_CALL --> SYNTH
-    SYNTH --> ATTACH["attach context<br/>to story threads"]
-    ATTACH --> ENRICHED["enrichment Markdown/JSON"]
-    ENRICHED --> NARRATIVE["narrative brief input"]
-    SEARCH --> HTTP_CACHE["enrichment HTTP cache"]
-    FETCH --> HTTP_CACHE
-    PLAN_CALL --> AI_CACHE["AI synth cache"]
-    SYNTH_CALL --> AI_CACHE
-    ENRICHED --> OUTPUT["output/"]
-```
+Orchestrated by [`mydailynews/pipeline/perspectives_report.py`](../mydailynews/pipeline/perspectives_report.py) across five focused modules:
 
-LLM call groups: headline scoring is batched; story grouping and enrichment planning can split into multiple planner calls; evidence is an optional batched analysis call. Enabled delta analysis deterministically retrieves up to three prior candidates for each grouped current story. When retrieved prior facts exist, it makes at most one fact-operation call per story over the current facts and bounded facts from every retrieved candidate; stories without prior facts receive deterministic `add` operations and skip that call. The result is structurally validated before one bounded selection-editor call compares the validated card set. Every story receives a decision; cards excluded by configured or token limits fail open. Final brief is normally one call per structured brief, narrative brief is normally one call, and enrichment synthesis is one call per enriched story thread. Cache hits skip eligible calls; JSON/transport retries can add attempts.
+1. **Inputs & Planning (`planning.py`)**: Collects same-day stories/claims from enrichment or briefs; batches up to 4 stories per planner call (`PERSPECTIVES_PLANNER_SCHEMA`) to produce canonical queries, anchor groups, story loci, target country/region tags, and claim verification targets.
+2. **Global Coverage (`coverage.py`)**: Queries GDELT, Registry RSS (with 2-step self-healing), and optional GNews in parallel; filters by lexical/anchor relevance, deduplicates, selects diverse countries/sources, and fetches bounded article excerpts.
+3. **Claim Verification & Synthesis (`synthesis.py`)**: Runs targeted verification queries (DDG + news provider) and 1 verifier LLM call per selected claim (`PERSPECTIVES_VERIFIER_SCHEMA`), followed by 1 claim-led synthesis call per story (`PERSPECTIVES_CLAIM_SYNTHESIS_SCHEMA`).
+4. **Schemas & Rendering (`schemas.py`, `rendering.py`)**: Validates JSON contracts and writes `YYYY-MM-DD_perspectives_report.{md,json}`.
 
-AI roles: `summary_ai_client` scores and plans; the configurable analysis client runs evidence/delta; `final_ai_client` writes final and narrative briefs.
+## AI Roles & Storage Boundaries
 
-Storage roles: `.cache/mydailynews/cache.sqlite3` stores network, article, enrichment, and reusable AI cache entries; `state/memory/memory.sqlite3` stores durable story, coverage, and feedback data; `state/memory/learned_preferences.json` remains human-editable; and `output/` stores reports, handoffs, and diagnostics.
+- **AI Clients**: `summary_ai_client` (headline scoring, grouping, enrichment, perspectives), `analysis_ai_client` (evidence, fact operations, card editor), `final_ai_client` (structured and narrative briefs).
+- **State**:
+  - `output/`: generated Markdown, JSON, WAV, diagnostics.
+  - `state/memory/memory.sqlite3`: durable `StoryRecord`s, `SourceFact`s, coverage history, feedback, and E5 embeddings (`learned_preferences.json` stays human-editable).
+  - `.cache/mydailynews/cache.sqlite3`: HTTP, article text (consent-wall scrubbed), enrichment, and AI synthesis cache.
 
-## Module Flow
+## Entrypoints
 
-The default module series is:
-
-```text
-briefs -> narrative_brief
-```
-
-`enrichment`, `tts`, and `perspectives_report` are available but disabled by default. When perspectives is enabled, it runs before `narrative_brief` so validated claim cards are available to the narrative; TTS remains last.
-
-Modules:
-
-- `briefs`: fetches candidates, scores headlines, selects articles, fetches article text, runs analysis, writes general and detailed briefs.
-- `enrichment`: optional, explicit-opt-in research that groups selected articles into story threads, retrieves related context, and writes enrichment artifacts.
-- `narrative_brief`: turns structured brief and enrichment JSON into a narrative Markdown brief.
-- `tts`: turns each configured module target's Markdown artifact into WAV audio and audio metadata.
-- `perspectives_report`: performs shared broad retrieval, bounded claim verification, and one claim-led framing synthesis per eligible story, then writes combined JSON and reader-facing Markdown.
-
-## State Boundaries
-
-- `output/`: generated Markdown, JSON, WAV, and diagnostics.
-- `state/memory/`: `memory.sqlite3` plus learned preferences, recall artifacts, and backups.
-- `.cache/mydailynews/`: `cache.sqlite3` for discovery, article text, enrichment retrieval, and AI synthesis values.
-
-Deleting `output/` removes generated reports. Deleting `state/memory/` resets local memory. Deleting `.cache/mydailynews/` only forces refetching or regeneration.
-
-## Stable Entrypoints
-
-- `main.py`: CLI.
-- `gui.py`: local web GUI launcher.
-- `tools/autoconfig.py`: hardware detection and recommended config writer.
-- `mydailynews/app/config.py`: strict config loading.
-- `mydailynews/app/runtime_config.py`: runtime readiness checks.
-- `mydailynews/pipeline/orchestrator.py`: module orchestration.
+- [`main.py`](../main.py): CLI runner.
+- [`gui.py`](../gui.py): local web UI server.
+- [`tools/autoconfig.py`](../tools/autoconfig.py): hardware detection and `config.recommended.json` generator.
+- [`tools/run_story_retrieval_diagnostics.py`](../tools/run_story_retrieval_diagnostics.py): 75-pair blind retrieval benchmark (`Recall@1 = 0.9333`, `Recall@3 = 0.9867`).

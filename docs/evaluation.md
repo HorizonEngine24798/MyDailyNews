@@ -1,28 +1,15 @@
-# Focused story-quality checks
+# Story-quality & retrieval evaluation
 
-The superseded broad-delta evaluator has been removed with `DeltaExtractor`.
-Current checks use the shared offline corpus only for narrow, independently
-scored questions.
+Offline evaluation uses synthetic and 75-pair blind real-news corpora under `evals/` (`change_monitoring.real_blind.v1`). Gold labels are scorer-only and never enter prompts.
 
-## Retrieval diagnostic
-
-Measure whether production story retrieval supplies the correct bounded set of
-historical candidates and their facts for fact-operation comparison:
+## Commands
 
 ```powershell
+# Hybrid retrieval benchmark (lexical + multilingual-e5-small, no LLM needed)
 python tools/run_story_retrieval_diagnostics.py
 ```
 
-The report includes recall at bounded candidate counts. It measures candidate
-recall only; it does not measure fact-operation correctness, editorial
-selection, or final-brief quality.
+## Reference Metrics (2026-11-05)
 
-The corpora under `evals/cases/` contain synthetic and blind real-news cases.
-Gold story IDs, labels, and fact expectations are scorer data and must never be
-included in model input.
-
-## Test suite
-
-Production behavior is covered directly by the story-delta editor, claim-delta,
-story-memory, retrieval, and brief-integration tests. This avoids retaining a
-second end-to-end implementation solely for evaluation.
+- **Stage 0 Retrieval (`change_monitoring.real_blind.v1`)**: `Recall@1 = 0.9333` (`70/75`), `Recall@3 = 0.9867` (`74/75`).
+- **Unit Test Suite**: 277 tests across `tests/test_*.py`.
