@@ -34,10 +34,17 @@ from mydailynews.perspectives.schemas import (
     MAX_SELECTED_SOURCES,
     MEANINGFUL_PARAGRAPH_MIN_CHARS,
 )
+from mydailynews.perspectives.query_alignment import (
+    align_query_with_assist,
+    expand_multilingual_anchor_groups,
+    normalize_language_code,
+    resolve_country_language,
+)
 from mydailynews.perspectives.sources import match_source_by_domain
 from mydailynews.retrieval.article import ArticleRetriever
 from mydailynews.retrieval.gdelt import GdeltDocRetriever
 from mydailynews.retrieval.gnews import GNewsRetriever
+from mydailynews.retrieval.google_news_rss import GoogleNewsRssCoverageRetriever
 from mydailynews.retrieval.registry_rss import RegistryRssRetriever
 
 
@@ -54,6 +61,7 @@ def _collect_story_coverage(
     gnews_retriever: GNewsRetriever | None,
     article_retriever: ArticleRetriever,
     warnings: List[str],
+    google_news_rss_retriever: GoogleNewsRssCoverageRetriever | None = None,
     article_text_cache: Any = None,
     max_article_workers: int = 1,
     debug: Any = None,
@@ -68,13 +76,16 @@ def _collect_story_coverage(
     if not selected_sources:
         return _coverage_gap(story_id, plan, "no active sources matched planner tags")
 
-    requests = _retrieval_requests(plan, selected_sources, story=story)
+    align_target_languages = bool(getattr(config, "cross_language_alignment", False) or plan.get("align_queries", False))
+    requests = _retrieval_requests(plan, selected_sources, story=story, align_target_languages=align_target_languages)
     if not requests:
         return _coverage_gap(story_id, plan, "planner produced no usable retrieval requests for selected sources")
 
     providers: List[tuple[str, Any]] = [("gdelt_doc", gdelt_retriever), ("registry_rss", registry_rss_retriever)]
     if gnews_retriever is not None:
         providers.append(("gnews", gnews_retriever))
+    if google_news_rss_retriever is not None:
+        providers.append(("google_news_rss", google_news_rss_retriever))
 
     def worker(provider: tuple[str, Any]) -> Dict[str, Any]:
         return _run_provider_requests(
@@ -189,6 +200,9 @@ def _run_provider_requests(
                 "max_records": max_records,
                 "source_countries": request.get("source_countries", []),
             }
+            target_lang = request.get("target_language")
+            if target_lang and target_lang != "en":
+                search_kwargs["source_languages"] = [target_lang]
             if provider_name == "registry_rss":
                 search_kwargs["source_ids"] = request.get("source_ids", [])
             found, request_warnings = retriever.search(
@@ -343,11 +357,27 @@ def _retrieval_requests(
     selected_sources: List[Dict[str, Any]],
     *,
     story: Dict[str, Any] | None = None,
+    align_target_languages: bool = False,
 ) -> List[Dict[str, Any]]:
     countries = _unique_text([str(source.get("country") or "").upper() for source in selected_sources])
     source_ids = _unique_text([str(source.get("source_id") or "") for source in selected_sources])
     story_title_tokens = _coverage_match_tokens(str((story or {}).get("story_title") or ""))
     story_summary_tokens = _coverage_match_tokens(str((story or {}).get("summary") or ""))
+
+    do_align = align_target_languages or bool(plan.get("align_queries"))
+    target_langs = (
+        {
+            normalize_language_code(source.get("language") or resolve_country_language(source.get("country")))
+            for source in selected_sources
+        }
+        - {"en", ""}
+        if do_align
+        else set()
+    )
+
+    raw_anchor_groups = plan.get("anchor_groups", [])
+    anchor_groups = expand_multilingual_anchor_groups(raw_anchor_groups, list(target_langs)) if target_langs else raw_anchor_groups
+
     requests: List[Dict[str, Any]] = []
     seen_canonical: set[str] = set()
     for query in _text_list(plan.get("queries"), max_items=MAX_CANONICAL_QUERIES, max_chars=180):
@@ -368,13 +398,43 @@ def _retrieval_requests(
             {
                 "query": query,
                 "query_type": "canonical",
-                "anchor_groups": plan.get("anchor_groups", []),
+                "anchor_groups": anchor_groups,
                 "source_id": "",
                 "source_ids": source_ids,
                 "source_countries": countries,
             }
         )
-    for query in _anchor_queries(plan.get("anchor_groups")):
+        if do_align:
+            for lang in target_langs:
+                lang_sources = [
+                    s for s in selected_sources
+                    if normalize_language_code(s.get("language") or resolve_country_language(s.get("country"))) == lang
+                ]
+                lang_countries = _unique_text([str(s.get("country") or "").upper() for s in lang_sources])
+                lang_source_ids = _unique_text([str(s.get("source_id") or "") for s in lang_sources])
+
+                # Use model-provided aligned queries if present in the plan; otherwise apply assist lookup
+                plan_aligned_list = (plan.get("aligned_queries") or {}).get(lang)
+                if plan_aligned_list and isinstance(plan_aligned_list, list):
+                    candidate_aligned = plan_aligned_list
+                else:
+                    candidate_aligned = [align_query_with_assist(query, lang)]
+
+                for aligned in candidate_aligned:
+                    if aligned and aligned != query and aligned not in seen_canonical:
+                        seen_canonical.add(aligned)
+                        requests.append(
+                            {
+                                "query": aligned,
+                                "query_type": "aligned_canonical",
+                                "anchor_groups": anchor_groups,
+                                "source_id": "",
+                                "source_ids": lang_source_ids,
+                                "source_countries": lang_countries,
+                                "target_language": lang,
+                            }
+                        )
+    for query in _anchor_queries(anchor_groups):
         if query in seen_canonical:
             continue
         seen_canonical.add(query)
@@ -382,7 +442,7 @@ def _retrieval_requests(
             {
                 "query": query,
                 "query_type": "anchor",
-                "anchor_groups": plan.get("anchor_groups", []),
+                "anchor_groups": anchor_groups,
                 "source_id": "",
                 "source_ids": source_ids,
                 "source_countries": countries,
@@ -465,6 +525,18 @@ def _coverage_relevance_decision(row: Dict[str, Any], story: Dict[str, Any]) -> 
         return True, "query_evidence_overlap"
     if _substantial_token_overlap(story_tokens, evidence_tokens, min_hits=2, min_fraction=0.45):
         return True, "seed_story_overlap"
+
+    story_text = " ".join([str(story.get("story_title") or ""), str(story.get("summary") or "")])
+    row_text = " ".join([str(row.get("title") or ""), str(row.get("snippet") or "")])
+    if story_text and row_text:
+        try:
+            from mydailynews.memory.multilingual_embeddings import calculate_text_similarity
+            sim = calculate_text_similarity(story_text, row_text)
+            if sim >= 0.85:
+                return True, "multilingual_semantic_match"
+        except Exception:
+            pass
+
     return False, "insufficient_event_overlap"
 
 

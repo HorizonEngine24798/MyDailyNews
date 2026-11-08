@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from hashlib import sha256
+import os
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Sequence
 
@@ -31,17 +32,21 @@ def _load_model() -> bool:
         from transformers import AutoModel, AutoTokenizer
 
         model_source: str | None = None
+        local_only = True
         if (LOCAL_MULTILINGUAL_MODEL_DIR / "config.json").exists():
             model_source = str(LOCAL_MULTILINGUAL_MODEL_DIR)
         else:
             hf_hub = Path.home() / ".cache" / "huggingface" / "hub" / "models--intfloat--multilingual-e5-small"
             if hf_hub.exists():
                 model_source = DEFAULT_MULTILINGUAL_MODEL_ID
+            elif os.environ.get("MYDAILYNEWS_ALLOW_MODEL_DOWNLOAD", "").lower() in {"1", "true", "yes"}:
+                model_source = DEFAULT_MULTILINGUAL_MODEL_ID
+                local_only = False
         if not model_source:
             return False
 
-        tokenizer = AutoTokenizer.from_pretrained(model_source, local_files_only=True)
-        model = AutoModel.from_pretrained(model_source, local_files_only=True)
+        tokenizer = AutoTokenizer.from_pretrained(model_source, local_files_only=local_only)
+        model = AutoModel.from_pretrained(model_source, local_files_only=local_only)
         model.eval()
         model.to("cpu")
         _MODEL_STATE["tokenizer"] = tokenizer
@@ -229,4 +234,22 @@ def semantic_story_similarity(
     best_title = max(title_sims) if title_sims else 0.0
     best_full = max(full_sims) if full_sims else 0.0
     return best_title, best_full, max(best_title, best_full)
+
+
+def calculate_text_similarity(text_a: str, text_b: str) -> float:
+    cleaned_a = " ".join(str(text_a or "").split()).strip()
+    cleaned_b = " ".join(str(text_b or "").split()).strip()
+    if not cleaned_a or not cleaned_b:
+        return 0.0
+    if not _load_model():
+        return 0.0
+    v_a = _get_vector(cleaned_a)
+    v_b = _get_vector(cleaned_b)
+    if v_a is None or v_b is None:
+        return 0.0
+    torch = _MODEL_STATE["torch"]
+    if torch is None:
+        return 0.0
+    return float(torch.dot(v_a, v_b).item())
+
 

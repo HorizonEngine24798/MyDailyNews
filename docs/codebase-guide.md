@@ -48,9 +48,9 @@ Default series: `briefs -> narrative_brief`. `perspectives_report` and `tts` are
 | `mydailynews/evaluation` | Offline evaluation corpus schemas and retrieval diagnostics | `schema.py`, `retrieval_diagnostics.py` |
 | `mydailynews/gui` | Local web UI server, state inspection, run control | `server.py`, `data.py`, `runs.py` |
 | `mydailynews/memory` | Story store/records, E5 embeddings, hybrid ranking, context partitioning, repair | `story_store.py`, `story_records.py`, `multilingual_embeddings.py`, `ranking.py`, `context.py` |
-| `mydailynews/perspectives` | Perspectives schemas, planning, coverage retrieval, claim synthesis, rendering | `schemas.py`, `planning.py`, `coverage.py`, `synthesis.py`, `rendering.py`, `sources.py` |
+| `mydailynews/perspectives` | Perspectives schemas, planning, coverage retrieval, cross-language alignment, claim synthesis, grounding, rendering | `schemas.py`, `planning.py`, `coverage.py`, `query_alignment.py`, `synthesis.py`, `grounding.py`, `rendering.py`, `sources.py` |
 | `mydailynews/pipeline` | Cross-module orchestration and stage execution | `orchestrator.py`, `brief_execution.py`, `perspectives_report.py`, `narrative_brief.py` |
-| `mydailynews/retrieval` | Article fetch, Google News, GDELT, GNews, registry RSS | `article.py`, `google_news.py`, `registry_rss.py`, `gdelt.py` |
+| `mydailynews/retrieval` | Article fetch, Google News RSS, GDELT, GNews, registry RSS | `article.py`, `google_news_rss.py`, `registry_rss.py`, `gdelt.py` |
 | `mydailynews/scrapers` | RSS parsing and 2-step feed self-healing (HTML link discovery + Google News `site:` fallback) | `rss.py` |
 | `mydailynews/story_grouping` | Same-day story grouping planner and normalization | `planner.py`, `normalization.py`, `models.py` |
 | `mydailynews/tts` | Kokoro TTS synthesis and WAV output | `kokoro_backend.py` |

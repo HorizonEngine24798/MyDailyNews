@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import random
 import re
 import time
 from typing import Any, Callable, Dict, List, Tuple
@@ -15,8 +16,11 @@ GDELT_DOC_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
 QUERY_TEXT_RE = re.compile(r"[^\w\s]", flags=re.UNICODE)
 OPERATOR_VALUE_RE = re.compile(r"[^a-z0-9]", flags=re.IGNORECASE)
 RETRY_STATUS_CODES = {0, 429, 500, 502, 503, 504}
-GDELT_RETRY_SLEEP_SECONDS = 6
-GDELT_MIN_REQUEST_INTERVAL_SECONDS = 1.0
+GDELT_BASE_RETRY_SECONDS = 2.0
+GDELT_MAX_RETRY_SECONDS = 16.0
+GDELT_RETRY_SLEEP_SECONDS = 4.0
+GDELT_MIN_REQUEST_INTERVAL_SECONDS = 1.8
+GDELT_RATE_LIMIT_COOLDOWN_SECONDS = 45.0
 
 
 class GdeltDocRetriever:
@@ -27,12 +31,32 @@ class GdeltDocRetriever:
         http_cache_mode: str = CachedHttpClient.CACHE_FIRST,
         debug: DebugLogger | None = None,
         progress_sink: Callable[[str], None] | None = None,
+        max_attempts: int = 2,
+        rate_limit_cooldown_seconds: float = GDELT_RATE_LIMIT_COOLDOWN_SECONDS,
     ) -> None:
         self.debug = debug or DebugLogger(False)
         self.progress_sink = progress_sink or (lambda message: None)
         self.http = CachedHttpClient(user_agent=user_agent, cache=http_cache, cache_mode=http_cache_mode, debug=self.debug)
-        self.rate_limited = False
+        self.max_attempts = max(1, int(max_attempts))
+        self._rate_limited = False
+        self._rate_limited_until = 0.0
+        self.rate_limit_cooldown_seconds = max(0.0, float(rate_limit_cooldown_seconds))
         self._last_request_at = 0.0
+
+    @property
+    def rate_limited(self) -> bool:
+        if not self._rate_limited:
+            return False
+        if time.monotonic() >= self._rate_limited_until:
+            self._rate_limited = False
+            return False
+        return True
+
+    @rate_limited.setter
+    def rate_limited(self, value: bool) -> None:
+        self._rate_limited = bool(value)
+        if self._rate_limited:
+            self._rate_limited_until = time.monotonic() + self.rate_limit_cooldown_seconds
 
     def search(
         self,
@@ -59,20 +83,26 @@ class GdeltDocRetriever:
         }
         warnings: List[str] = []
         last_warning = ""
-        for attempt in range(2):
+        for attempt in range(self.max_attempts):
             self._throttle()
             self.debug.increment("provider.gdelt.requests")
             response = self.http.get_text(GDELT_DOC_URL, timeout=20, allow_redirects=True, params=params)
             if not response.ok:
-                last_warning = f"gdelt_doc: request failed for '{gdelt_query}' (status {response.status_code})."
-                if attempt == 0 and int(response.status_code) in RETRY_STATUS_CODES:
-                    retry_delay = retry_after_seconds(getattr(response, "headers", {}), GDELT_RETRY_SLEEP_SECONDS)
-                    retry_warning = f"{last_warning} Retrying in {retry_delay:g}s."
+                status_code = int(response.status_code)
+                last_warning = f"gdelt_doc: request failed for '{gdelt_query}' (status {status_code})."
+                if attempt < self.max_attempts - 1 and status_code in RETRY_STATUS_CODES:
+                    header_delay = retry_after_seconds(getattr(response, "headers", {}), 0.0)
+                    if header_delay > 0:
+                        retry_delay = header_delay
+                    else:
+                        backoff_delay = min(GDELT_MAX_RETRY_SECONDS, GDELT_BASE_RETRY_SECONDS * (2 ** attempt))
+                        retry_delay = backoff_delay + random.uniform(0.1, 0.4)
+                    retry_warning = f"{last_warning} Retrying in {retry_delay:.1f}s (attempt {attempt + 1}/{self.max_attempts})."
                     warnings.append(retry_warning)
                     self.progress_sink(retry_warning)
                     time.sleep(retry_delay)
                     continue
-                if int(response.status_code) == 429:
+                if status_code == 429:
                     self.rate_limited = True
                     self.debug.increment("provider.gdelt.rate_limited")
                 return [], [*warnings, last_warning]
@@ -81,11 +111,12 @@ class GdeltDocRetriever:
                 break
             except json.JSONDecodeError as exc:
                 last_warning = f"gdelt_doc: invalid JSON for '{gdelt_query}' ({exc.msg})."
-                if attempt == 0:
-                    retry_warning = f"gdelt_doc: non-JSON response for '{gdelt_query}'; retrying in {GDELT_RETRY_SLEEP_SECONDS}s."
+                if attempt < max_attempts - 1:
+                    backoff_delay = min(GDELT_MAX_RETRY_SECONDS, GDELT_BASE_RETRY_SECONDS * (2 ** attempt)) + random.uniform(0.1, 0.4)
+                    retry_warning = f"gdelt_doc: non-JSON response for '{gdelt_query}'; retrying in {backoff_delay:.1f}s (attempt {attempt + 1}/{max_attempts})."
                     warnings.append(retry_warning)
                     self.progress_sink(retry_warning)
-                    time.sleep(GDELT_RETRY_SLEEP_SECONDS)
+                    time.sleep(backoff_delay)
                     continue
                 return [], [*warnings, last_warning]
         else:

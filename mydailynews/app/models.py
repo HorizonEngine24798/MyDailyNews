@@ -11,6 +11,8 @@ class AIConfig:
     model_id: str = "Qwen3-8B-Q4_K_M"
     server_model: str = "Qwen3-8B-Q4_K_M"
     base_url: str = "http://127.0.0.1:8080/v1"
+    api_key: str = ""
+    headers: Dict[str, str] = field(default_factory=dict)
     context_window_tokens: int = 16384
     max_input_tokens: int = 12000
     max_new_tokens: int = 2048

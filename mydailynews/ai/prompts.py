@@ -392,7 +392,7 @@ Planner input:
 
 Work to perform:
 1. Return exactly one plan for every supplied story.
-2. Write 3 to 5 distinct English queries per story. Vary wording and angle, not language.
+2. Write 3 to 5 distinct English queries per story. Vary wording and angle. When target_tags include non-English sources, optionally provide 'aligned_queries' mapping language codes ('fr', 'de', 'es', 'ja', etc.) to native search queries; consult multilingual_assist for standard institution names.
 3. Every query must combine a stable named entity with a specific event or action term. Add location, institution, or time anchors when they distinguish the event; do not broaden it into a generic topic.
 4. Select story-relevant countries and regions from tag_options.
 5. Provide anchor groups: stable entities plus event/action terms. Synonyms are welcome; exact headline wording is not required.
@@ -467,6 +467,7 @@ Work to perform:
 5. Cite article_ids for every substantive comparison, including the synthesis. Use only article_id values supplied in the records; never invent or paraphrase them. Never put article IDs in prose fields; use only the dedicated article-id fields.
 6. State when coverage is thin, metadata-only, or uneven.
 7. Do not assign bias, truthfulness, source quality, national quality, language quality, or editorial intent.
+8. When articles represent fewer than two distinct countries, state plainly that multi-country perspectives are insufficient to establish divergent national framing; do not hypothesize national differences.
 
 Return exactly one item in stories[]:
 {{

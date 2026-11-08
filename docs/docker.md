@@ -1,73 +1,89 @@
-# Docker
+# Docker & Turnkey Setup
 
-This Docker setup runs the Python app in a container. It does not run a model
-server in the container; keep `llama-server` (`llama.cpp`) running on the host machine and
-point the app at it.
+MyDailyNews can run completely inside Docker containers. This eliminates the need to install Python, PyTorch, C++ compilers, or system audio libraries on your host machine.
 
-## Build
+---
 
-From the repo root:
+## 1. Quick Start Options
+
+Pick the option that fits your setup:
+
+### Option A: Zero-GPU Cloud Mode (Easiest & Fastest)
+You don't need a local GPU or local model weights. You can connect MyDailyNews to OpenAI, OpenRouter, Groq, Mistral, or any OpenAI-compatible provider:
+
+1. Copy `.env.example` to `.env`:
+   ```bash
+   cp .env.example .env
+   ```
+2. Open `.env` and set your provider details:
+   ```env
+   MYDAILYNEWS_AI_BASE_URL=https://openrouter.ai/api/v1
+   MYDAILYNEWS_AI_BACKEND=openai_compatible
+   MYDAILYNEWS_AI_API_KEY=sk-or-v1-...
+   MYDAILYNEWS_AI_MODEL=qwen/qwen-2.5-72b-instruct
+   ```
+3. Start the GUI:
+   ```bash
+   docker compose up gui
+   ```
+4. Open [http://127.0.0.1:8765](http://127.0.0.1:8765) in your browser.
+
+---
+
+### Option B: Turnkey Local LLM (Bundled Ollama)
+If you want to run everything locally without installing anything on your host OS:
+
+1. Start both MyDailyNews and Ollama in Docker:
+   ```bash
+   docker compose --profile local-llm up
+   ```
+2. Pull your desired model into the Ollama container (in a separate terminal):
+   ```bash
+   docker exec -it mydailynews-ollama ollama pull qwen2.5:7b
+   ```
+3. Open [http://127.0.0.1:8765](http://127.0.0.1:8765) and configure your model name.
+
+---
+
+### Option C: Connect to Host `llama-server` or LM Studio
+If you already run `llama-server` (`llama.cpp`) or LM Studio on your host machine:
+
+1. Start your host model server listening on port `8080` (e.g. `http://127.0.0.1:8080`).
+2. Run the GUI container:
+   ```bash
+   docker compose up gui
+   ```
+   *Docker Compose automatically routes requests to `http://host.docker.internal:8080/v1` to reach the host.*
+
+---
+
+## 2. Running CLI Commands in Docker
+
+To execute CLI pipelines rather than the GUI:
 
 ```bash
-docker compose build
-```
-
-The image uses Python 3.12 because Kokoro TTS supports Python 3.10 through
-3.12. The image also installs `libsndfile1` for the optional audio path.
-
-## Config
-
-Create your local config if you do not already have one, then write the
-recommended config from the host machine:
-
-```bash
-cp config.example.json config.local.json
-python tools/autoconfig.py --config config.local.json --write config.recommended.json
-```
-
-Run autoconfig on the host, not from the GUI running inside Docker. Hardware
-detection inside a container may not see the same GPU resources as Windows.
-
-For normal Windows runs, `config.recommended.json` should point both
-`ai_summary` and `ai_final` at `llama-server`:
-
-```json
-{
-  "base_url": "http://127.0.0.1:8080/v1",
-  "manage_server": false,
-  "server_executable": "",
-  "server_model_path": "",
-  "server_auto_stop": false
-}
-```
-
-The Compose file sets `MYDAILYNEWS_AI_BASE_URL=http://host.docker.internal:8080/v1`,
-which overrides the app's AI base URL only inside the container.
-
-## Run The Pipeline
-
-```bash
+# Run full default pipeline
 docker compose run --rm app
+
+# Run a specific module (e.g. briefs only)
+docker compose run --rm app python main.py --module briefs
+
+# Run diagnostic tests inside the container
+docker compose run --rm app python tools/run_story_retrieval_diagnostics.py
 ```
 
-Pass normal CLI arguments after the service name:
+---
 
-```bash
-docker compose run --rm app python main.py --config config.recommended.json --module briefs
-```
+## 3. How the Docker Setup Works
 
-## Run The GUI
+If you are new to Docker, here is how the pieces fit together:
 
-```bash
-docker compose up gui
-```
-
-Open:
-
-```text
-http://127.0.0.1:8765
-```
-
-The Compose file bind-mounts the repo into `/app`, so `config.local.json`,
-`config.recommended.json`, `output/`, `state/`, and `.cache/` stay on your
-machine.
+- **Image (`mydailynews:local`)**: Built from `Dockerfile`. Contains Debian Linux, Python 3.12, system audio libraries (`libsndfile1`), and all Python dependencies in `requirements.txt`.
+- **Containers**:
+  - `mydailynews-gui`: The web application and HTTP server listening on port `8765`.
+  - `mydailynews-cli`: One-off tasks that exit when finished.
+  - `mydailynews-ollama`: (Optional) Local model server container.
+- **Bind Mount (`.:/app`)**: Your local project directory is mounted inside the container. Generated briefs in `output/`, memory in `state/`, and cache in `.cache/` are written directly to your host machine's drive, so nothing is lost when the container stops.
+- **Port Mapping (`8765:8765`)**: Forwards port 8765 from inside the container to `http://127.0.0.1:8765` on your computer.
+- **Auto-Seeding Entrypoint (`docker-entrypoint.sh`)**: If you don't have a `config.local.json` or `config.recommended.json` yet, the container automatically creates `config.local.json` from `config.example.json` so you never get a startup error on a fresh clone.
+- **Model Downloads (`MYDAILYNEWS_ALLOW_MODEL_DOWNLOAD=1`)**: The container enables downloading the multilingual embedding model (`intfloat/multilingual-e5-small`) on first use if it is not already cached locally.

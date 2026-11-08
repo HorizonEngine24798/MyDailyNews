@@ -341,7 +341,8 @@ class LlamaCppServerClient(AIClient):
                 },
             }
             # Compatibility for llama.cpp builds that also check top-level json_schema.
-            payload["json_schema"] = json_schema.schema
+            if self.config.backend == "llama_cpp_server":
+                payload["json_schema"] = json_schema.schema
         else:
             payload["response_format"] = {"type": "json_object"}
 
@@ -352,8 +353,18 @@ class LlamaCppServerClient(AIClient):
         payload: Dict[str, Any],
     ) -> tuple[str, str, Dict[str, Any], Dict[str, Any]]:
         url = f"{self.base_url}/chat/completions"
+        headers: Dict[str, str] = {"Content-Type": "application/json"}
+        api_key = str(getattr(self.config, "api_key", "") or "").strip()
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        custom_headers = getattr(self.config, "headers", {})
+        if isinstance(custom_headers, dict):
+            for key, val in custom_headers.items():
+                if key:
+                    headers[str(key)] = str(val)
+
         try:
-            response = requests.post(url, json=payload, timeout=self.timeout_seconds)
+            response = requests.post(url, json=payload, headers=headers, timeout=self.timeout_seconds)
         except requests.RequestException as exc:
             raise AITransportError(f"POST {url}: {exc}") from exc
 

@@ -152,6 +152,13 @@ PERSPECTIVES_PLANNER_SCHEMA = JSONSchemaSpec(
                     "properties": {
                         "story_id": {"type": "string"},
                         "queries": {"type": "array", "items": {"type": "string"}, "minItems": 3, "maxItems": MAX_CANONICAL_QUERIES},
+                        "aligned_queries": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            },
+                        },
                         "anchor_groups": {
                             "type": "array",
                             "items": {
@@ -223,6 +230,23 @@ PERSPECTIVES_PLANNER_SCHEMA = JSONSchemaSpec(
             },
         },
         "required": ["plans"],
+        "additionalProperties": False,
+    },
+)
+MULTILINGUAL_QUERY_ALIGNMENT_SCHEMA = JSONSchemaSpec(
+    name="multilingual_query_alignment",
+    schema={
+        "type": "object",
+        "properties": {
+            "aligned_queries": {
+                "type": "object",
+                "additionalProperties": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+            },
+        },
+        "required": ["aligned_queries"],
         "additionalProperties": False,
     },
 )

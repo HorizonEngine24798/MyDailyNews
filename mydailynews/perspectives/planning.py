@@ -27,6 +27,7 @@ from mydailynews.perspectives.rendering import (
     _unique_text,
     normalize_name,
 )
+from mydailynews.perspectives.query_alignment import MULTILINGUAL_ASSIST_LOOKUP
 from mydailynews.perspectives.schemas import (
     COUNTRY_ALIASES,
     EVIDENCE_TYPES,
@@ -155,6 +156,7 @@ def _planner_prompt(*, date: str, inputs: Dict[str, Any], source_registry: List[
         "lookback_days": int(getattr(config, "coverage_timespan_days", 7) or 7),
         "stories": [_story_planner_payload(story, articles_by_id) for story in _as_list(inputs.get("stories")) if isinstance(story, dict)],
         "tag_options": _planner_tag_options(source_registry),
+        "multilingual_assist": MULTILINGUAL_ASSIST_LOOKUP,
     }
     return PERSPECTIVES_PLANNER_USER.format(date=date, data=compact_json(payload))
 
@@ -284,10 +286,17 @@ def _normalize_planner_item(item: Dict[str, Any], story: Dict[str, Any], source_
                 "queries": target_queries,
             }
         )
+    raw_aligned = item.get("aligned_queries") if isinstance(item.get("aligned_queries"), dict) else {}
+    aligned_queries = {
+        str(k).lower(): _text_list(v, max_items=MAX_CANONICAL_QUERIES, max_chars=180)
+        for k, v in raw_aligned.items()
+        if isinstance(v, list) and _text_list(v, max_items=MAX_CANONICAL_QUERIES, max_chars=180)
+    }
     return {
         "story_id": _story_identity(story),
         "status": "ok" if queries and not missing_tag_groups else "planner_failed",
         "queries": queries,
+        "aligned_queries": aligned_queries,
         "anchor_groups": anchor_groups,
         "story_loci": story_loci,
         "target_tags": {

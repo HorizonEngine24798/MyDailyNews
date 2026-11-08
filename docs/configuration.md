@@ -19,13 +19,15 @@ Do not edit tracked defaults directly. Copy `config.example.json` to a local con
 
 Important fields:
 
-- `backend`: must be `llama_cpp_server`.
-- `base_url`: OpenAI-compatible endpoint, usually `http://127.0.0.1:8080/v1`.
-- `server_model`: model label sent to the endpoint.
+- `backend`: `llama_cpp_server` (for local llama.cpp) or `openai_compatible` (for OpenAI, OpenRouter, Groq, Ollama, vLLM).
+- `base_url`: OpenAI-compatible endpoint, usually `http://127.0.0.1:8080/v1` or remote URL.
+- `api_key`: optional bearer token / API key (also configurable via `MYDAILYNEWS_AI_API_KEY`, `OPENAI_API_KEY`, or `OPENROUTER_API_KEY` environment variables).
+- `headers`: optional dictionary of custom HTTP request headers.
+- `server_model`: model label sent to the endpoint (e.g. `gpt-4o-mini`, `qwen/qwen-2.5-72b-instruct`).
 - `context_window_tokens`: app-side record of the server's effective per-slot context window.
 - `max_input_tokens` and `max_new_tokens`: model-role ceilings. One shared resolver reserves context overhead and clamps every request so input plus output cannot exceed the context window.
-- `manage_server`: keep `false` for external `llama-server` or Docker.
-- `server_executable`, `server_model_path`, and `server_arguments`: only used when `manage_server=true`.
+- `manage_server`: keep `false` for external servers, remote endpoints, or Docker.
+- `server_executable`, `server_model_path`, and `server_arguments`: only used when `manage_server=true` with `backend=llama_cpp_server`.
 
 Stage token fields are optional preferences. Leave them `null` to inherit the model-role ceilings; use positive values only when a stage has a measured reason to be smaller. Disabling work uses the stage's `enabled` flag, not a zero token budget.
 

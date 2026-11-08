@@ -86,6 +86,12 @@ def main() -> int:
 
     config_path = Path(args.config)
     if not config_path.exists():
+        if args.config in {"config.local.json", "config.recommended.json"}:
+            for alt in (Path("config.recommended.json"), Path("config.local.json")):
+                if alt.exists():
+                    config_path = alt
+                    break
+    if not config_path.exists():
         print(f"Config not found: {config_path}")
         print("Create a local config before running the pipeline:")
         print("  cp config.example.json config.local.json")

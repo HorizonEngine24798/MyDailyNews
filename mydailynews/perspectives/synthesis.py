@@ -17,6 +17,7 @@ from mydailynews.perspectives.coverage import (
     _coverage_quality,
     _effective_article_limit,
 )
+from mydailynews.perspectives.grounding import verify_synthesis_grounding
 from mydailynews.perspectives.planning import _seed_sources
 from mydailynews.perspectives.rendering import (
     _as_list,
@@ -227,13 +228,20 @@ def build_framing_comparisons(
             for claim in _as_list(story.get("claims"))
             if isinstance(claim, dict) and str(claim.get("claim_id") or "") in target_by_claim
         ]
+        coverage_limits = list(coverage.get("coverage_quality", {}).get("thin_reasons", []))
+        distinct_countries = {str(a.get("source_country") or "").upper() for a in articles if str(a.get("source_country") or "").strip()}
+        if len(distinct_countries) < 2:
+            single_country_note = "Coverage is concentrated in a single national jurisdiction; multi-country framing contrast cannot be reliably established."
+            if single_country_note not in coverage_limits:
+                coverage_limits.append(single_country_note)
+
         story_payloads.append(
             {
                 "story_id": story_id,
                 "title": str(story.get("story_title") or story.get("title") or ""),
                 "summary": str(story.get("summary") or ""),
                 "articles": articles,
-                "coverage_limitations": list(coverage.get("coverage_quality", {}).get("thin_reasons", [])),
+                "coverage_limitations": coverage_limits,
                 "claims": focused_claims,
                 "confirmed_facts": _as_list(story.get("confirmed_facts")),
                 "conflicting_claims": _as_list(story.get("conflicting_claims")),
@@ -288,8 +296,9 @@ def build_framing_comparisons(
             framing_reports[story_id] = _empty_framing_report("Framing comparison unavailable after AI error.")
             continue
         known_ids = [str(article.get("article_id") or "") for article in story_payload["articles"]]
+        articles_by_id = {str(article.get("article_id") or ""): article for article in story_payload["articles"] if isinstance(article, dict)}
         if story_payload.get("claims"):
-            framing_reports[story_id] = _normalize_claim_synthesis_response(
+            normalized_report = _normalize_claim_synthesis_response(
                 raw,
                 story=story_payload,
                 known_article_ids=known_ids,
@@ -297,15 +306,26 @@ def build_framing_comparisons(
                 verification_documents=verification_documents,
                 warnings=warnings,
             )
+            framing_reports[story_id] = verify_synthesis_grounding(
+                normalized_report,
+                story=story_payload,
+                articles_by_id=articles_by_id,
+                warnings=warnings,
+            )
         else:
-            framing_reports.update(
-                _normalize_framing_response(
-                    raw,
-                    known_story_ids=[story_id],
-                    known_article_ids={story_id: known_ids},
+            normalized_reports = _normalize_framing_response(
+                raw,
+                known_story_ids=[story_id],
+                known_article_ids={story_id: known_ids},
+                warnings=warnings,
+            )
+            for sid, rep in normalized_reports.items():
+                framing_reports[sid] = verify_synthesis_grounding(
+                    rep,
+                    story=story_payload,
+                    articles_by_id=articles_by_id,
                     warnings=warnings,
                 )
-            )
     return framing_reports
 
 
@@ -788,6 +808,7 @@ def _story_report(
         "claim_perspectives": claim_perspectives,
         "claim_context_cards": _visible_claim_cards(claim_perspectives),
         "framing_report": public_framing,
+        "grounding_diagnostics": framing.get("grounding_diagnostics", {}),
     }
 
 
@@ -795,6 +816,7 @@ def _public_plan(plan: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "status": str(plan.get("status") or ""),
         "queries": _string_list(plan.get("queries")),
+        "aligned_queries": plan.get("aligned_queries", {}),
         "anchor_groups": plan.get("anchor_groups", []),
         "story_loci": plan.get("story_loci", []),
         "target_tags": plan.get("target_tags", {}),

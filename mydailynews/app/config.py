@@ -253,8 +253,13 @@ def _optional_limit(value: Any, *, field_name: str) -> int | None:
 
 def _load_ai_backend(value: Any, section_name: str) -> str:
     backend = str(value or "llama_cpp_server").strip().lower()
-    if backend != "llama_cpp_server":
-        raise ValueError(f"Unsupported {section_name}.backend '{backend}'. Supported backend: llama_cpp_server")
+    if backend not in {"llama_cpp_server", "openai_compatible", "openai"}:
+        raise ValueError(
+            f"Unsupported {section_name}.backend '{backend}'. "
+            "Supported backends: llama_cpp_server, openai_compatible"
+        )
+    if backend == "openai":
+        return "openai_compatible"
     return backend
 
 
@@ -306,12 +311,17 @@ def _load_ai(ai_raw: Dict[str, Any], section_name: str = "ai") -> AIConfig:
         )
     )
     default_model_id = str(ai_raw.get("model_id", default_server_model))
+    api_key = str(ai_raw.get("api_key", "") or "").strip()
+    headers_raw = ai_raw.get("headers", {})
+    headers = {str(k): str(v) for k, v in headers_raw.items()} if isinstance(headers_raw, dict) else {}
 
     config = AIConfig(
         backend=backend,
         model_id=default_model_id,
         server_model=default_server_model,
         base_url=str(ai_raw.get("base_url", "http://127.0.0.1:8080/v1")),
+        api_key=api_key,
+        headers=headers,
         context_window_tokens=int(ai_raw.get("context_window_tokens", DEFAULT_CONTEXT_WINDOW_TOKENS)),
         max_input_tokens=int(ai_raw.get("max_input_tokens", DEFAULT_MAX_INPUT_TOKENS)),
         max_new_tokens=int(ai_raw.get("max_new_tokens", DEFAULT_MAX_NEW_TOKENS)),
@@ -342,6 +352,11 @@ def _load_ai(ai_raw: Dict[str, Any], section_name: str = "ai") -> AIConfig:
 def _validate_ai_runtime(config: AIConfig, section_name: str) -> None:
     if not config.manage_server:
         return
+    if config.backend != "llama_cpp_server":
+        raise ValueError(
+            f"{section_name}.manage_server=true is only supported for 'llama_cpp_server' backend; "
+            f"current backend is '{config.backend}'"
+        )
     if not str(config.server_executable or "").strip():
         raise ValueError(f"{section_name}.server_executable is required when manage_server=true")
     if not str(config.server_model_path or "").strip():
@@ -853,10 +868,68 @@ def load_config(path: Path) -> AppConfig:
 
 
 def _apply_environment_overrides(config: AppConfig) -> None:
+    # Base URL overrides
     base_url = os.environ.get("MYDAILYNEWS_AI_BASE_URL", "").strip()
     if base_url:
         config.ai_summary.base_url = base_url
         config.ai_final.base_url = base_url
+    summary_base_url = os.environ.get("MYDAILYNEWS_AI_SUMMARY_BASE_URL", "").strip()
+    if summary_base_url:
+        config.ai_summary.base_url = summary_base_url
+    final_base_url = os.environ.get("MYDAILYNEWS_AI_FINAL_BASE_URL", "").strip()
+    if final_base_url:
+        config.ai_final.base_url = final_base_url
+
+    # API key overrides
+    api_key = (
+        os.environ.get("MYDAILYNEWS_AI_API_KEY", "").strip()
+        or os.environ.get("OPENAI_API_KEY", "").strip()
+        or os.environ.get("OPENROUTER_API_KEY", "").strip()
+    )
+    if api_key:
+        if not config.ai_summary.api_key:
+            config.ai_summary.api_key = api_key
+        if not config.ai_final.api_key:
+            config.ai_final.api_key = api_key
+    summary_api_key = os.environ.get("MYDAILYNEWS_AI_SUMMARY_API_KEY", "").strip()
+    if summary_api_key:
+        config.ai_summary.api_key = summary_api_key
+    final_api_key = os.environ.get("MYDAILYNEWS_AI_FINAL_API_KEY", "").strip()
+    if final_api_key:
+        config.ai_final.api_key = final_api_key
+
+    # Backend overrides
+    backend = os.environ.get("MYDAILYNEWS_AI_BACKEND", "").strip().lower()
+    if backend in {"llama_cpp_server", "openai_compatible", "openai"}:
+        norm_backend = "openai_compatible" if backend == "openai" else backend
+        config.ai_summary.backend = norm_backend
+        config.ai_final.backend = norm_backend
+
+    # Model overrides
+    model = os.environ.get("MYDAILYNEWS_AI_MODEL", "").strip()
+    if model:
+        config.ai_summary.server_model = model
+        config.ai_summary.model_id = model
+        config.ai_final.server_model = model
+        config.ai_final.model_id = model
+    summary_model = os.environ.get("MYDAILYNEWS_AI_SUMMARY_MODEL", "").strip()
+    if summary_model:
+        config.ai_summary.server_model = summary_model
+        config.ai_summary.model_id = summary_model
+    final_model = os.environ.get("MYDAILYNEWS_AI_FINAL_MODEL", "").strip()
+    if final_model:
+        config.ai_final.server_model = final_model
+        config.ai_final.model_id = final_model
+
+    # Manage server override
+    manage_server_val = os.environ.get("MYDAILYNEWS_AI_MANAGE_SERVER", "").strip().lower()
+    if manage_server_val in {"0", "false", "no"}:
+        config.ai_summary.manage_server = False
+        config.ai_final.manage_server = False
+    elif manage_server_val in {"1", "true", "yes"}:
+        config.ai_summary.manage_server = True
+        config.ai_final.manage_server = True
+
     gnews_api_key = os.environ.get("MYDAILYNEWS_GNEWS_API_KEY", "").strip() or os.environ.get("GNEWS_API_KEY", "").strip()
     if gnews_api_key:
         config.perspectives_report.gnews_api_key = gnews_api_key

@@ -55,11 +55,11 @@ flowchart TD
 
 ## Perspectives Module (`mydailynews/perspectives/`)
 
-Orchestrated by [`mydailynews/pipeline/perspectives_report.py`](../mydailynews/pipeline/perspectives_report.py) across five focused modules:
+Orchestrated by [`mydailynews/pipeline/perspectives_report.py`](../mydailynews/pipeline/perspectives_report.py) across focused modules:
 
 1. **Inputs & Planning (`planning.py`)**: Collects same-day stories/claims from briefs; batches up to 4 stories per planner call (`PERSPECTIVES_PLANNER_SCHEMA`) to produce canonical queries, anchor groups, story loci, target country/region tags, and claim verification targets.
-2. **Global Coverage (`coverage.py`)**: Queries GDELT, Registry RSS (with 2-step self-healing), and optional GNews in parallel; filters by lexical/anchor relevance, deduplicates, selects diverse countries/sources, and fetches bounded article excerpts.
-3. **Claim Verification & Synthesis (`synthesis.py`)**: Runs targeted verification queries (DDG + news provider) and 1 verifier LLM call per selected claim (`PERSPECTIVES_VERIFIER_SCHEMA`), followed by 1 claim-led synthesis call per story (`PERSPECTIVES_CLAIM_SYNTHESIS_SCHEMA`).
+2. **Global Coverage & Query Alignment (`coverage.py`, `query_alignment.py`)**: Queries GDELT, Google News RSS, Registry RSS (with 2-step self-healing), and optional GNews in parallel; aligns queries and anchor groups across target languages (e.g. French, German, Spanish, Japanese); filters by lexical/anchor relevance and multilingual semantic embeddings (`intfloat/multilingual-e5-small`), deduplicates, selects diverse countries/sources, and fetches bounded article excerpts.
+3. **Claim Verification, Synthesis, & Grounding (`synthesis.py`, `grounding.py`)**: Runs targeted verification queries and 1 verifier LLM call per selected claim (`PERSPECTIVES_VERIFIER_SCHEMA`), followed by 1 claim-led synthesis call per story (`PERSPECTIVES_CLAIM_SYNTHESIS_SCHEMA`); runs post-synthesis citation and country-attribution grounding validation (`verify_synthesis_grounding`).
 4. **Schemas & Rendering (`schemas.py`, `rendering.py`)**: Validates JSON contracts and writes `YYYY-MM-DD_perspectives_report.{md,json}`.
 
 ## AI Roles & Storage Boundaries

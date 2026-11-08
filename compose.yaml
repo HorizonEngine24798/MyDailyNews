@@ -1,22 +1,55 @@
 services:
-  app:
-    build: .
-    image: mydailynews:local
-    working_dir: /app
-    environment:
-      MYDAILYNEWS_AI_BASE_URL: http://host.docker.internal:8080/v1
-    volumes:
-      - .:/app
-    command: ["python", "main.py", "--config", "config.recommended.json"]
-
   gui:
     build: .
     image: mydailynews:local
+    container_name: mydailynews-gui
     working_dir: /app
-    environment:
-      MYDAILYNEWS_AI_BASE_URL: http://host.docker.internal:8080/v1
-    volumes:
-      - .:/app
     ports:
       - "8765:8765"
-    command: ["python", "gui.py", "--config", "config.recommended.json", "--host", "0.0.0.0", "--port", "8765"]
+    environment:
+      MYDAILYNEWS_AI_BASE_URL: ${MYDAILYNEWS_AI_BASE_URL:-http://host.docker.internal:8080/v1}
+      MYDAILYNEWS_AI_BACKEND: ${MYDAILYNEWS_AI_BACKEND:-llama_cpp_server}
+      MYDAILYNEWS_AI_API_KEY: ${MYDAILYNEWS_AI_API_KEY:-}
+      MYDAILYNEWS_AI_MODEL: ${MYDAILYNEWS_AI_MODEL:-}
+      MYDAILYNEWS_AI_MANAGE_SERVER: "false"
+      MYDAILYNEWS_ALLOW_MODEL_DOWNLOAD: "1"
+      MYDAILYNEWS_GNEWS_API_KEY: ${MYDAILYNEWS_GNEWS_API_KEY:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - .:/app
+    command: ["python", "gui.py", "--host", "0.0.0.0", "--port", "8765"]
+
+  app:
+    build: .
+    image: mydailynews:local
+    container_name: mydailynews-cli
+    working_dir: /app
+    environment:
+      MYDAILYNEWS_AI_BASE_URL: ${MYDAILYNEWS_AI_BASE_URL:-http://host.docker.internal:8080/v1}
+      MYDAILYNEWS_AI_BACKEND: ${MYDAILYNEWS_AI_BACKEND:-llama_cpp_server}
+      MYDAILYNEWS_AI_API_KEY: ${MYDAILYNEWS_AI_API_KEY:-}
+      MYDAILYNEWS_AI_MODEL: ${MYDAILYNEWS_AI_MODEL:-}
+      MYDAILYNEWS_AI_MANAGE_SERVER: "false"
+      MYDAILYNEWS_ALLOW_MODEL_DOWNLOAD: "1"
+      MYDAILYNEWS_GNEWS_API_KEY: ${MYDAILYNEWS_GNEWS_API_KEY:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - .:/app
+    command: ["python", "main.py"]
+
+  # Turnkey local LLM container (run with: docker compose --profile local-llm up)
+  ollama:
+    image: ollama/ollama:latest
+    container_name: mydailynews-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    profiles:
+      - local-llm
+      - ollama
+
+volumes:
+  ollama_models:

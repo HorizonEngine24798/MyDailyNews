@@ -124,6 +124,12 @@ from mydailynews.perspectives.schemas import (
     TAG_RE,
     VERDICTS,
 )
+from mydailynews.perspectives.grounding import verify_synthesis_grounding
+from mydailynews.perspectives.query_alignment import (
+    align_queries_with_llm,
+    align_query_with_assist,
+    expand_multilingual_anchor_groups,
+)
 from mydailynews.perspectives.sources import load_source_registry, match_source_by_domain, source_domain_map
 from mydailynews.perspectives.synthesis import (
     _claim_card_score,
@@ -148,6 +154,7 @@ from mydailynews.retrieval.article import ArticleRetriever
 from mydailynews.retrieval.ddg import DuckDuckGoSearchRetriever
 from mydailynews.retrieval.gdelt import GdeltDocRetriever
 from mydailynews.retrieval.gnews import GNewsRetriever
+from mydailynews.retrieval.google_news_rss import GoogleNewsRssCoverageRetriever
 from mydailynews.retrieval.registry_rss import RegistryRssRetriever
 
 
@@ -311,6 +318,7 @@ def collect_global_coverage(
     }
     gdelt_retriever = GdeltDocRetriever(**retriever_kwargs)
     registry_rss_retriever = RegistryRssRetriever(source_registry, **retriever_kwargs)
+    google_news_rss_retriever = GoogleNewsRssCoverageRetriever(**retriever_kwargs)
     gnews_key = str(getattr(config, "gnews_api_key", "") or "").strip()
     gnews_retriever = GNewsRetriever(api_key=gnews_key, **retriever_kwargs) if gnews_key else None
     if gnews_retriever is None:
@@ -343,6 +351,7 @@ def collect_global_coverage(
             gdelt_retriever=gdelt_retriever,
             gnews_retriever=gnews_retriever,
             article_retriever=article_retriever,
+            google_news_rss_retriever=google_news_rss_retriever,
             article_text_cache=getattr(orchestrator, "article_text_cache", None),
             max_article_workers=int(getattr(getattr(orchestrator.config, "runtime", None), "max_article_workers", 1) or 1),
             debug=getattr(orchestrator, "debug", None),
@@ -408,6 +417,7 @@ def collect_verification_documents(
     gnews_key = str(getattr(config, "gnews_api_key", "") or "").strip()
     news_retriever = GNewsRetriever(api_key=gnews_key, **retriever_kwargs) if gnews_key else GdeltDocRetriever(**retriever_kwargs)
     news_provider = "gnews" if gnews_key else "gdelt_doc"
+    free_google_news_retriever = GoogleNewsRssCoverageRetriever(**retriever_kwargs)
     article_retriever = ArticleRetriever(
         str(getattr(orchestrator.config, "user_agent", "MyDailyNews/1.0")),
         ARTICLE_FETCH_MAX_CHARS,
@@ -461,6 +471,15 @@ def collect_verification_documents(
                             source_countries=[],
                         )
                         extend_warnings(warnings, search_warnings)
+                        if not found and not gnews_key:
+                            found_free, free_warnings = free_google_news_retriever.search(
+                                query,
+                                timespan_days=int(getattr(config, "coverage_timespan_days", 7) or 7),
+                                max_records=max(document_limit * 2, document_limit),
+                                source_countries=[],
+                            )
+                            found = found_free
+                            extend_warnings(warnings, free_warnings)
                     else:
                         found = ddg.search(query, max(document_limit * 2, document_limit))
                 except Exception as exc:
@@ -494,6 +513,84 @@ def collect_verification_documents(
                             "independent_of_claimant": evidence_type in {"independent", "counterevidence"},
                         }
                     )
+
+            if not rows:
+                claim_text = str(claims.get(claim_id, {}).get("claim") or "").strip()
+                relaxed_words = [
+                    w for w in re.findall(r"\b[A-Za-z0-9_-]+\b", claim_text)
+                    if len(w) >= 3 and w.lower() not in {
+                        "that", "this", "with", "from", "were", "been", "have", "said", "reported",
+                        "claim", "claimed", "according", "stated", "which", "would", "about", "their", "there"
+                    }
+                ]
+                relaxed_query = " ".join(relaxed_words[:5])
+                if relaxed_query:
+                    try:
+                        found_rel, _ = free_google_news_retriever.search(
+                            relaxed_query,
+                            timespan_days=int(getattr(config, "coverage_timespan_days", 7) or 7),
+                            max_records=document_limit,
+                            source_countries=[],
+                        )
+                        for result in found_rel:
+                            r_url = str(result.get("canonical_url") or result.get("url") or "")
+                            r_title = str(result.get("title") or "")
+                            url = canonical_article_url(r_url) or r_url
+                            rows.append(
+                                {
+                                    "article_id": f"verification-{stable_id(url, r_title)}",
+                                    "provider": "google_news_rss",
+                                    "url": r_url,
+                                    "canonical_url": url,
+                                    "domain": _hostname(url),
+                                    "source_name": str(result.get("source_name") or ""),
+                                    "source_country": str(result.get("source_country") or ""),
+                                    "source_language": str(result.get("source_language") or ""),
+                                    "source_key": str(result.get("source_name") or ""),
+                                    "title": r_title,
+                                    "snippet": str(result.get("snippet") or ""),
+                                    "published_at": str(result.get("published_at") or ""),
+                                    "retrieval_query": relaxed_query,
+                                    "retrieval_query_type": "relaxed_verification",
+                                    "evidence_type": "independent",
+                                    "source_role": "independent_or_counterevidence_candidate",
+                                    "independent_of_claimant": True,
+                                }
+                            )
+                    except Exception:
+                        pass
+
+            if not rows:
+                articles_by_id = {str(a.get("id")): a for a in _as_list(inputs.get("articles")) if isinstance(a, dict) and a.get("id")}
+                story_article_ids = _story_article_ids(story)
+                seed_articles = [articles_by_id[aid] for aid in story_article_ids if aid in articles_by_id]
+                claim_text = str(claims.get(claim_id, {}).get("claim") or "").strip()
+                for seed in seed_articles[:2]:
+                    s_url = str(seed.get("canonical_url") or seed.get("url") or "")
+                    s_title = str(seed.get("title") or seed.get("headline") or "")
+                    if s_url and s_title:
+                        url = canonical_article_url(s_url) or s_url
+                        rows.append(
+                            {
+                                "article_id": f"verification-{stable_id(url, s_title)}",
+                                "provider": "brief_source",
+                                "url": s_url,
+                                "canonical_url": url,
+                                "domain": _hostname(url),
+                                "source_name": str(seed.get("source_name") or seed.get("source") or "Brief Source"),
+                                "source_country": str(seed.get("source_country") or seed.get("country") or ""),
+                                "source_language": str(seed.get("source_language") or seed.get("language") or ""),
+                                "source_key": str(seed.get("source_name") or seed.get("source") or ""),
+                                "title": s_title,
+                                "snippet": str(seed.get("snippet") or ""),
+                                "published_at": str(seed.get("published_at") or ""),
+                                "retrieval_query": claim_text,
+                                "retrieval_query_type": "brief_seed_context",
+                                "evidence_type": "primary",
+                                "source_role": "primary_or_origin_candidate",
+                                "independent_of_claimant": False,
+                            }
+                        )
             retained = _dedupe_coverage_rows(rows)[:document_limit]
             claim_story = dict(story)
             claim_story["summary"] = f"{story.get('summary', '')} {claims[claim_id].get('claim', '')}".strip()
