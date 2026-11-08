@@ -51,24 +51,12 @@ foreach ($sectionName in @("general_filtering", "filtering")) {
 }
 
 $config.cache.dir = ".cache/cpu-model-test"
-$config.enrichment.enabled = $FullPipeline.IsPresent
-$config.enrichment.mode = if ($FullPipeline) { "story_llm" } else { "disabled" }
-$config.enrichment.max_story_threads = 2
-$config.enrichment.planner_max_questions_per_story = 1
-$config.enrichment.planner_max_input_tokens = 1000
-$config.enrichment.planner_max_new_tokens = 192
-$config.enrichment.search_results_per_query = 3
-$config.enrichment.max_fetched_research_pages_per_story = 1
-$config.enrichment.max_selected_article_excerpt_chars = 800
-$config.enrichment.max_research_excerpt_chars = 600
-$config.enrichment.synthesis_max_input_tokens = 1200
-$config.enrichment.synthesis_max_new_tokens = 256
 $config.narrative_briefing.enabled = $FullPipeline.IsPresent
 $config.narrative_briefing.max_input_tokens = 1400
 $config.narrative_briefing.max_new_tokens = 256
 $config.narrative_briefing.target_words = 250
 $config.tts.enabled = $false
-$config.pipeline.default_series = if ($FullPipeline) { @("briefs", "enrichment", "perspectives_report", "narrative_brief") } else { @("briefs") }
+$config.pipeline.default_series = if ($FullPipeline) { @("briefs", "perspectives_report", "narrative_brief") } else { @("briefs") }
 if ($config.memory) {
     $config.memory.state_dir = "state/cpu-model-test-memory"
 }

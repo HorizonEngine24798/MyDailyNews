@@ -16,7 +16,6 @@ import { defaultStoryStore, state } from "./state.js";
 
 const PIPELINE_MODULES = [
   ["briefs", "Briefs"],
-  ["enrichment", "Enrichment"],
   ["narrative_brief", "Narrative brief"],
   ["perspectives_report", "Perspectives report"],
 ];

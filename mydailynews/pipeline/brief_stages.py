@@ -255,7 +255,6 @@ def _select_articles_stage(
     prior_reports: List[PriorReport],
     brief_goal: str,
     date: str,
-    include_enrichment_context: bool,
     coverage_store=None,
     story_store=None,
     learned_preferences=None,
@@ -284,7 +283,6 @@ def _select_articles_stage(
         prior_reports=prior_reports,
         brief_goal=brief_goal,
         date=date,
-        include_enrichment_context=include_enrichment_context,
         run_warnings=warnings,
     )
     orchestrator.debug.set_metric(f"brief.{brief_name}.selected", len(selected))
@@ -388,12 +386,10 @@ def _story_grouping_stage(
     *,
     brief_name: str,
     selected: List[SelectedArticle],
-    include_enrichment_context: bool,
     evidence_config,
     delta_config=None,
     date: str = "",
 ) -> StoryGroupingStageResult:
-    needs_enrichment_grouping = bool(include_enrichment_context)
     needs_evidence_grouping = bool(getattr(evidence_config, "enabled", False))
     needs_delta_grouping = bool(getattr(delta_config, "enabled", False))
     warning_sink: List[str] = []
@@ -409,7 +405,6 @@ def _story_grouping_stage(
             brief=brief_name,
             reason=reason,
             selected=len(selected),
-            needs_enrichment=needs_enrichment_grouping,
             needs_evidence=needs_evidence_grouping,
             needs_delta=needs_delta_grouping,
         )
@@ -417,7 +412,7 @@ def _story_grouping_stage(
 
     if not selected:
         return skipped("no_selected_articles")
-    if not any((needs_enrichment_grouping, needs_evidence_grouping, needs_delta_grouping)):
+    if not any((needs_evidence_grouping, needs_delta_grouping)):
         return skipped("no_consumers_enabled")
 
     ai_client = getattr(orchestrator, "summary_ai_client", None)

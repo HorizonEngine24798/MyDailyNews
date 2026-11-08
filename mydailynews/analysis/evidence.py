@@ -73,14 +73,12 @@ class EvidenceDistiller:
         self,
         client: AIClient,
         config: EvidenceDistillationConfig,
-        include_enrichment_context: bool = True,
         debug: DebugLogger | None = None,
         cache: JSONCache | None = None,
         cache_ttl_seconds: int | None = None,
     ) -> None:
         self.client = client
         self.config = config
-        self.include_enrichment_context = bool(include_enrichment_context)
         self.debug = debug or DebugLogger(False)
         self.cache = cache
         self.cache_ttl_seconds = (
@@ -904,7 +902,7 @@ class EvidenceDistiller:
             "extraction_status": article.extraction_status,
             "story_threads": story_thread_payloads(article, max_items=2),
         }
-        if self.include_enrichment_context:
+        if article.context_sources:
             payload["context_sources"] = [
                 {
                     "kind": item.kind,

@@ -46,7 +46,6 @@ def collect_perspectives_inputs(
     output_dir: Path,
     date: str,
     source_outputs: List[BriefOutput] | None = None,
-    enrichment_json_path: str = "",
     allow_disk_fallback: bool = True,
 ) -> Dict[str, Any]:
     warnings: List[str] = []
@@ -76,35 +75,8 @@ def collect_perspectives_inputs(
                 article["source_briefs"] = sorted({*article["source_briefs"], brief_name})
                 brief_articles.append(article)
 
-    explicit_path = str(enrichment_json_path or "").strip()
-    if explicit_path:
-        enrichment_path = Path(explicit_path)
-    elif allow_disk_fallback:
-        enrichment_path = output_dir / f"{date}_enrichment.json"
-    else:
-        enrichment_path = None
-
-    if enrichment_path is not None and enrichment_path.exists():
-        payload = _load_json(enrichment_path, warnings, "enrichment")
-        if payload:
-            articles = [_article_from_selected(item) for item in _as_list(payload.get("selected_articles"))]
-            articles = [article for article in articles if article["id"] or article["source"]]
-            articles = _dedupe_articles([*articles, *brief_articles])
-            stories = _stories_from_enrichment(payload, articles)
-            _attach_claims_to_stories(stories, brief_payloads, warnings)
-            return {
-                "mode": "enrichment",
-                "path": str(enrichment_path),
-                "source_briefs": _unique_text([*_string_list(payload.get("source_briefs")), *source_briefs]),
-                "articles": articles,
-                "stories": stories,
-                "warnings": warnings,
-            }
-    elif explicit_path:
-        warnings.append(f"perspectives_report: enrichment JSON does not exist: {enrichment_path}.")
-
     articles = _dedupe_articles(brief_articles)
-    stories = _fallback_stories(articles)
+    stories = _stories_from_briefs(brief_payloads, articles)
     _attach_claims_to_stories(stories, brief_payloads, warnings)
     return {
         "mode": "briefs",
@@ -483,33 +455,6 @@ def _load_json(path: Path, warnings: List[str], label: str) -> Dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
-def _stories_from_enrichment(payload: Dict[str, Any], articles: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    known_ids = {article["id"] for article in articles}
-    stories: List[Dict[str, Any]] = []
-    for thread in _as_list(payload.get("story_threads")):
-        if not isinstance(thread, dict):
-            continue
-        status = str(thread.get("status", "") or "").strip().lower()
-        disposition = str(thread.get("disposition", "") or "").strip().lower()
-        if status == "skipped_misc" or disposition == "misc":
-            continue
-        article_ids = [str(item) for item in _as_list(thread.get("article_ids")) if str(item) in known_ids]
-        if article_ids:
-            stories.append(
-                {
-                    "story_id": str(thread.get("story_id", "") or ""),
-                    "story_title": str(thread.get("story_title", "") or thread.get("label", "") or "Story"),
-                    "summary": _thread_summary(thread),
-                    "entities": _string_list(thread.get("entities")),
-                    "article_ids": article_ids,
-                    "confirmed_facts": _as_list(thread.get("confirmed_facts")),
-                    "conflicting_claims": _as_list(thread.get("conflicting_claims")),
-                    "open_questions": _as_list(thread.get("open_questions")),
-                }
-            )
-    return stories or _fallback_stories(articles)
-
-
 def _attach_claims_to_stories(
     stories: List[Dict[str, Any]],
     brief_payloads: List[Dict[str, Any]],
@@ -566,6 +511,131 @@ def _attach_claims_to_stories(
         warnings.append(f"perspectives_report: discarded {len(unmatched)} evidence claim(s) with no supporting-article overlap.")
 
 
+def _stories_from_briefs(
+    brief_payloads: List[Dict[str, Any]],
+    articles: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    by_id = {article["id"]: article for article in articles if article.get("id")}
+    known_ids = set(by_id)
+    stories: List[Dict[str, Any]] = []
+    used_story_ids: set[str] = set()
+
+    def _merge_or_append(
+        *,
+        raw_id: str,
+        raw_title: str,
+        raw_summary: str,
+        article_ids: List[str],
+        confirmed_facts: List[Any] | None = None,
+        conflicting_claims: List[Any] | None = None,
+        open_questions: List[Any] | None = None,
+    ) -> None:
+        if not article_ids:
+            return
+        id_set = set(article_ids)
+        for existing in stories:
+            if id_set.intersection(existing["article_ids"]):
+                existing["article_ids"] = _unique_text([*existing["article_ids"], *article_ids])
+                if not existing.get("summary") and raw_summary:
+                    existing["summary"] = raw_summary
+                existing["confirmed_facts"] = _unique_text([*_string_list(existing.get("confirmed_facts")), *_string_list(confirmed_facts)])
+                existing["conflicting_claims"] = _unique_text([*_string_list(existing.get("conflicting_claims")), *_string_list(conflicting_claims)])
+                existing["open_questions"] = _unique_text([*_string_list(existing.get("open_questions")), *_string_list(open_questions)])
+                return
+        lead = by_id.get(article_ids[0], {})
+        story_id = raw_id or str(lead.get("story_key") or lead.get("id") or f"story-{len(stories) + 1}")
+        if story_id in used_story_ids:
+            story_id = f"{story_id}-{len(stories) + 1}"
+        used_story_ids.add(story_id)
+        story_articles = [by_id[aid] for aid in article_ids if aid in by_id]
+        story_title = raw_title or str(lead.get("headline") or lead.get("topic") or "Story")
+        summary = raw_summary or _articles_summary(story_articles)
+        stories.append(
+            {
+                "story_id": story_id,
+                "story_title": story_title,
+                "summary": summary,
+                "entities": [],
+                "article_ids": article_ids,
+                "confirmed_facts": _as_list(confirmed_facts),
+                "conflicting_claims": _as_list(conflicting_claims),
+                "open_questions": _as_list(open_questions),
+            }
+        )
+
+    for payload in brief_payloads:
+        analysis = payload.get("analysis") if isinstance(payload.get("analysis"), dict) else {}
+        evidence = analysis.get("evidence_packet") if isinstance(analysis.get("evidence_packet"), dict) else {}
+        for cluster in _as_list(evidence.get("story_clusters")):
+            if not isinstance(cluster, dict):
+                continue
+            article_ids = [item for item in _string_list(cluster.get("article_ids")) if item in known_ids]
+            if not article_ids:
+                continue
+            story_articles = [by_id[aid] for aid in article_ids if aid in by_id]
+            _merge_or_append(
+                raw_id=str(cluster.get("story_id") or cluster.get("cluster_id") or "").strip(),
+                raw_title=str(cluster.get("story_title") or cluster.get("label") or "").strip(),
+                raw_summary=_thread_summary(cluster) or _articles_summary(story_articles),
+                article_ids=article_ids,
+                confirmed_facts=_as_list(cluster.get("confirmed_facts") or cluster.get("consensus_points")),
+                conflicting_claims=_as_list(cluster.get("conflicting_claims") or cluster.get("contested_points")),
+                open_questions=_as_list(cluster.get("open_questions") or cluster.get("known_unknowns")),
+            )
+
+    for payload in brief_payloads:
+        analysis = payload.get("analysis") if isinstance(payload.get("analysis"), dict) else {}
+        delta = analysis.get("delta_packet") if isinstance(analysis.get("delta_packet"), dict) else {}
+        decisions_by_key = {
+            str(item.get("story_key") or "").strip(): item
+            for item in _as_list(delta.get("story_decisions"))
+            if isinstance(item, dict) and str(item.get("story_key") or "").strip()
+        }
+        for card in _as_list(delta.get("story_cards")):
+            if not isinstance(card, dict):
+                continue
+            article_ids = [item for item in _string_list(card.get("article_ids")) if item in known_ids]
+            if not article_ids:
+                continue
+            story_key = str(card.get("story_key") or card.get("current_story_key") or "").strip()
+            decision = decisions_by_key.get(story_key, {})
+            story_articles = [by_id[aid] for aid in article_ids if aid in by_id]
+            _merge_or_append(
+                raw_id=story_key or str(card.get("card_id") or "").strip(),
+                raw_title=str(card.get("title") or "").strip(),
+                raw_summary=_short_text(decision.get("summary"), 900) or _articles_summary(story_articles),
+                article_ids=article_ids,
+                confirmed_facts=_as_list(decision.get("knowns")),
+                open_questions=_as_list(decision.get("unknowns")),
+            )
+
+    if not stories:
+        return _fallback_stories(articles)
+    covered_ids = {aid for story in stories for aid in story.get("article_ids", [])}
+    uncovered = [article for article in articles if article.get("id") not in covered_ids]
+    if uncovered:
+        for fallback in _fallback_stories(uncovered):
+            _merge_or_append(
+                raw_id=str(fallback.get("story_id") or ""),
+                raw_title=str(fallback.get("story_title") or ""),
+                raw_summary=str(fallback.get("summary") or ""),
+                article_ids=_string_list(fallback.get("article_ids")),
+            )
+    return stories
+
+
+def _articles_summary(articles: List[Dict[str, Any]]) -> str:
+    parts: List[str] = []
+    for article in articles[:4]:
+        headline = normalize_whitespace(str(article.get("headline") or ""))
+        snippet = normalize_whitespace(str(article.get("snippet") or ""))
+        if snippet and snippet.lower() != headline.lower():
+            parts.append(f"{headline}. {snippet}" if headline and not snippet.startswith(headline[:30]) else snippet)
+        elif headline:
+            parts.append(headline)
+    return _short_text(" ".join(parts), 900)
+
+
 def _thread_summary(thread: Dict[str, Any]) -> str:
     direct = _short_text(thread.get("summary"), 900)
     if direct:
@@ -585,19 +655,23 @@ def _thread_summary(thread: Dict[str, Any]) -> str:
 
 def _fallback_stories(articles: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     grouped: Dict[str, Dict[str, Any]] = {}
+    grouped_articles: Dict[str, List[Dict[str, Any]]] = {}
     for article in articles:
-        key = article.get("story_family_key") or article.get("story_key") or article.get("topic") or article["id"]
+        key = str(article.get("story_key") or article.get("story_family_key") or article.get("topic") or article["id"])
         group = grouped.setdefault(
-            str(key),
+            key,
             {
-                "story_id": str(key),
-                "story_title": article.get("topic") or article.get("headline") or "Selected Articles",
+                "story_id": key,
+                "story_title": article.get("headline") or article.get("topic") or "Selected Articles",
                 "summary": "",
                 "entities": [],
                 "article_ids": [],
             },
         )
         group["article_ids"].append(article["id"])
+        grouped_articles.setdefault(key, []).append(article)
+    for key, group in grouped.items():
+        group["summary"] = _articles_summary(grouped_articles.get(key, []))
     return list(grouped.values())
 
 

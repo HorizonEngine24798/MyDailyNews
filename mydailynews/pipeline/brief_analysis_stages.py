@@ -23,7 +23,6 @@ def _run_evidence_stage(
     prior_reports: List[PriorReport],
     brief_goal: str,
     date: str,
-    include_enrichment_context: bool,
     evidence_config: EvidenceDistillationConfig,
     story_groups: List[StoryGroup] | None = None,
 ) -> EvidenceStageResult:
@@ -49,7 +48,6 @@ def _run_evidence_stage(
         evidence_distiller = EvidenceDistiller(
             evidence_client,
             evidence_config,
-            include_enrichment_context=include_enrichment_context,
             debug=orchestrator.debug,
             cache=orchestrator.synth_cache,
             cache_ttl_seconds=evidence_config.cache_ttl_seconds,

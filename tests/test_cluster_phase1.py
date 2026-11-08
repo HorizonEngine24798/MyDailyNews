@@ -6,8 +6,6 @@ import unittest
 from mydailynews.analysis.shared import article_cache_payload, story_thread_payloads
 from mydailynews.app.models import ContextSource, HeadlineDecision, NewsCandidate, SelectedArticle
 from mydailynews.briefing.generator import BriefGenerator
-from mydailynews.diagnostics.debug import DebugLogger
-from mydailynews.pipeline.article_pipeline import record_enrichment_metrics, story_thread_enrichment_counts
 
 
 PUBLISHED_AT = datetime(2099, 1, 1, tzinfo=timezone.utc)
@@ -68,30 +66,6 @@ class StoryThreadArtifactTests(unittest.TestCase):
         self.assertEqual(threads[0]["story_id"], "story-001")
         self.assertIn("story_threads", cache_payload)
         self.assertIn("story_threads", brief_payload)
-
-    def test_enrichment_metrics_report_story_thread_counts(self) -> None:
-        article = _selected_article()
-        article.context_sources.append(
-            ContextSource(
-                id="story-source-1",
-                parent_article_id=article.candidate.id,
-                kind="story_llm_research_context",
-                title="Why indium matters to AI chips",
-                source="LLM research",
-                url="",
-                summary="Explains the supply-chain relevance.",
-                items=[{"story_id": "story-001", "story_title": "Indium export scrutiny"}],
-            )
-        )
-        debug = DebugLogger(True)
-
-        record_enrichment_metrics(brief_name="general", selected=[article], debug=debug)
-
-        metrics = debug.analytics_payload()["metrics"]
-        self.assertEqual(story_thread_enrichment_counts([article]), (1, 1, 0))
-        self.assertEqual(metrics["brief.general.enrichment.story_threads_created"], 1)
-        self.assertEqual(metrics["brief.general.enrichment.story_threads_enriched"], 1)
-        self.assertEqual(metrics["brief.general.enrichment.story_threads_skipped"], 0)
 
     def test_final_brief_normalization_preserves_all_model_output(self) -> None:
         long_text = "Long model output " + ("x" * 700)

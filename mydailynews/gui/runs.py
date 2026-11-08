@@ -14,7 +14,7 @@ from mydailynews.app.config import load_config
 from mydailynews.pipeline.brief_specs import DEFAULT_BRIEF_NAMES
 
 
-RUN_KINDS = {"series", "briefs", "enrichment", "narrative_brief", "tts", "perspectives_report", "memory"}
+RUN_KINDS = {"series", "briefs", "narrative_brief", "tts", "perspectives_report", "memory"}
 BRIEF_CHOICES = {*DEFAULT_BRIEF_NAMES, "both"}
 MEMORY_RUN_ACTIONS = {"inspect", "prune", "export"}
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -159,7 +159,7 @@ class GuiRunManager:
                 raise ValueError(f"Unsupported brief mode: {brief}")
             command.extend(["--module", "briefs", "--brief", brief])
             label = f"Run briefs ({brief})"
-        elif kind in {"enrichment", "narrative_brief", "tts", "perspectives_report"}:
+        elif kind in {"narrative_brief", "tts", "perspectives_report"}:
             date = _clean(payload.get("date"))
             if date and DATE_RE.match(date) is None:
                 raise ValueError("Date must use YYYY-MM-DD.")

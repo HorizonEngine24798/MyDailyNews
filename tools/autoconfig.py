@@ -23,33 +23,6 @@ DEFAULT_CONFIG = REPO_ROOT / "config.local.json"
 DEFAULT_WRITE = REPO_ROOT / "config.recommended.json"
 DEFAULT_MODEL_CATALOG = REPO_ROOT / "profiles" / "model_catalog.json"
 DEFAULT_EXTERNAL_BASE_URL = "http://127.0.0.1:8080/v1"
-STORY_ENRICHMENT_BUDGET_KEYS = (
-    "max_context_chars_per_article",
-    "max_story_threads",
-    "planner_max_questions_per_story",
-    "planner_require_article_disposition",
-    "planner_allow_misc_group",
-    "planner_misc_story_id",
-    "enrich_misc_story",
-    "omitted_article_policy",
-    "max_queries_per_story",
-    "excerpt_strategy",
-    "selected_excerpt_lead_chars",
-    "selected_excerpt_window_chars",
-    "selected_excerpt_max_windows",
-    "research_excerpt_lead_chars",
-    "research_excerpt_window_chars",
-    "research_excerpt_max_windows",
-    "planner_max_input_tokens",
-    "planner_max_new_tokens",
-    "search_results_per_query",
-    "max_fetched_research_pages_per_story",
-    "max_selected_article_excerpt_chars",
-    "max_research_excerpt_chars",
-    "synthesis_max_input_tokens",
-    "synthesis_max_new_tokens",
-    "cache_ttl_seconds",
-)
 DEFAULT_MEMORY_CONFIG = {
     "enabled": True,
     "state_dir": "state/memory",
@@ -423,7 +396,6 @@ def build_recommended_config(config: dict[str, Any], tier: dict[str, Any], model
     _apply_filtering(updated.setdefault("general_filtering", {}), settings, general=True)
     _apply_filtering(updated.setdefault("filtering", {}), settings, general=False)
     _apply_narrative_briefing(updated.setdefault("narrative_briefing", {}))
-    _apply_story_enrichment_budget(updated.setdefault("enrichment", {}), settings)
     _apply_tts(updated.setdefault("tts", {}))
     _apply_perspectives_report(updated.setdefault("perspectives_report", {}))
     _apply_pipeline(updated.setdefault("pipeline", {}))
@@ -448,10 +420,8 @@ def maybe_prompt_pipeline_preferences() -> PipelinePreferences | None:
     workflow = prompt_choice(
         "Default run workflow",
         [
-            ("full", "Full daily report", "briefs, enrichment, then narrative"),
-            ("narrative", "Briefs + narrative", "disable enrichment and write the narrative brief"),
+            ("narrative", "Briefs + narrative", "write structured briefs and the narrative brief"),
             ("structured", "Structured briefs only", "fastest default run"),
-            ("research", "Briefs + enrichment", "research context without narrative rewrite"),
         ],
         default="narrative",
     )
@@ -553,26 +523,13 @@ def apply_pipeline_preferences(config: dict[str, Any], preferences: PipelinePref
 
 def _apply_workflow_preference(config: dict[str, Any], workflow: str) -> None:
     pipeline = config.setdefault("pipeline", {})
-    enrichment = config.setdefault("enrichment", {})
     narrative = config.setdefault("narrative_briefing", {})
     workflow = str(workflow or "narrative").strip().lower()
     if workflow == "structured":
         pipeline["default_series"] = ["briefs"]
-        enrichment["enabled"] = False
-        narrative["enabled"] = False
-    elif workflow == "narrative":
-        pipeline["default_series"] = ["briefs", "narrative_brief"]
-        enrichment["enabled"] = False
-        narrative["enabled"] = True
-    elif workflow == "research":
-        pipeline["default_series"] = ["briefs", "enrichment"]
-        enrichment["enabled"] = True
-        enrichment["mode"] = "story_llm"
         narrative["enabled"] = False
     else:
-        pipeline["default_series"] = ["briefs", "enrichment", "narrative_brief"]
-        enrichment["enabled"] = True
-        enrichment["mode"] = "story_llm"
+        pipeline["default_series"] = ["briefs", "narrative_brief"]
         narrative["enabled"] = True
 
 
@@ -757,7 +714,7 @@ def _apply_pipeline(section: dict[str, Any]) -> None:
         section["default_series"] = default_series
         return
     normalized: list[str] = []
-    allowed = {*default_series, "enrichment", "tts", "perspectives_report"}
+    allowed = {*default_series, "tts", "perspectives_report"}
     for item in current:
         module = str(item or "").strip().lower().replace("-", "_")
         if module in allowed and module not in normalized:
@@ -771,7 +728,6 @@ def _apply_pipeline(section: dict[str, Any]) -> None:
 
 
 def _apply_runtime(section: dict[str, Any]) -> None:
-    section.pop("max_enrichment_workers", None)
     section.setdefault("max_http_workers", 4)
     section.setdefault("max_article_workers", 4)
     section.setdefault("use_shared_snapshot", True)
@@ -787,23 +743,6 @@ def _apply_memory(section: dict[str, Any]) -> None:
         section.pop(key, None)
     for key, value in DEFAULT_MEMORY_CONFIG.items():
         section.setdefault(key, value)
-
-
-def _apply_story_enrichment_budget(section: dict[str, Any], settings: dict[str, Any]) -> None:
-    budget = settings.get("story_enrichment_budget")
-    if not isinstance(budget, dict):
-        raise ValueError("Catalog tier settings must include story_enrichment_budget.")
-
-    mode = str(section.get("mode") or "story_llm").strip().lower()
-    target_mode = "disabled" if mode == "disabled" else "story_llm"
-    explicit_enabled = bool(section.get("enabled", False))
-    section.clear()
-    section["enabled"] = explicit_enabled and target_mode != "disabled"
-    section["mode"] = target_mode
-    for key in STORY_ENRICHMENT_BUDGET_KEYS:
-        if key not in budget:
-            raise ValueError(f"Catalog story_enrichment_budget is missing required key: {key}")
-        section[key] = budget[key]
 
 
 def _apply_analysis(analysis: dict[str, Any], settings: dict[str, Any]) -> None:

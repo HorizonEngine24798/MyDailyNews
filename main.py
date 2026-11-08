@@ -17,7 +17,6 @@ from mydailynews.memory.cli import MEMORY_ACTIONS
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Generate a local-first topic-focused news brief.")
     parser.add_argument("--config", default="config.local.json", help="Path to the JSON config file.")
-    parser.add_argument("--no-enrichment", action="store_true", help="Force-skip story-thread/context enrichment.")
     parser.add_argument(
         "--module",
         default="series",
@@ -105,11 +104,7 @@ def main() -> int:
             confirm_reset=args.confirm_memory_reset,
         )
 
-    if args.no_enrichment:
-        config.enrichment.enabled = False
     skip_modules = list(args.skip_module or [])
-    if args.no_enrichment and "enrichment" not in skip_modules:
-        skip_modules.append("enrichment")
     try:
         run_options = PipelineRunOptions.from_cli(
             brief=args.brief,

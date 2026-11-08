@@ -29,6 +29,7 @@ from mydailynews.memory.story_store import (
     source_facts_for_article,
     story_baseline_payload,
 )
+from mydailynews.memory.multilingual_embeddings import _load_model
 from mydailynews.memory.story_retrieval import StoryCandidateMatch
 from mydailynews.evaluation.retrieval_diagnostics import evaluate_story_store_retrieval
 from mydailynews.evaluation.schema import load_corpus
@@ -913,6 +914,7 @@ class StoryStoreTests(unittest.TestCase):
             self.assertEqual(records[0].source_document_ids, ["day1", "day2"])
             self.assertEqual(candidate_memory_annotation(day2).story_key, "glass-orchard-gate")
 
+    @unittest.skipUnless(_load_model(), "multilingual-e5-small not cached locally")
     def test_multilingual_semantic_retrieval_links_cross_language_continuations(self) -> None:
         with TemporaryDirectory() as raw_dir:
             root = Path(raw_dir)

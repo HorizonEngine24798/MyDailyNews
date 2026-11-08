@@ -46,8 +46,6 @@ output/YYYY-MM-DD_general_brief.md
 output/YYYY-MM-DD_general_brief.json
 output/YYYY-MM-DD_detailed_brief.md
 output/YYYY-MM-DD_detailed_brief.json
-output/YYYY-MM-DD_enrichment.md
-output/YYYY-MM-DD_enrichment.json
 output/YYYY-MM-DD_narrative_brief.md
 output/YYYY-MM-DD_narrative_brief.json
 ```
@@ -68,7 +66,6 @@ http://127.0.0.1:8765
 
 ```bash
 python main.py --config config.recommended.json --module briefs
-python main.py --config config.recommended.json --module enrichment --date "$(date +%F)"
 python main.py --config config.recommended.json --module narrative_brief --date "$(date +%F)"
 python main.py --config config.recommended.json --module tts --markdown-path output/YYYY-MM-DD_general_brief.md
 python main.py --config config.recommended.json --debug

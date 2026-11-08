@@ -18,18 +18,13 @@ def prune_selected_for_final_token_budget(
     prior_reports: List[PriorReport],
     brief_goal: str,
     date: str,
-    include_enrichment_context: bool,
     run_warnings: List[str],
 ) -> List[SelectedArticle]:
     if len(selected) <= 1:
         return selected
 
-    base_context_chars = max(1, int(getattr(orchestrator.config.enrichment, "max_context_chars_per_article", 1600)))
-    article_fetch_chars = max(1, int(getattr(filtering, "article_text_max_chars", base_context_chars)))
-    context_chars = min(base_context_chars, article_fetch_chars)
-    if include_enrichment_context:
-        # The early estimate happens before enrichment exists, so reserve room for likely context notes/sources.
-        context_chars += 512
+    article_fetch_chars = max(1, int(getattr(filtering, "article_text_max_chars", 3200)))
+    context_chars = min(3200, article_fetch_chars)
 
     synthetic_text = ("estimated article context " * max(1, (context_chars // 26) + 1))[:context_chars]
     sorted_selected = sorted(
@@ -50,7 +45,6 @@ def prune_selected_for_final_token_budget(
         context_chars,
         input_token_limit=orchestrator.config.ai_final.max_input_tokens,
         max_new_tokens=orchestrator.config.ai_final.max_new_tokens,
-        include_enrichment_context=include_enrichment_context,
     )
     prompt_budget_tokens = estimator._prompt_budget_tokens()
     estimated_tokens = 0

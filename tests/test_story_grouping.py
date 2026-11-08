@@ -7,7 +7,6 @@ import unittest
 from mydailynews.app.models import (
     AppConfig,
     DeltaExtractionConfig,
-    EnrichmentConfig,
     EvidenceDistillationConfig,
     HeadlineDecision,
     NewsCandidate,
@@ -151,7 +150,7 @@ class StoryGroupingStageResultTests(unittest.TestCase):
         self.assertEqual(ALL_STAGE_ORDER[article_fetch_index + 1], "story_grouping")
         self.assertEqual(ALL_STAGE_ORDER[article_fetch_index + 2], "evidence_distillation")
 
-    def test_stage_runs_once_when_enrichment_and_evidence_enabled(self) -> None:
+    def test_stage_runs_once_when_evidence_and_delta_enabled(self) -> None:
         selected = [
             _selected("a", "Chip export scrutiny expands"),
             _selected("b", "AI chip supply-chain pressure rises"),
@@ -170,15 +169,13 @@ class StoryGroupingStageResultTests(unittest.TestCase):
                 }
             ]
         )
-        config = AppConfig(
-            enrichment=EnrichmentConfig(enabled=True, mode="story_llm"),
-        )
+        config = AppConfig()
         result = _story_grouping_stage(
             FakeOrchestrator(config, ai),
             brief_name="general",
             selected=selected,
-            include_enrichment_context=True,
             evidence_config=EvidenceDistillationConfig(enabled=True),
+            delta_config=DeltaExtractionConfig(enabled=True),
             date="2099-01-01",
         )
 
@@ -206,13 +203,12 @@ class StoryGroupingStageResultTests(unittest.TestCase):
                 }
             ]
         )
-        config = AppConfig(enrichment=EnrichmentConfig(enabled=False))
+        config = AppConfig()
 
         result = _story_grouping_stage(
             FakeOrchestrator(config, ai),
             brief_name="general",
             selected=selected,
-            include_enrichment_context=False,
             evidence_config=EvidenceDistillationConfig(enabled=True),
         )
 
@@ -235,13 +231,12 @@ class StoryGroupingStageResultTests(unittest.TestCase):
                 }]
             }]
         )
-        config = AppConfig(enrichment=EnrichmentConfig(enabled=False))
+        config = AppConfig()
 
         result = _story_grouping_stage(
             FakeOrchestrator(config, ai),
             brief_name="general",
             selected=selected,
-            include_enrichment_context=False,
             evidence_config=EvidenceDistillationConfig(enabled=False),
             delta_config=DeltaExtractionConfig(enabled=True),
         )
@@ -314,7 +309,7 @@ class StoryGroupingStageResultTests(unittest.TestCase):
         self.assertEqual(result.groups[0].disposition, "singleton")
         self.assertEqual(result.omitted_article_ids, ["b"])
         self.assertEqual(result.fallback_groups, 0)
-        self.assertTrue(any("skipped enrichment" in warning for warning in result.warnings))
+        self.assertTrue(any("omitted selected article(s)" in warning for warning in result.warnings))
 
     def test_normalizer_records_misc_group(self) -> None:
         selected = [_selected("a", "Minor unrelated story")]

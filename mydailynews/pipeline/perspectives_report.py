@@ -61,7 +61,7 @@ from mydailynews.perspectives.planning import (
     _seed_anchor_groups,
     _seed_sources,
     _source_metadata,
-    _stories_from_enrichment,
+    _stories_from_briefs,
     _story_planner_payload,
     _tag_key,
     _thread_summary,
@@ -156,7 +156,6 @@ def run_perspectives_report(
     *,
     date: str,
     outputs: List[BriefOutput] | None = None,
-    enrichment_json_path: str = "",
     allow_disk_fallback: bool = True,
 ) -> PerspectivesReportOutput | None:
     config = getattr(orchestrator.config, "perspectives_report", None)
@@ -171,12 +170,11 @@ def run_perspectives_report(
         output_dir=output_dir,
         date=date,
         source_outputs=list(outputs or []),
-        enrichment_json_path=enrichment_json_path,
         allow_disk_fallback=allow_disk_fallback,
     )
     extend_warnings(warnings, inputs["warnings"])
     if not inputs["articles"]:
-        warnings.append(f"perspectives_report: no same-day enrichment or brief inputs were available for {date}.")
+        warnings.append(f"perspectives_report: no same-day brief inputs were available for {date}.")
         extend_warnings(orchestrator.warnings, warnings)
         orchestrator.debug.set_metric("module.perspectives_report.status", "skipped_no_inputs")
         return None

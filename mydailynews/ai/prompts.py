@@ -118,61 +118,6 @@ Return:
   ]
 }}"""
 
-STORY_ENRICHMENT_SYSTEM = """You synthesize compact internal context for a news briefing story thread.
-Return exactly one valid JSON object.
-Do not use markdown fences.
-Use only supplied selected articles and retrieved research results.
-Do not invent facts, names, numbers, or certainty.
-If retrieved evidence is thin or unavailable, say what the supplied evidence can and cannot support."""
-
-STORY_ENRICHMENT_USER = """Story packet:
-{story}
-
-Selected article sources:
-{selected_sources}
-
-Research questions:
-{research_questions}
-
-Retrieved research sources:
-{research_sources}
-
-Work to perform:
-1. Write one to three compact internal context articles that add useful background, verification, or uncertainty.
-2. Ground every internal article in the supplied source ids.
-3. Distinguish confirmed facts from unresolved questions.
-4. Note conflicting claims only when supplied sources materially disagree.
-5. Keep summaries concise and practical for downstream briefing synthesis.
-6. Do not include URLs in prose fields; source ids are enough.
-
-Return:
-{{
-  "story_id": "{story_id}",
-  "story_title": "{story_title}",
-  "internal_articles": [
-    {{
-      "title": "compact internal article title",
-      "summary": "grounded context summary",
-      "what_it_adds": "why this context matters",
-      "source_ids": ["selected-article-id", "research-1"],
-      "confidence": "high | medium | low"
-    }}
-  ],
-  "confirmed_facts": [
-    {{
-      "fact": "supported fact",
-      "source_ids": ["source id"]
-    }}
-  ],
-  "conflicting_claims": [],
-  "open_questions": [
-    {{
-      "question": "unresolved question",
-      "source_ids": ["source id"]
-    }}
-  ]
-}}"""
-
 BRIEF_SYSTEM = """You are a structured briefing writer, not a generic summarizer.
 Return exactly one valid JSON object.
 Do not use markdown fences.
@@ -279,9 +224,6 @@ Target length:
 Sanitized source briefs:
 {source_briefs}
 
-Optional enrichment context:
-{enrichment_context}
-
 Optional cross-source perspectives context:
 {perspectives_context}
 
@@ -293,17 +235,16 @@ Permitted claim-context markers (optional; may be empty):
 
 Work to perform:
 1. Use the general brief for breadth and the detailed brief for deeper narrative context when both are present.
-2. Use enrichment context only as additional background when it is supplied.
-3. Use perspectives context to preserve material shared facts, framing differences, qualifications, and coverage limitations. Do not turn every framing observation into prose.
-4. Merge overlapping stories without repeating them; preserve all material developments from both briefs.
-5. Use coverage guidance to keep recently dominant continuing stories proportionate unless the supplied briefs show a material new phase.
-6. Write a human-readable narrative report with clear section headings, graceful transitions, and selective bullets where they improve scanning.
-7. Preserve uncertainty. Unknowns, thin evidence, and watch signals should be explicit.
-8. Keep the story coherent from opening to closing.
-9. Do not include URLs, markdown links, references sections, source-link housekeeping, SSML, pause markers, pronunciation tags, or provider-specific TTS tags.
-10. Mention source names only when they help attribution or uncertainty.
-11. Avoid hype, jokes, dramatic teasing, and generic filler.
-12. Whenever prose materially relies on a permitted claim, place that claim's exact marker such as <<1>> immediately after the sentence or paragraph. Do not state a permitted claim without its marker. Do not invent markers, alter their numbers, or reproduce card contents solely because a marker exists.
+2. Use perspectives context to preserve material shared facts, framing differences, qualifications, and coverage limitations. Do not turn every framing observation into prose.
+3. Merge overlapping stories without repeating them; preserve all material developments from both briefs.
+4. Use coverage guidance to keep recently dominant continuing stories proportionate unless the supplied briefs show a material new phase.
+5. Write a human-readable narrative report with clear section headings, graceful transitions, and selective bullets where they improve scanning.
+6. Preserve uncertainty. Unknowns, thin evidence, and watch signals should be explicit.
+7. Keep the story coherent from opening to closing.
+8. Do not include URLs, markdown links, references sections, source-link housekeeping, SSML, pause markers, pronunciation tags, or provider-specific TTS tags.
+9. Mention source names only when they help attribution or uncertainty.
+10. Avoid hype, jokes, dramatic teasing, and generic filler.
+11. Whenever prose materially relies on a permitted claim, place that claim's exact marker such as <<1>> immediately after the sentence or paragraph. Do not state a permitted claim without its marker. Do not invent markers, alter their numbers, or reproduce card contents solely because a marker exists.
 
 Return:
 {{

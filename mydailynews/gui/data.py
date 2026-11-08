@@ -50,7 +50,6 @@ EDITABLE_CONFIG_SECTIONS = {
     "topics_to_examine",
     "filtering",
     "memory",
-    "enrichment",
     "runtime",
     "narrative_briefing",
     "tts",

@@ -20,17 +20,12 @@ flowchart LR
     SOURCES["RSS (2-step self-healing),<br/>searches, prior reports"] --> BRIEFS
     MEMORY["state/memory<br/>stories, E5 vectors, prefs"] --> BRIEFS
     BRIEFS --> STRUCTURED["general + detailed briefs<br/>Markdown + JSON"]
-    BRIEFS --> HANDOFF["handoff JSON"]
-    HANDOFF --> ENRICH["enrichment (opt-in)"]
     STRUCTURED --> PERSPECTIVES["perspectives_report (opt-in)"]
-    ENRICH --> PERSPECTIVES
     STRUCTURED --> NARRATIVE["narrative_brief"]
-    ENRICH --> NARRATIVE
     PERSPECTIVES --> NARRATIVE
     MEMORY --> NARRATIVE
     NARRATIVE --> TTS["tts (opt-in)"]
     STRUCTURED --> OUTPUT["output/"]
-    ENRICH --> OUTPUT
     PERSPECTIVES --> OUTPUT
     NARRATIVE --> OUTPUT
     TTS --> OUTPUT
@@ -62,18 +57,18 @@ flowchart TD
 
 Orchestrated by [`mydailynews/pipeline/perspectives_report.py`](../mydailynews/pipeline/perspectives_report.py) across five focused modules:
 
-1. **Inputs & Planning (`planning.py`)**: Collects same-day stories/claims from enrichment or briefs; batches up to 4 stories per planner call (`PERSPECTIVES_PLANNER_SCHEMA`) to produce canonical queries, anchor groups, story loci, target country/region tags, and claim verification targets.
+1. **Inputs & Planning (`planning.py`)**: Collects same-day stories/claims from briefs; batches up to 4 stories per planner call (`PERSPECTIVES_PLANNER_SCHEMA`) to produce canonical queries, anchor groups, story loci, target country/region tags, and claim verification targets.
 2. **Global Coverage (`coverage.py`)**: Queries GDELT, Registry RSS (with 2-step self-healing), and optional GNews in parallel; filters by lexical/anchor relevance, deduplicates, selects diverse countries/sources, and fetches bounded article excerpts.
 3. **Claim Verification & Synthesis (`synthesis.py`)**: Runs targeted verification queries (DDG + news provider) and 1 verifier LLM call per selected claim (`PERSPECTIVES_VERIFIER_SCHEMA`), followed by 1 claim-led synthesis call per story (`PERSPECTIVES_CLAIM_SYNTHESIS_SCHEMA`).
 4. **Schemas & Rendering (`schemas.py`, `rendering.py`)**: Validates JSON contracts and writes `YYYY-MM-DD_perspectives_report.{md,json}`.
 
 ## AI Roles & Storage Boundaries
 
-- **AI Clients**: `summary_ai_client` (headline scoring, grouping, enrichment, perspectives), `analysis_ai_client` (evidence, fact operations, card editor), `final_ai_client` (structured and narrative briefs).
+- **AI Clients**: `summary_ai_client` (headline scoring, grouping, perspectives), `analysis_ai_client` (evidence, fact operations, card editor), `final_ai_client` (structured and narrative briefs).
 - **State**:
   - `output/`: generated Markdown, JSON, WAV, diagnostics.
   - `state/memory/memory.sqlite3`: durable `StoryRecord`s, `SourceFact`s, coverage history, feedback, and E5 embeddings (`learned_preferences.json` stays human-editable).
-  - `.cache/mydailynews/cache.sqlite3`: HTTP, article text (consent-wall scrubbed), enrichment, and AI synthesis cache.
+  - `.cache/mydailynews/cache.sqlite3`: HTTP, article text (consent-wall scrubbed), and AI synthesis cache.
 
 ## Entrypoints
 

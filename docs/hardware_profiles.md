@@ -30,4 +30,4 @@ Autoconfig detects hardware best-effort, recommends a Qwen-family GGUF model fro
 - malformed JSON from overloaded prompts
 - final brief pruning many selected articles
 
-Reduce the model class, context window, AI prompt/output budgets, selected article caps, enrichment fetch/excerpt limits, and batch sizes together.
+Reduce the model class, context window, AI prompt/output budgets, selected article caps, and batch sizes together.

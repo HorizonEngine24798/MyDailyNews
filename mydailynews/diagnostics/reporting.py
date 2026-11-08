@@ -35,8 +35,6 @@ class CliReporter:
         if run_options.skip_modules:
             self._print(f"Skipped modules: {','.join(run_options.skip_modules)}")
         self._print(f"AI: {self._ai_label(config.ai_summary)} -> {self._ai_label(config.ai_final)}")
-        enrichment = "enabled" if bool(getattr(config.enrichment, "enabled", False)) else "disabled"
-        self._print(f"Enrichment: {enrichment}")
         self._print("")
 
     def phase(self, message: str) -> None:
@@ -48,7 +46,6 @@ class CliReporter:
     def outputs(self, result: PipelineResult) -> None:
         if not self.enabled or not (
             result.outputs
-            or result.enrichment_outputs
             or result.narrative_outputs
             or result.tts_outputs
             or result.perspectives_report_outputs
@@ -65,15 +62,6 @@ class CliReporter:
             )
             if output.handoff_path:
                 self._print(f"{label} handoff:        {output.handoff_path}")
-        for output in result.enrichment_outputs:
-            label = output.name.title()
-            source_label = ",".join(output.source_briefs) if output.source_briefs else "none"
-            if output.markdown_path:
-                self._print(f"{label} markdown:      {output.markdown_path}")
-            self._print(f"{label} JSON:          {output.json_path}")
-            self._print(f"{label} source briefs: {source_label}")
-            self._print(f"{label} selected:      {output.selected_count}")
-            self._print(f"{label} story threads: {output.story_thread_count}")
         for output in result.narrative_outputs:
             label = output.name.title()
             source_label = ",".join(output.source_briefs) if output.source_briefs else "none"

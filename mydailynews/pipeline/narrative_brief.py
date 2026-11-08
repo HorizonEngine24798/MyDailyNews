@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from difflib import SequenceMatcher
+import json
 from pathlib import Path
 import re
 from typing import List
@@ -9,7 +10,6 @@ from mydailynews.app.models import BriefOutput, NarrativeBriefOutput
 from mydailynews.briefing.narrative import (
     NarrativeBriefGenerator,
     NarrativeSourceBrief,
-    load_enrichment_payload,
     load_source_brief,
     write_narrative_outputs,
 )
@@ -28,9 +28,7 @@ def run_narrative_brief(
     *,
     outputs: List[BriefOutput],
     date: str,
-    enrichment_json_path: str = "",
     allow_disk_fallback: bool = True,
-    use_enrichment: bool = True,
     perspectives_json_path: str = "",
 ) -> NarrativeBriefOutput | None:
     config = orchestrator.config.narrative_briefing
@@ -60,16 +58,6 @@ def run_narrative_brief(
         return None
 
     source_names = [source.name for source in source_briefs]
-    if use_enrichment:
-        enrichment_payload, enrichment_json_path, enrichment_warnings = _load_enrichment_source(
-            output_dir=Path(orchestrator.config.output_dir),
-            date=date,
-            enrichment_json_path=enrichment_json_path,
-            allow_disk_fallback=allow_disk_fallback,
-        )
-    else:
-        enrichment_payload, enrichment_json_path, enrichment_warnings = None, "", []
-    extend_warnings(run_warnings, enrichment_warnings)
     perspectives_payload, claim_cards, perspectives_json_path, perspectives_warnings = _load_perspectives_source(
         output_dir=Path(orchestrator.config.output_dir),
         date=date,
@@ -77,7 +65,6 @@ def run_narrative_brief(
         allow_disk_fallback=allow_disk_fallback,
     )
     extend_warnings(run_warnings, perspectives_warnings)
-    enrichment_used = bool(enrichment_payload)
     memory_config = getattr(orchestrator.config, "memory", None)
     recall_prompt_enabled = memory_enabled(memory_config) and bool(
         getattr(memory_config, "recall_prompt_enabled", True)
@@ -89,7 +76,6 @@ def run_narrative_brief(
         "narrative_brief.run",
         "starting",
         source_briefs=",".join(source_names),
-        enrichment_used=enrichment_used,
         recall_guidance=bool(recall_packet.get("coverage_guidance")),
     )
 
@@ -109,8 +95,6 @@ def run_narrative_brief(
                 source_briefs,
                 orchestrator.config.user_memory,
                 date=date,
-                enrichment_payload=enrichment_payload,
-                enrichment_json_path=enrichment_json_path,
                 recall_packet=recall_packet,
                 claim_cards=claim_cards,
                 perspectives_payload=perspectives_payload,
@@ -189,30 +173,6 @@ def _collect_source_briefs(
     return source_briefs
 
 
-def _load_enrichment_source(
-    *,
-    output_dir: Path,
-    date: str,
-    enrichment_json_path: str = "",
-    allow_disk_fallback: bool = True,
-) -> tuple[dict | None, str, List[str]]:
-    explicit_path = str(enrichment_json_path or "").strip()
-    if explicit_path:
-        path = Path(explicit_path)
-    elif allow_disk_fallback:
-        path = output_dir / f"{date}_enrichment.json"
-    else:
-        return None, "", []
-    if not path.exists():
-        if explicit_path:
-            return None, str(path), [f"narrative: enrichment JSON does not exist: {path}."]
-        return None, "", []
-    try:
-        return load_enrichment_payload(path), str(path), []
-    except Exception as exc:
-        return None, str(path), [f"narrative: enrichment JSON could not be loaded ({type(exc).__name__}: {exc})."]
-
-
 def _load_perspectives_source(
     *,
     output_dir: Path,
@@ -225,7 +185,9 @@ def _load_perspectives_source(
     if path is None or not path.exists():
         return None, [], str(path or ""), []
     try:
-        payload = load_enrichment_payload(path)
+        payload = json.loads(path.read_text(encoding="utf-8-sig"))
+        if not isinstance(payload, dict):
+            raise ValueError(f"Perspectives report is not a JSON object: {path}")
     except Exception as exc:
         return None, [], str(path), [f"narrative: perspectives JSON could not be loaded ({type(exc).__name__}: {exc})."]
     cards = _rank_claim_cards([

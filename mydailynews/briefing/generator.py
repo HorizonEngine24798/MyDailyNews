@@ -29,14 +29,12 @@ class BriefGenerator:
         max_context_chars: int,
         input_token_limit: int | None = None,
         max_new_tokens: int | None = None,
-        include_enrichment_context: bool = True,
         debug: DebugLogger | None = None,
     ) -> None:
         self.client = client
         self.max_context_chars = max(200, max_context_chars)
         self.input_token_limit = input_token_limit
         self.max_new_tokens = max_new_tokens
-        self.include_enrichment_context = bool(include_enrichment_context)
         self.debug = debug or DebugLogger(False)
         self.warnings: List[str] = []
 
@@ -387,8 +385,7 @@ class BriefGenerator:
                 "recent_coverage_count": memory_annotation.recent_coverage_count,
                 "score_adjustment": round(float(memory_annotation.score_adjustment), 4),
             }
-        if self.include_enrichment_context:
-            payload["context_note"] = article.enrichment_reason
+        if article.context_sources:
             payload["context_sources"] = [
                 {
                     "kind": item.kind,

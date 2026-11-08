@@ -111,17 +111,6 @@ class StoryGroupingStageResult:
             warnings=list(warnings or []),
         )
 
-@dataclass
-class EnrichmentStageResult:
-    selected: List[SelectedArticle]
-    enrichment_needed: int
-    context_sources: int
-    story_threads_created: int = 0
-    story_threads_enriched: int = 0
-    story_threads_skipped: int = 0
-    artifact: Dict[str, Any] = field(default_factory=dict)
-    warnings: List[str] = field(default_factory=list)
-
 
 @dataclass
 class EvidenceStageResult:

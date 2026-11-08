@@ -42,7 +42,7 @@ To include audio in the default series, list the report modules you want spoken 
 ```json
 {
   "pipeline": {
-    "default_series": ["briefs", "enrichment", "narrative_brief", "perspectives_report", "tts"]
+    "default_series": ["briefs", "perspectives_report", "narrative_brief", "tts"]
   }
 }
 ```

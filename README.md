@@ -52,21 +52,17 @@ flowchart LR
     MEMORY["state/memory<br/>coverage + preferences"] --> BRIEFS
     BRIEFS --> BRIEF_CALLS["LLM calls:<br/>score, group, evidence,<br/>fact comparison, editor, final brief"]
     BRIEF_CALLS --> STRUCTURED["structured briefs<br/>Markdown + JSON"]
-    BRIEF_CALLS --> HANDOFF["handoff<br/>selected articles"]
-    HANDOFF --> ENRICH["enrichment module"]
-    ENRICH --> ENRICH_CALLS["LLM calls:<br/>plan threads + synthesize<br/>per enriched story"]
-    ENRICH_CALLS --> ENRICHED["enrichment context<br/>Markdown + JSON"]
+    STRUCTURED --> PERSPECTIVES["perspectives_report<br/>(opt-in)"]
     STRUCTURED --> NARRATIVE["narrative brief<br/>1 LLM call"]
-    ENRICHED --> NARRATIVE
+    PERSPECTIVES --> NARRATIVE
     MEMORY --> NARRATIVE
     NARRATIVE --> TTS["optional TTS"]
     STRUCTURED --> OUTPUT["output/"]
-    ENRICHED --> OUTPUT
+    PERSPECTIVES --> OUTPUT
     NARRATIVE --> OUTPUT
     TTS --> OUTPUT
     BRIEFS --> MEMORY
     BRIEFS --> CACHE[".cache/mydailynews"]
-    ENRICH --> CACHE
 ```
 
 ## Start Here

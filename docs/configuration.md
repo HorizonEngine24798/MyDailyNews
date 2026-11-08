@@ -37,7 +37,7 @@ Tune these together for smaller hardware:
 - `ai_summary` and `ai_final` token limits
 - headline batch sizes and headline token limits
 - selected article caps
-- evidence, delta, and enrichment budgets
+- evidence and delta budgets
 
 Autoconfig writes these as a coupled profile. Changing one knob by hand can make the model overload, time out, or return malformed JSON.
 
@@ -53,9 +53,9 @@ Autoconfig writes these as a coupled profile. Changing one knob by hand can make
 }
 ```
 
-Allowed modules are `briefs`, `enrichment`, `narrative_brief`, `tts`, and `perspectives_report`. Unknown or duplicate module names fail config parsing. Disabled optional modules listed in the series are skipped with a warning.
+Allowed modules are `briefs`, `narrative_brief`, `tts`, and `perspectives_report`. Unknown or duplicate module names fail config parsing. Disabled optional modules listed in the series are skipped with a warning.
 
-Standalone module runs can reuse artifacts from disk. `--date` is accepted only for standalone `enrichment`, `narrative_brief`, `tts`, and `perspectives_report` runs. `--markdown-path` is accepted only for standalone `tts` runs.
+Standalone module runs can reuse artifacts from disk. `--date` is accepted only for standalone `narrative_brief`, `tts`, and `perspectives_report` runs. `--markdown-path` is accepted only for standalone `tts` runs.
 
 ## Narrative Briefing
 
@@ -68,7 +68,7 @@ Important fields:
 - `target_words`: soft length target.
 - `editorial_style`: natural-language guidance for the narrative pass.
 
-Inside the default series, narrative briefing consumes artifacts produced earlier in the same run. As a standalone module, it loads same-day brief and enrichment JSON from disk. If it fails, existing structured briefs remain written and the pipeline records a warning.
+Inside the default series, narrative briefing consumes artifacts produced earlier in the same run. As a standalone module, it loads same-day brief and perspectives JSON from disk. If it fails, existing structured briefs remain written and the pipeline records a warning.
 
 ## TTS Audio
 
@@ -77,7 +77,7 @@ Inside the default series, narrative briefing consumes artifacts produced earlie
 Important fields:
 
 - `enabled`: allow TTS in the default series.
-- `modules`: report modules to speak: `briefs`, `enrichment`, `narrative_brief`, and/or `perspectives_report`.
+- `modules`: report modules to speak: `briefs`, `narrative_brief`, and/or `perspectives_report`.
 - `backend`: currently `kokoro`.
 - `model_id`, `voice`, `lang_code`, and `speed`: Kokoro voice settings.
 - `max_chunk_chars`: paragraph chunking limit for synthesis.
@@ -100,7 +100,7 @@ The perspectives report reads the same catalog and selects active sources from i
 
 ## Perspectives Report
 
-`perspectives_report` writes one claim-led source-country coverage and framing report from same-day enrichment and brief evidence artifacts. One planner call creates broad story queries and selects a bounded verification set. Broad coverage is retrieved once; targeted primary/independent evidence is then retrieved only for selected claims, followed by one verifier call per claim with usable evidence and one claim-led synthesis call per eligible story.
+`perspectives_report` writes one claim-led source-country coverage and framing report from same-day brief evidence artifacts. One planner call creates broad story queries and selects a bounded verification set. Broad coverage is retrieved once; targeted primary/independent evidence is then retrieved only for selected claims, followed by one verifier call per claim with usable evidence and one claim-led synthesis call per eligible story.
 
 Important fields:
 
@@ -121,7 +121,7 @@ Coverage retrieval is not filtered by language. The report still records each ar
 
 Report generation does not cache final coverage sets. It rebuilds accepted rows per run from live provider responses, while still using the normal HTTP/article/AI caches.
 
-Run it standalone with `python main.py --module perspectives_report --date YYYY-MM-DD`, or use `briefs -> enrichment -> perspectives_report -> narrative_brief -> tts` in `pipeline.default_series` so narrative markers can reference validated claim cards.
+Run it standalone with `python main.py --module perspectives_report --date YYYY-MM-DD`, or use `briefs -> perspectives_report -> narrative_brief -> tts` in `pipeline.default_series` so narrative markers can reference validated claim cards.
 
 ## Memory
 
@@ -143,45 +143,23 @@ Live story, coverage, coverage-archive, and feedback records share `state/memory
 
 The memory layer does not add LLM calls and does not mutate `user_memory`. Learned preferences are stored separately and applied as bounded deterministic rank adjustments.
 
-## Enrichment
-
-`enrichment` controls the post-brief story-context module.
-It is disabled and absent from the default pipeline while its value is being reevaluated. To opt in, set `enabled=true` and add `enrichment` to `pipeline.default_series`, or run the module explicitly.
-
-Modes:
-
-- `story_llm`: group selected articles into story threads, retrieve related context, synthesize compact context, and write enrichment artifacts.
-- `disabled`: skip enrichment, equivalent to `enabled=false`.
-
-Main knobs:
-
-- thread planning: `max_story_threads`, `planner_max_questions_per_story`
-- retrieval: `search_results_per_query`, `max_queries_per_story`, `max_fetched_research_pages_per_story`
-- excerpting: `excerpt_strategy`, selected/research excerpt limits
-- optional LLM preferences: `planner_max_input_tokens`, `planner_max_new_tokens`, `synthesis_max_input_tokens`, `synthesis_max_new_tokens`; `null` inherits the model-role limits
-- caching: `cache_ttl_seconds`
-
-Autoconfig rewrites the enrichment block from `profiles/model_catalog.json` while preserving an explicit opt-in. The default remains off.
-
 ## Runtime
 
 `runtime` controls pipeline-level concurrency and snapshot reuse:
 
 - `max_http_workers`: headline/source fetch concurrency.
-- `max_article_workers`: selected-article and enrichment research-page fetch concurrency.
+- `max_article_workers`: selected-article fetch concurrency.
 - `use_shared_snapshot`: fetch candidate sources once and reuse them across enabled brief modes.
-
-Story enrichment is deterministic and sequential.
 
 ## Cache
 
-`cache` controls local discovery, article text, enrichment retrieval, and AI synthesis caches. The default directory is `.cache/mydailynews`, with live entries stored in `cache.sqlite3`. Existing file-per-entry JSON cache values are imported once and retained untouched.
+`cache` controls local discovery, article text, and AI synthesis caches. The default directory is `.cache/mydailynews`, with live entries stored in `cache.sqlite3`. Existing file-per-entry JSON cache values are imported once and retained untouched.
 
 Useful fields:
 
 - `enabled`: turn local caches on or off.
 - `discovery_mode`: network/cache behavior for feed and news discovery.
-- `article_text_retention_days`, `enrichment_retention_days`, and `http_retention_days`: cache pruning windows.
+- `article_text_retention_days` and `http_retention_days`: cache pruning windows.
 - `ai_enabled` and `synth_fresh_seconds`: AI synthesis cache behavior.
 
 ## Analysis
@@ -198,10 +176,7 @@ Removed keys and behaviors include:
 
 - the `codex_agent` backend, its `codex_*` settings, and `enable_thinking`;
 - `filtering.use_multifactor_composite_ranking` and `memory.material_update_boost`;
-- `enrichment.mode="simple"` and the old Wikipedia/related-news enrichment path.
-- `enrichment.past_news_days`, `enrichment.max_past_news_results`, `enrichment.max_wikipedia_results`, and `enrichment.max_entities`.
 - `cache.wikipedia_retention_days`.
-- `runtime.max_enrichment_workers`.
 - `memory.recall_packet_enabled`; use `memory.recall_prompt_enabled` and `memory.save_recall_packets`.
 - old event-cluster selection/filtering configuration.
 - `analysis.rollout` and the former shared `analysis.evidence_distillation` / `analysis.delta_extraction`

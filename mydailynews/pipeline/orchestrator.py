@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Horizon-inspired staged orchestrator for MyDailyNews.
 
-This borrows the architecture of Horizon's fetch -> dedupe -> AI score -> enrich
+This borrows the architecture of Horizon's fetch -> dedupe -> AI score
 -> summarize pipeline, but keeps only RSS/news discovery and local-first outputs.
 
 Horizon: https://github.com/Thysrael/Horizon
@@ -24,7 +24,6 @@ from mydailynews.pipeline.brief_execution import (
     write_pending_memory,
 )
 from mydailynews.pipeline.brief_specs import BriefSpec, brief_specs_from_config
-from mydailynews.pipeline.enrichment_module import run_enrichment as run_enrichment_helper
 from mydailynews.pipeline.narrative_brief import run_narrative_brief as run_narrative_brief_helper
 from mydailynews.pipeline.tts_module import run_tts as run_tts_helper
 from mydailynews.pipeline.perspectives_report import run_perspectives_report as run_perspectives_report_helper
@@ -32,7 +31,6 @@ from mydailynews.diagnostics.debug import DebugLogger
 from mydailynews.app.models import (
     AppConfig,
     BriefOutput,
-    EnrichmentOutput,
     FilteringConfig,
     HeadlineDecision,
     NewsCandidate,
@@ -78,14 +76,7 @@ class NewsOrchestrator:
             debug=self.debug,
         )
         self.discovery_cache.prune_older_than_days(config.cache.http_retention_days)
-        self.enrichment_cache = HTTPCache(
-            root_dir=config.cache.dir,
-            namespace="enrichment",
-            enabled=config.cache.enabled,
-            debug=self.debug,
-        )
-        self.enrichment_cache.prune_older_than_days(config.cache.enrichment_retention_days)
-        self.http_cache = self.enrichment_cache
+        self.http_cache = self.discovery_cache
         self.article_text_cache = ArticleTextCache(
             JSONCache(
                 root_dir=config.cache.dir,
@@ -137,8 +128,6 @@ class NewsOrchestrator:
             return self.run_series(date=date)
         if module == "briefs":
             return self.run_briefs(date=date)
-        if module == "enrichment":
-            return self.run_enrichment(date=date)
         if module == "narrative_brief":
             return self.run_narrative_brief(date=date)
         if module == "tts":
@@ -149,7 +138,6 @@ class NewsOrchestrator:
 
     def run_series(self, *, date: str) -> PipelineResult:
         outputs: List[BriefOutput] = []
-        enrichment_outputs: List[EnrichmentOutput] = []
         narrative_outputs: List[NarrativeBriefOutput] = []
         tts_outputs: List[TTSOutput] = []
         perspectives_report_outputs: List[PerspectivesReportOutput] = []
@@ -157,28 +145,18 @@ class NewsOrchestrator:
             if module == "briefs":
                 result = self.run_briefs(date=date)
                 outputs.extend(result.outputs)
-                enrichment_outputs.extend(result.enrichment_outputs)
                 narrative_outputs.extend(result.narrative_outputs)
                 tts_outputs.extend(result.tts_outputs)
                 perspectives_report_outputs.extend(result.perspectives_report_outputs)
-            elif module == "enrichment":
-                if not self._module_enabled("enrichment"):
-                    self.warnings.append("enrichment: module is disabled by config; skipped.")
-                    continue
-                result = self.run_enrichment(date=date, source_outputs=outputs, allow_disk_fallback=False)
-                enrichment_outputs.extend(result.enrichment_outputs)
             elif module == "narrative_brief":
                 if not self._module_enabled("narrative_brief"):
                     self.warnings.append("narrative_brief: module is disabled by config; skipped.")
                     continue
-                enrichment_json_path = enrichment_outputs[-1].json_path if enrichment_outputs else ""
                 perspectives_json_path = perspectives_report_outputs[-1].json_path if perspectives_report_outputs else ""
                 narrative_kwargs = {
                     "date": date,
                     "outputs": outputs,
-                    "enrichment_json_path": enrichment_json_path,
                     "allow_disk_fallback": False,
-                    "use_enrichment": bool(enrichment_json_path),
                 }
                 if perspectives_json_path:
                     narrative_kwargs["perspectives_json_path"] = perspectives_json_path
@@ -197,7 +175,6 @@ class NewsOrchestrator:
                         output.markdown_path
                         for module_name, group in (
                             ("briefs", outputs),
-                            ("enrichment", enrichment_outputs),
                             ("narrative_brief", narrative_outputs),
                             ("perspectives_report", perspectives_report_outputs),
                         )
@@ -224,25 +201,21 @@ class NewsOrchestrator:
                 if not self._module_enabled("perspectives_report"):
                     self.warnings.append("perspectives_report: module is disabled by config; skipped.")
                     continue
-                enrichment_json_path = enrichment_outputs[-1].json_path if enrichment_outputs else ""
                 result = self.run_perspectives_report(
                     date=date,
                     outputs=outputs,
-                    enrichment_json_path=enrichment_json_path,
                     allow_disk_fallback=False,
                 )
                 perspectives_report_outputs.extend(result.perspectives_report_outputs)
             if self.stopped_after_stage:
                 return self._stopped_result(
                     outputs=outputs,
-                    enrichment_outputs=enrichment_outputs,
                     narrative_outputs=narrative_outputs,
                     tts_outputs=tts_outputs,
                     perspectives_report_outputs=perspectives_report_outputs,
                 )
         return PipelineResult(
             outputs=outputs,
-            enrichment_outputs=enrichment_outputs,
             narrative_outputs=narrative_outputs,
             tts_outputs=tts_outputs,
             perspectives_report_outputs=perspectives_report_outputs,
@@ -279,7 +252,6 @@ class NewsOrchestrator:
                 brief_count=len(briefs),
                 briefs=",".join(self.run_options.briefs),
                 stop_after_stage=self.run_options.stop_after_stage or "none",
-                enrichment=self.config.enrichment.enabled,
                 use_shared_snapshot=self.config.runtime.use_shared_snapshot,
             )
             try:
@@ -393,9 +365,6 @@ class NewsOrchestrator:
         return series
 
     def _module_enabled(self, module: str) -> bool:
-        if module == "enrichment":
-            mode = str(getattr(self.config.enrichment, "mode", "story_llm") or "story_llm").strip().lower()
-            return bool(getattr(self.config.enrichment, "enabled", False)) and mode != "disabled"
         if module == "narrative_brief":
             return bool(getattr(self.config.narrative_briefing, "enabled", False))
         if module == "tts":
@@ -407,13 +376,11 @@ class NewsOrchestrator:
     def _stopped_result(
         self,
         outputs: List[BriefOutput] | None = None,
-        enrichment_outputs: List[EnrichmentOutput] | None = None,
         narrative_outputs: List[NarrativeBriefOutput] | None = None,
         tts_outputs: List[TTSOutput] | None = None,
         perspectives_report_outputs: List[PerspectivesReportOutput] | None = None,
     ) -> PipelineResult:
         self.debug.set_metric("pipeline.outputs", len(outputs or []))
-        self.debug.set_metric("pipeline.enrichment_outputs", len(enrichment_outputs or []))
         self.debug.set_metric("pipeline.narrative_outputs", len(narrative_outputs or []))
         self.debug.set_metric("pipeline.tts_outputs", len(tts_outputs or []))
         self.debug.set_metric("pipeline.perspectives_report_outputs", len(perspectives_report_outputs or []))
@@ -423,14 +390,12 @@ class NewsOrchestrator:
             "stopped",
             stage=self.stopped_after_stage or self.run_options.stop_after_stage,
             outputs=len(outputs or []),
-            enrichment_outputs=len(enrichment_outputs or []),
             narrative_outputs=len(narrative_outputs or []),
             tts_outputs=len(tts_outputs or []),
             perspectives_report_outputs=len(perspectives_report_outputs or []),
         )
         return PipelineResult(
             outputs=list(outputs or []),
-            enrichment_outputs=list(enrichment_outputs or []),
             narrative_outputs=list(narrative_outputs or []),
             tts_outputs=list(tts_outputs or []),
             perspectives_report_outputs=list(perspectives_report_outputs or []),
@@ -450,47 +415,21 @@ class NewsOrchestrator:
         self.stopped_after_stage = stage
         self.warnings.append(f"Run stopped after stage '{stage}' by request.")
 
-    def run_enrichment(
-        self,
-        *,
-        date: str,
-        source_outputs: List[BriefOutput] | None = None,
-        allow_disk_fallback: bool = True,
-    ) -> PipelineResult:
-        output = run_enrichment_helper(
-            self,
-            date=date,
-            source_outputs=list(source_outputs or []),
-            allow_disk_fallback=allow_disk_fallback,
-        )
-        outputs = [output] if output is not None else []
-        if self._stop_requested("enrichment"):
-            return self._stopped_result(enrichment_outputs=outputs)
-        return PipelineResult(enrichment_outputs=outputs, warnings=self.warnings)
-
     def run_narrative_brief(
         self,
         *,
         date: str,
         outputs: List[BriefOutput] | None = None,
-        enrichment_json_path: str = "",
         allow_disk_fallback: bool = True,
-        use_enrichment: bool | None = None,
         perspectives_json_path: str = "",
     ) -> PipelineResult:
         if not self._module_enabled("narrative_brief"):
             self.warnings.append("narrative_brief: module is disabled by config; skipped.")
             return PipelineResult(outputs=list(outputs or []), warnings=self.warnings)
-        if use_enrichment is None:
-            use_enrichment = self._module_enabled("enrichment") and "enrichment" not in set(
-                getattr(self.run_options, "skip_modules", ()) or ()
-            )
         output = self._run_narrative_brief(
             outputs=list(outputs or []),
             date=date,
-            enrichment_json_path=enrichment_json_path,
             allow_disk_fallback=allow_disk_fallback,
-            use_enrichment=bool(use_enrichment),
             perspectives_json_path=perspectives_json_path,
         )
         narrative_outputs = [output] if output is not None else []
@@ -525,14 +464,12 @@ class NewsOrchestrator:
         *,
         date: str,
         outputs: List[BriefOutput] | None = None,
-        enrichment_json_path: str = "",
         allow_disk_fallback: bool = True,
     ) -> PipelineResult:
         output = run_perspectives_report_helper(
             self,
             date=date,
             outputs=list(outputs or []),
-            enrichment_json_path=enrichment_json_path,
             allow_disk_fallback=allow_disk_fallback,
         )
         perspectives_report_outputs = [output] if output is not None else []
@@ -582,18 +519,14 @@ class NewsOrchestrator:
         *,
         outputs: List[BriefOutput],
         date: str,
-        enrichment_json_path: str = "",
         allow_disk_fallback: bool = True,
-        use_enrichment: bool = True,
         perspectives_json_path: str = "",
     ) -> NarrativeBriefOutput | None:
         return run_narrative_brief_helper(
             self,
             outputs=outputs,
             date=date,
-            enrichment_json_path=enrichment_json_path,
             allow_disk_fallback=allow_disk_fallback,
-            use_enrichment=use_enrichment,
             perspectives_json_path=perspectives_json_path,
         )
 

@@ -658,7 +658,7 @@
     "warnings": [
       "general: dynamic final-context budget raised effective headline score floor to 7.50; kept 20/33 selected articles (37246/38912 estimated input tokens), dropped: 15874a3e9baba768, 77838b4bf50ae526, 8017bfb5a4614f6f, 154f97cbebfe2866, 5cc933a230d2bde8, 9dbb903dbd673b32, a4916b174f55b099, d265548f7482fa68, 4de8e69bb124b7b8, ebbd878492271001, 559f57285b094477, cd4af04241d9d47a, 4ac0474f06372273",
       "story grouping duplicate assignment ignored for article c73ef68b18b89b45",
-      "story grouping omitted selected article(s); skipped enrichment for: c15e9f04ae725ba2",
+      "story grouping omitted selected article(s): c15e9f04ae725ba2",
       "shared evidence grouping omitted selected article(s); added singleton fallback group(s): c15e9f04ae725ba2",
       "evidence distillation split selected articles into 2 estimated-fit batch(es).",
       "evidence cluster story-004 crossed shared group boundary; trimmed article ids",

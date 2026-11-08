@@ -14,15 +14,14 @@ By default this runs `pipeline.default_series` from the config.
 
 ```bash
 python main.py --config config.local.json --module briefs
-python main.py --config config.local.json --module enrichment --date YYYY-MM-DD
 python main.py --config config.local.json --module narrative_brief --date YYYY-MM-DD
 python main.py --config config.local.json --module perspectives_report --date YYYY-MM-DD
 python main.py --config config.local.json --module tts --markdown-path output/YYYY-MM-DD_general_brief.md
 ```
 
-Modules are `briefs`, `enrichment`, `narrative_brief`, `perspectives_report`, and `tts`.
+Modules are `briefs`, `narrative_brief`, `perspectives_report`, and `tts`.
 
-`--date` is only for standalone `enrichment`, `narrative_brief`, `perspectives_report`, and `tts`; omit it to use today. Standalone modules reuse same-day artifacts from `output/` when needed.
+`--date` is only for standalone `narrative_brief`, `perspectives_report`, and `tts`; omit it to use today. Standalone modules reuse same-day artifacts from `output/` when needed.
 
 ## Common Options
 

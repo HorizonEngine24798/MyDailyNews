@@ -54,8 +54,6 @@
       "general",
       "detailed"
     ],
-    "enrichment_used": true,
-    "enrichment_json_path": "output\\2026-07-06_enrichment.json",
     "recall_guidance_used": true
   }
 }

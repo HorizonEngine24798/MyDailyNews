@@ -17,7 +17,6 @@ from mydailynews.app.models import (
     CacheConfig,
     DeltaExtractionConfig,
     EvidenceDistillationConfig,
-    EnrichmentConfig,
     FilteringConfig,
     GoogleNewsSourceConfig,
     MemoryConfig,
@@ -49,7 +48,6 @@ DEFAULT_USER_AGENT = AppConfig().user_agent
 DEFAULT_FILTERING = _defaults(FilteringConfig(max_headlines_per_source=16))
 DEFAULT_MEMORY = _defaults(MemoryConfig())
 DEFAULT_GENERAL_FILTERING = _defaults(default_general_filtering_config())
-DEFAULT_ENRICHMENT = _defaults(EnrichmentConfig())
 DEFAULT_CACHE = _defaults(CacheConfig())
 DEFAULT_RUNTIME = _defaults(RuntimeConfig())
 DEFAULT_NARRATIVE_BRIEFING = _defaults(NarrativeBriefingConfig())
@@ -70,7 +68,6 @@ ROOT_CONFIG_KEYS = {
     "topics_to_examine",
     "filtering",
     "memory",
-    "enrichment",
     "runtime",
     "narrative_briefing",
     "tts",
@@ -84,7 +81,6 @@ AI_CONFIG_KEYS = set(_defaults(AIConfig()).keys())
 AI_CONFIG_KEYS.update({"model", "gguf_model_path"})
 FILTERING_CONFIG_KEYS = set(DEFAULT_FILTERING.keys())
 MEMORY_CONFIG_KEYS = set(DEFAULT_MEMORY.keys())
-ENRICHMENT_CONFIG_KEYS = set(DEFAULT_ENRICHMENT.keys())
 CACHE_CONFIG_KEYS = set(DEFAULT_CACHE.keys())
 RUNTIME_CONFIG_KEYS = set(DEFAULT_RUNTIME.keys())
 NARRATIVE_BRIEFING_CONFIG_KEYS = set(DEFAULT_NARRATIVE_BRIEFING.keys())
@@ -94,7 +90,7 @@ PERSPECTIVES_REPORT_CONFIG_KEYS = set(DEFAULT_PERSPECTIVES_REPORT.keys()) | {
     "minimum_languages",
 }
 PIPELINE_CONFIG_KEYS = set(DEFAULT_PIPELINE.keys())
-PIPELINE_MODULE_NAMES = {"briefs", "enrichment", "narrative_brief", "tts", "perspectives_report"}
+PIPELINE_MODULE_NAMES = {"briefs", "narrative_brief", "tts", "perspectives_report"}
 TTS_MODULE_NAMES = PIPELINE_MODULE_NAMES - {"tts"}
 ANALYSIS_CONFIG_KEYS = {"general", "detailed"}
 BRIEF_ANALYSIS_CONFIG_KEYS = {"evidence_distillation", "delta_extraction"}
@@ -267,28 +263,6 @@ def _normalize_analysis_model_role(value: Any, field_name: str) -> str:
     if role not in {"summary", "final"}:
         raise ValueError(f"{field_name} must be 'summary' or 'final'")
     return role
-
-
-def _normalize_enrichment_mode(value: Any) -> str:
-    mode = str(value or DEFAULT_ENRICHMENT["mode"]).strip().lower()
-    allowed = {"story_llm", "disabled"}
-    if mode not in allowed:
-        raise ValueError("enrichment.mode must be one of: story_llm, disabled")
-    return mode
-
-
-def _normalize_omitted_article_policy(value: Any) -> str:
-    policy = str(value or DEFAULT_ENRICHMENT["omitted_article_policy"]).strip().lower()
-    if policy not in {"skip", "fallback_singleton"}:
-        raise ValueError("enrichment.omitted_article_policy must be one of: skip, fallback_singleton")
-    return policy
-
-
-def _normalize_excerpt_strategy(value: Any) -> str:
-    strategy = str(value or DEFAULT_ENRICHMENT["excerpt_strategy"]).strip().lower()
-    if strategy not in {"prefix", "relevant_windows"}:
-        raise ValueError("enrichment.excerpt_strategy must be one of: prefix, relevant_windows")
-    return strategy
 
 
 def _normalize_pipeline_module(value: Any) -> str:
@@ -734,10 +708,6 @@ def _load_cache(raw: Dict[str, Any]) -> CacheConfig:
             0,
             int(cache_raw.get("article_text_retention_days", DEFAULT_CACHE["article_text_retention_days"])),
         ),
-        enrichment_retention_days=max(
-            0,
-            int(cache_raw.get("enrichment_retention_days", DEFAULT_CACHE["enrichment_retention_days"])),
-        ),
         ai_enabled=parse_bool(
             cache_raw.get("ai_enabled", DEFAULT_CACHE["ai_enabled"]),
             default=DEFAULT_CACHE["ai_enabled"],
@@ -762,7 +732,6 @@ def _require_sections(raw: Dict[str, Any]) -> None:
         "topics_to_examine",
         "filtering",
         "memory",
-        "enrichment",
         "sources",
     ]
     missing = [section for section in required_sections if section not in raw]
@@ -777,7 +746,6 @@ def load_config(path: Path) -> AppConfig:
     ai_summary, ai_final = _load_ai_sections(raw)
     filtering_raw = raw["filtering"]
     general_filtering_raw = raw["general_filtering"]
-    enrichment_raw = raw["enrichment"]
     memory_raw = raw["user_memory"]
     sources_raw = raw["sources"]
     runtime_raw = raw.get("runtime", {})
@@ -794,9 +762,6 @@ def load_config(path: Path) -> AppConfig:
     if not isinstance(runtime_raw, dict):
         raise ValueError("Config section runtime must be an object")
     _reject_unknown_keys(runtime_raw, RUNTIME_CONFIG_KEYS, "runtime")
-    if not isinstance(enrichment_raw, dict):
-        raise ValueError("Config section enrichment must be an object")
-    _reject_unknown_keys(enrichment_raw, ENRICHMENT_CONFIG_KEYS, "enrichment")
     if not isinstance(memory_raw, dict):
         raise ValueError("Config section user_memory must be an object")
     _reject_unknown_keys(memory_raw, USER_MEMORY_CONFIG_KEYS, "user_memory")
@@ -818,167 +783,6 @@ def load_config(path: Path) -> AppConfig:
         filtering=filtering,
         general_filtering=general_filtering,
         memory=memory_config,
-        enrichment=EnrichmentConfig(
-            enabled=parse_bool(
-                enrichment_raw.get("enabled", DEFAULT_ENRICHMENT["enabled"]),
-                default=DEFAULT_ENRICHMENT["enabled"],
-                field_name="enrichment.enabled",
-            ),
-            mode=_normalize_enrichment_mode(enrichment_raw.get("mode", DEFAULT_ENRICHMENT["mode"])),
-            max_context_chars_per_article=int(
-                enrichment_raw.get("max_context_chars_per_article", DEFAULT_ENRICHMENT["max_context_chars_per_article"])
-            ),
-            max_story_threads=max(
-                1,
-                int(enrichment_raw.get("max_story_threads", DEFAULT_ENRICHMENT["max_story_threads"])),
-            ),
-            planner_max_questions_per_story=max(
-                0,
-                int(
-                    enrichment_raw.get(
-                        "planner_max_questions_per_story",
-                        DEFAULT_ENRICHMENT["planner_max_questions_per_story"],
-                    )
-                ),
-            ),
-            planner_require_article_disposition=parse_bool(
-                enrichment_raw.get(
-                    "planner_require_article_disposition",
-                    DEFAULT_ENRICHMENT["planner_require_article_disposition"],
-                ),
-                default=DEFAULT_ENRICHMENT["planner_require_article_disposition"],
-                field_name="enrichment.planner_require_article_disposition",
-            ),
-            planner_allow_misc_group=parse_bool(
-                enrichment_raw.get("planner_allow_misc_group", DEFAULT_ENRICHMENT["planner_allow_misc_group"]),
-                default=DEFAULT_ENRICHMENT["planner_allow_misc_group"],
-                field_name="enrichment.planner_allow_misc_group",
-            ),
-            planner_misc_story_id=str(
-                enrichment_raw.get("planner_misc_story_id", DEFAULT_ENRICHMENT["planner_misc_story_id"])
-            ).strip()
-            or DEFAULT_ENRICHMENT["planner_misc_story_id"],
-            enrich_misc_story=parse_bool(
-                enrichment_raw.get("enrich_misc_story", DEFAULT_ENRICHMENT["enrich_misc_story"]),
-                default=DEFAULT_ENRICHMENT["enrich_misc_story"],
-                field_name="enrichment.enrich_misc_story",
-            ),
-            omitted_article_policy=_normalize_omitted_article_policy(
-                enrichment_raw.get("omitted_article_policy", DEFAULT_ENRICHMENT["omitted_article_policy"])
-            ),
-            max_queries_per_story=_optional_pos_int(
-                enrichment_raw.get("max_queries_per_story", DEFAULT_ENRICHMENT["max_queries_per_story"]),
-                minimum=0,
-            ),
-            excerpt_strategy=_normalize_excerpt_strategy(
-                enrichment_raw.get("excerpt_strategy", DEFAULT_ENRICHMENT["excerpt_strategy"])
-            ),
-            selected_excerpt_lead_chars=max(
-                0,
-                int(
-                    enrichment_raw.get(
-                        "selected_excerpt_lead_chars",
-                        DEFAULT_ENRICHMENT["selected_excerpt_lead_chars"],
-                    )
-                ),
-            ),
-            selected_excerpt_window_chars=max(
-                0,
-                int(
-                    enrichment_raw.get(
-                        "selected_excerpt_window_chars",
-                        DEFAULT_ENRICHMENT["selected_excerpt_window_chars"],
-                    )
-                ),
-            ),
-            selected_excerpt_max_windows=max(
-                0,
-                int(
-                    enrichment_raw.get(
-                        "selected_excerpt_max_windows",
-                        DEFAULT_ENRICHMENT["selected_excerpt_max_windows"],
-                    )
-                ),
-            ),
-            research_excerpt_lead_chars=max(
-                0,
-                int(
-                    enrichment_raw.get(
-                        "research_excerpt_lead_chars",
-                        DEFAULT_ENRICHMENT["research_excerpt_lead_chars"],
-                    )
-                ),
-            ),
-            research_excerpt_window_chars=max(
-                0,
-                int(
-                    enrichment_raw.get(
-                        "research_excerpt_window_chars",
-                        DEFAULT_ENRICHMENT["research_excerpt_window_chars"],
-                    )
-                ),
-            ),
-            research_excerpt_max_windows=max(
-                0,
-                int(
-                    enrichment_raw.get(
-                        "research_excerpt_max_windows",
-                        DEFAULT_ENRICHMENT["research_excerpt_max_windows"],
-                    )
-                ),
-            ),
-            planner_max_input_tokens=_optional_pos_int(
-                enrichment_raw.get("planner_max_input_tokens", DEFAULT_ENRICHMENT["planner_max_input_tokens"]),
-                minimum=256,
-            ),
-            planner_max_new_tokens=_optional_pos_int(
-                enrichment_raw.get("planner_max_new_tokens", DEFAULT_ENRICHMENT["planner_max_new_tokens"]),
-                minimum=64,
-            ),
-            search_results_per_query=max(
-                0,
-                int(enrichment_raw.get("search_results_per_query", DEFAULT_ENRICHMENT["search_results_per_query"])),
-            ),
-            max_fetched_research_pages_per_story=max(
-                0,
-                int(
-                    enrichment_raw.get(
-                        "max_fetched_research_pages_per_story",
-                        DEFAULT_ENRICHMENT["max_fetched_research_pages_per_story"],
-                    )
-                ),
-            ),
-            max_selected_article_excerpt_chars=max(
-                0,
-                int(
-                    enrichment_raw.get(
-                        "max_selected_article_excerpt_chars",
-                        DEFAULT_ENRICHMENT["max_selected_article_excerpt_chars"],
-                    )
-                ),
-            ),
-            max_research_excerpt_chars=max(
-                0,
-                int(
-                    enrichment_raw.get(
-                        "max_research_excerpt_chars",
-                        DEFAULT_ENRICHMENT["max_research_excerpt_chars"],
-                    )
-                ),
-            ),
-            synthesis_max_input_tokens=_optional_pos_int(
-                enrichment_raw.get("synthesis_max_input_tokens", DEFAULT_ENRICHMENT["synthesis_max_input_tokens"]),
-                minimum=256,
-            ),
-            synthesis_max_new_tokens=_optional_pos_int(
-                enrichment_raw.get("synthesis_max_new_tokens", DEFAULT_ENRICHMENT["synthesis_max_new_tokens"]),
-                minimum=64,
-            ),
-            cache_ttl_seconds=max(
-                0,
-                int(enrichment_raw.get("cache_ttl_seconds", DEFAULT_ENRICHMENT["cache_ttl_seconds"])),
-            ),
-        ),
         user_memory=UserMemory(
             avoided_topics=_list(memory_raw.get("avoided_topics")),
             preferred_sources=_list(memory_raw.get("preferred_sources")),

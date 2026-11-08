@@ -139,8 +139,6 @@ def selected_article_to_handoff_payload(
         "selection_rank_mode": article.selection_rank_mode,
         "article_text": article.article_text,
         "extraction_status": article.extraction_status,
-        "enrichment_needed": article.enrichment_needed,
-        "enrichment_reason": article.enrichment_reason,
         "context_sources": [to_jsonable(asdict(source)) for source in article.context_sources],
         "source_trace": {
             "brief_name": source_brief,
@@ -160,8 +158,6 @@ def selected_article_from_payload(payload: Dict[str, Any]) -> SelectedArticle:
         selection_rank_mode=str(payload.get("selection_rank_mode", "") or decision.selection_rank_mode or "score"),
         article_text=str(payload.get("article_text", "") or ""),
         extraction_status=str(payload.get("extraction_status", "") or "pending"),
-        enrichment_needed=bool(payload.get("enrichment_needed", False)),
-        enrichment_reason=str(payload.get("enrichment_reason", "") or ""),
         context_sources=[
             _context_source_from_payload(raw)
             for raw in payload.get("context_sources", [])

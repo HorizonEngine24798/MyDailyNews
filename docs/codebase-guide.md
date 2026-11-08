@@ -13,13 +13,13 @@ config + reader profile
   -> hybrid lexical + multilingual E5 historical retrieval & fact operations
   -> validated story cards + editorial selection (unchanged omitted deterministically)
   -> structured general & detailed briefs
-  -> optional enrichment / perspectives_report
+  -> optional perspectives_report
   -> narrative brief
   -> optional TTS
   -> output/, state/memory/, .cache/mydailynews/
 ```
 
-Default series: `briefs -> narrative_brief`. `enrichment`, `perspectives_report`, and `tts` are opt-in.
+Default series: `briefs -> narrative_brief`. `perspectives_report` and `tts` are opt-in.
 
 ## Reading path
 
@@ -45,7 +45,6 @@ Default series: `briefs -> narrative_brief`. `enrichment`, `perspectives_report`
 | `mydailynews/common` | SQLite storage, HTTP/AI cache, consent-wall guards, utilities | `storage.py`, `cache.py`, `utils.py` |
 | `mydailynews/diagnostics` | Debug events, metrics, CLI reporting | `debug.py`, `reporting.py` |
 | `mydailynews/domain` | Deterministic headline selection and text similarity | `headline_selection.py`, `text_similarity.py` |
-| `mydailynews/enrichment` | Optional story thread research and synthesis | `runner.py`, `research.py`, `synthesis.py` |
 | `mydailynews/evaluation` | Offline evaluation corpus schemas and retrieval diagnostics | `schema.py`, `retrieval_diagnostics.py` |
 | `mydailynews/gui` | Local web UI server, state inspection, run control | `server.py`, `data.py`, `runs.py` |
 | `mydailynews/memory` | Story store/records, E5 embeddings, hybrid ranking, context partitioning, repair | `story_store.py`, `story_records.py`, `multilingual_embeddings.py`, `ranking.py`, `context.py` |
@@ -76,7 +75,7 @@ Defined in [`mydailynews/app/models.py`](../mydailynews/app/models.py), [`story_
 | `output/` | Markdown/JSON briefs, perspectives, handoffs, WAVs, diagnostics | `mydailynews/briefing/output.py`, `mydailynews/perspectives/rendering.py` |
 | `state/memory/memory.sqlite3` | Stories, facts, coverage, feedback, E5 embeddings | `mydailynews/common/storage.py`, `mydailynews/memory/` |
 | `state/memory/learned_preferences.json` | Human-editable learned preference weights | `mydailynews/memory/learned_preferences.py` |
-| `.cache/mydailynews/cache.sqlite3` | HTTP, article text, enrichment, and AI synthesis caches | `mydailynews/common/cache.py` |
+| `.cache/mydailynews/cache.sqlite3` | HTTP, article text, and AI synthesis caches | `mydailynews/common/cache.py` |
 
 ## Common lookup table
 

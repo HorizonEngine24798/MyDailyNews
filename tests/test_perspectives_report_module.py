@@ -382,6 +382,8 @@ class PerspectivesReportModuleTests(unittest.TestCase):
                             "story_clusters": [
                                 {
                                     "cluster_id": "story-1",
+                                    "story_title": "Diplomatic summit sets next talks",
+                                    "summary": "Officials announced another round of diplomatic talks.",
                                     "article_ids": ["seed-a", "outside"],
                                     "key_claims": [
                                         {
@@ -417,31 +419,6 @@ class PerspectivesReportModuleTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
-        enrichment_path = output_dir / f"{date}_enrichment.json"
-        enrichment_path.write_text(
-            json.dumps(
-                {
-                    "source_briefs": ["general"],
-                    "selected_articles": [
-                        {
-                            "id": "seed-a",
-                            "headline": "Diplomatic summit sets next talks",
-                            "source": "Seed News",
-                            "url": "https://seed.example/summit",
-                        }
-                    ],
-                    "story_threads": [
-                        {
-                            "story_id": "story-1",
-                            "story_title": "Diplomatic summit sets next talks",
-                            "summary": "Officials announced another round of diplomatic talks.",
-                            "article_ids": ["seed-a"],
-                        }
-                    ],
-                }
-            ),
-            encoding="utf-8",
-        )
         source_output = BriefOutput(
             name="general",
             markdown_path=str(output_dir / f"{date}_general_brief.md"),
@@ -454,7 +431,6 @@ class PerspectivesReportModuleTests(unittest.TestCase):
             output_dir=output_dir,
             date=date,
             source_outputs=[source_output],
-            enrichment_json_path=str(enrichment_path),
             allow_disk_fallback=False,
         )
         self.assertEqual(inputs["stories"][0]["claims"][0]["support_article_ids"], ["seed-a"])
@@ -614,7 +590,6 @@ class PerspectivesReportModuleTests(unittest.TestCase):
                 orchestrator,
                 date=date,
                 outputs=[source_output],
-                enrichment_json_path=str(enrichment_path),
                 allow_disk_fallback=False,
             )
 
@@ -652,7 +627,6 @@ class PerspectivesReportModuleTests(unittest.TestCase):
             narrative_orchestrator,
             outputs=[source_output],
             date=date,
-            use_enrichment=False,
             perspectives_json_path=perspectives_output.json_path,
             allow_disk_fallback=False,
         )
@@ -667,7 +641,7 @@ class PerspectivesReportModuleTests(unittest.TestCase):
 
     def test_planner_drives_sources_and_primary_providers_run(self) -> None:
         output_dir = self._temp_dir()
-        (output_dir / "2026-07-08_enrichment.json").write_text(
+        (output_dir / "2026-07-08_general_brief.json").write_text(
             json.dumps(
                 {
                     "selected_articles": [
@@ -679,15 +653,18 @@ class PerspectivesReportModuleTests(unittest.TestCase):
                             "topic": "World",
                         }
                     ],
-                    "story_threads": [
-                        {
-                            "story_id": "story-1",
-                            "story_title": "Shared story diplomatic summit",
-                            "summary": "A diplomatic summit drew different regional reactions.",
-                            "entities": ["Summit"],
-                            "article_ids": ["a1"],
+                    "analysis": {
+                        "evidence_packet": {
+                            "story_clusters": [
+                                {
+                                    "cluster_id": "story-1",
+                                    "story_title": "Shared story diplomatic summit",
+                                    "summary": "A diplomatic summit drew different regional reactions.",
+                                    "article_ids": ["a1"],
+                                }
+                            ]
                         }
-                    ],
+                    },
                 }
             ),
             encoding="utf-8",
@@ -754,11 +731,15 @@ class PerspectivesReportModuleTests(unittest.TestCase):
 
     def test_rss_fallback_runs_when_global_providers_return_no_rows(self) -> None:
         output_dir = self._temp_dir()
-        (output_dir / "2026-07-08_enrichment.json").write_text(
+        (output_dir / "2026-07-08_general_brief.json").write_text(
             json.dumps(
                 {
                     "selected_articles": [{"id": "a1", "headline": "Shared story diplomatic summit", "source": "Seed", "url": "https://seed.example/story"}],
-                    "story_threads": [{"story_id": "story-1", "story_title": "Shared story diplomatic summit", "article_ids": ["a1"]}],
+                    "analysis": {
+                        "evidence_packet": {
+                            "story_clusters": [{"cluster_id": "story-1", "story_title": "Shared story diplomatic summit", "article_ids": ["a1"]}]
+                        }
+                    },
                 }
             ),
             encoding="utf-8",
@@ -1318,6 +1299,75 @@ class PerspectivesReportModuleTests(unittest.TestCase):
         )
         duplicate = [sources[0], dict(sources[0])]
         self.assertTrue(any("duplicate source_id" in error for error in validate_source_registry(duplicate)))
+
+    def test_collect_perspectives_inputs_uses_brief_clusters_and_retains_canonical_queries(self) -> None:
+        output_dir = self._temp_dir()
+        date = "2026-11-07"
+        brief_path = output_dir / f"{date}_general_brief.json"
+        brief_path.write_text(
+            json.dumps(
+                {
+                    "selected_articles": [
+                        {
+                            "id": "a1",
+                            "headline": "Zelenskyy says Russia hit Ukrainian energy facility with North Korean KN-23 missiles",
+                            "source": "Times of India",
+                            "url": "https://example.com/kn23",
+                            "topic": "Business and economy",
+                            "snippet": "Russia launched North Korean KN-23 ballistic missiles at Ukrainian energy infrastructure.",
+                            "story_key": "stale-shared-key",
+                            "story_family_key": "business-and-economy",
+                        },
+                        {
+                            "id": "a2",
+                            "headline": "New York RAISE Act 2.0 would expand AI oversight",
+                            "source": "StateScoop",
+                            "url": "https://example.com/raise-act",
+                            "topic": "Business and economy",
+                            "snippet": "New York lawmakers proposed expanding frontier AI compute oversight.",
+                            "story_key": "stale-shared-key",
+                            "story_family_key": "business-and-economy",
+                        },
+                    ],
+                    "analysis": {
+                        "evidence_packet": {
+                            "story_clusters": [
+                                {
+                                    "cluster_id": "story-001",
+                                    "label": "North Korean KN-23 Missile Strike on Ukraine",
+                                    "summary": "Zelenskyy reported that Russia struck Ukrainian energy facilities using North Korean KN-23 missiles.",
+                                    "article_ids": ["a1"],
+                                    "consensus_points": ["North Korean KN-23 missiles were used against energy infrastructure."],
+                                },
+                                {
+                                    "cluster_id": "story-002",
+                                    "label": "NY RAISE Act 2.0 Expansion",
+                                    "summary": "New York lawmakers introduced RAISE Act 2.0 to cap frontier AI compute and require independent audits.",
+                                    "article_ids": ["a2"],
+                                    "consensus_points": ["RAISE Act 2.0 expands state AI safety oversight."],
+                                },
+                            ]
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        inputs = collect_perspectives_inputs(output_dir=output_dir, date=date)
+        self.assertEqual(inputs["mode"], "briefs")
+        self.assertEqual(len(inputs["stories"]), 2)
+        self.assertEqual(inputs["stories"][0]["story_title"], "North Korean KN-23 Missile Strike on Ukraine")
+        self.assertIn("North Korean KN-23", inputs["stories"][0]["summary"])
+        requests = _retrieval_requests(
+            {
+                "queries": ["Volodymyr Zelenskyy North Korean KN-23 missile strike Ukraine energy"],
+                "anchor_groups": [],
+            },
+            _registry_sources(),
+            story=inputs["stories"][0],
+        )
+        self.assertEqual(len(requests), 1)
+        self.assertEqual(requests[0]["query"], "Volodymyr Zelenskyy North Korean KN-23 missile strike Ukraine energy")
 
 
 if __name__ == "__main__":

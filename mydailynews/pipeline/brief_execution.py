@@ -262,7 +262,6 @@ def run_brief(
             ):
                 return None
 
-            include_enrichment_context = False
             selection_result = _select_articles_stage(
                 orchestrator,
                 brief_name=name,
@@ -273,7 +272,6 @@ def run_brief(
                 prior_reports=prior_reports,
                 brief_goal=brief_goal,
                 date=date,
-                include_enrichment_context=include_enrichment_context,
                 coverage_store=coverage_store,
                 story_store=story_store,
                 learned_preferences=learned_preferences,
@@ -316,7 +314,6 @@ def run_brief(
                 orchestrator,
                 brief_name=name,
                 selected=selected,
-                include_enrichment_context=include_enrichment_context,
                 evidence_config=evidence_config,
                 delta_config=delta_config,
                 date=date,
@@ -340,7 +337,6 @@ def run_brief(
                 prior_reports=prior_reports,
                 brief_goal=brief_goal,
                 date=date,
-                include_enrichment_context=include_enrichment_context,
                 evidence_config=evidence_config,
                 story_groups=shared_story_groups,
             )
@@ -430,10 +426,9 @@ def run_brief(
             _report_phase(orchestrator, f"Writing {name} brief...")
             brief_generator = BriefGenerator(
                 orchestrator.final_ai_client,
-                orchestrator.config.enrichment.max_context_chars_per_article,
+                min(3200, max(200, int(getattr(filtering, "article_text_max_chars", 3200)))),
                 input_token_limit=orchestrator.config.ai_final.max_input_tokens,
                 max_new_tokens=orchestrator.config.ai_final.max_new_tokens,
-                include_enrichment_context=include_enrichment_context,
                 debug=orchestrator.debug,
             )
             with orchestrator.debug.span(f"brief.{name}.final_brief"):

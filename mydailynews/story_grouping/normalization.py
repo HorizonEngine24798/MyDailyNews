@@ -129,7 +129,7 @@ def normalize_story_groups(
             fallback_groups += 1
     elif omitted and (raw_items or fallback_when_empty_input):
         warnings.append(
-            f"{caller} omitted selected article(s); skipped enrichment for: "
+            f"{caller} omitted selected article(s): "
             + ", ".join(article.candidate.id for article in omitted)
         )
 

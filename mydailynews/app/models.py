@@ -84,44 +84,12 @@ def default_general_filtering_config() -> FilteringConfig:
 
 
 @dataclass
-class EnrichmentConfig:
-    enabled: bool = False
-    mode: str = "story_llm"
-    max_context_chars_per_article: int = 3200
-    max_story_threads: int = 10
-    planner_max_questions_per_story: int = 4
-    planner_require_article_disposition: bool = True
-    planner_allow_misc_group: bool = True
-    planner_misc_story_id: str = "misc"
-    enrich_misc_story: bool = False
-    omitted_article_policy: str = "skip"
-    max_queries_per_story: Optional[int] = None
-    excerpt_strategy: str = "relevant_windows"
-    selected_excerpt_lead_chars: int = 900
-    selected_excerpt_window_chars: int = 900
-    selected_excerpt_max_windows: int = 3
-    research_excerpt_lead_chars: int = 500
-    research_excerpt_window_chars: int = 700
-    research_excerpt_max_windows: int = 2
-    planner_max_input_tokens: Optional[int] = None
-    planner_max_new_tokens: Optional[int] = None
-    search_results_per_query: int = 16
-    max_fetched_research_pages_per_story: int = 8
-    max_selected_article_excerpt_chars: int = 3600
-    max_research_excerpt_chars: int = 2800
-    synthesis_max_input_tokens: Optional[int] = None
-    synthesis_max_new_tokens: Optional[int] = None
-    cache_ttl_seconds: int = 604800
-
-
-@dataclass
 class CacheConfig:
     enabled: bool = True
     dir: str = ".cache/mydailynews"
     http_retention_days: int = 7
     discovery_mode: str = "network_first"
     article_text_retention_days: int = 3
-    enrichment_retention_days: int = 30
     ai_enabled: bool = True
     synth_fresh_seconds: int = 604800
 
@@ -359,7 +327,6 @@ class AppConfig:
     ai_final: AIConfig = field(default_factory=AIConfig)
     filtering: FilteringConfig = field(default_factory=FilteringConfig)
     memory: MemoryConfig = field(default_factory=MemoryConfig)
-    enrichment: EnrichmentConfig = field(default_factory=EnrichmentConfig)
     user_memory: UserMemory = field(default_factory=UserMemory)
     general_topics: List[TopicConfig] = field(default_factory=list)
     general_filtering: FilteringConfig = field(default_factory=default_general_filtering_config)
@@ -495,8 +462,6 @@ class SelectedArticle:
     selection_rank_mode: str = "score"
     article_text: str = ""
     extraction_status: str = "pending"
-    enrichment_needed: bool = False
-    enrichment_reason: str = ""
     context_sources: List[ContextSource] = field(default_factory=list)
 
 
@@ -509,17 +474,6 @@ class BriefOutput:
     selected_count: int
     warnings: List[str] = field(default_factory=list)
     handoff_path: str = ""
-
-
-@dataclass
-class EnrichmentOutput:
-    name: str
-    json_path: str
-    markdown_path: str = ""
-    source_briefs: List[str] = field(default_factory=list)
-    selected_count: int = 0
-    story_thread_count: int = 0
-    warnings: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -557,7 +511,6 @@ class PerspectivesReportOutput:
 @dataclass
 class PipelineResult:
     outputs: List[BriefOutput] = field(default_factory=list)
-    enrichment_outputs: List[EnrichmentOutput] = field(default_factory=list)
     narrative_outputs: List[NarrativeBriefOutput] = field(default_factory=list)
     tts_outputs: List[TTSOutput] = field(default_factory=list)
     perspectives_report_outputs: List[PerspectivesReportOutput] = field(default_factory=list)

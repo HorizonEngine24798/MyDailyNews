@@ -26,6 +26,14 @@ from mydailynews.story_grouping.payloads import (
 )
 
 
+DEFAULT_MAX_SELECTED_ARTICLE_EXCERPT_CHARS = 3600
+DEFAULT_MAX_QUESTIONS_PER_STORY = 4
+DEFAULT_REQUIRE_ARTICLE_DISPOSITION = True
+DEFAULT_ALLOW_MISC_GROUP = True
+DEFAULT_MISC_STORY_ID = "misc"
+DEFAULT_OMITTED_ARTICLE_POLICY = "skip"
+
+
 @dataclass
 class StoryGroupingResult:
     story_groups: list[StoryGroup]
@@ -107,7 +115,7 @@ class StoryGroupingPlanner:
             articles,
             allow_singleton_fallback=(
                 successful_requests > 0
-                and self.config.enrichment.omitted_article_policy == "fallback_singleton"
+                and DEFAULT_OMITTED_ARTICLE_POLICY == "fallback_singleton"
             ),
             warn_when_empty_input=successful_requests > 0,
         )
@@ -134,11 +142,11 @@ class StoryGroupingPlanner:
         budget = self._stage_token_budget()
         budget_tokens = budget.input_tokens
         max_new_tokens = budget.output_tokens
-        excerpt_chars = max(0, int(self.config.enrichment.max_selected_article_excerpt_chars))
+        excerpt_chars = DEFAULT_MAX_SELECTED_ARTICLE_EXCERPT_CHARS
         payload = [planner_article_payload(article, excerpt_chars) for article in articles]
         prompt = STORY_GROUPING_USER.format(
             articles=compact_json(payload),
-            max_questions_per_story=max(0, int(self.config.enrichment.planner_max_questions_per_story)),
+            max_questions_per_story=DEFAULT_MAX_QUESTIONS_PER_STORY,
             article_disposition_instruction=self._article_disposition_instruction(),
         )
         estimated_tokens = self._estimate_chat_tokens(STORY_GROUPING_SYSTEM, prompt)
@@ -174,14 +182,12 @@ class StoryGroupingPlanner:
             "response_format": getattr(self.ai_client.config, "response_format", ""),
             "schema": "story_grouping",
             "config": {
-                "planner_max_questions_per_story": self.config.enrichment.planner_max_questions_per_story,
-                "planner_require_article_disposition": self.config.enrichment.planner_require_article_disposition,
-                "planner_allow_misc_group": self.config.enrichment.planner_allow_misc_group,
-                "planner_misc_story_id": self.config.enrichment.planner_misc_story_id,
-                "omitted_article_policy": self.config.enrichment.omitted_article_policy,
-                "planner_max_input_tokens": self.config.enrichment.planner_max_input_tokens,
-                "planner_max_new_tokens": self.config.enrichment.planner_max_new_tokens,
-                "max_selected_article_excerpt_chars": self.config.enrichment.max_selected_article_excerpt_chars,
+                "planner_max_questions_per_story": DEFAULT_MAX_QUESTIONS_PER_STORY,
+                "planner_require_article_disposition": DEFAULT_REQUIRE_ARTICLE_DISPOSITION,
+                "planner_allow_misc_group": DEFAULT_ALLOW_MISC_GROUP,
+                "planner_misc_story_id": DEFAULT_MISC_STORY_ID,
+                "omitted_article_policy": DEFAULT_OMITTED_ARTICLE_POLICY,
+                "max_selected_article_excerpt_chars": DEFAULT_MAX_SELECTED_ARTICLE_EXCERPT_CHARS,
                 "effective_input_budget_tokens": request.budget_tokens,
                 "effective_max_new_tokens": request.max_new_tokens,
             },
@@ -233,7 +239,8 @@ class StoryGroupingPlanner:
             label = f"{label} ({self.brief_name})"
         cache_key = self.cache_key(request)
         if self.cache:
-            cached = self.cache.get(cache_key, max_age_seconds=self.config.enrichment.cache_ttl_seconds)
+            ttl = getattr(self.config.cache, "synth_fresh_seconds", 604800)
+            cached = self.cache.get(cache_key, max_age_seconds=ttl)
             if cached is not None:
                 self.cache_hits += 1
                 self.debug.log("story_grouping.planner", "cache_hit", request=f"{request_index}/{total_requests}")
@@ -274,8 +281,8 @@ class StoryGroupingPlanner:
             raw_groups=raw_groups,
             caller="story grouping",
             allow_singleton_fallback=allow_singleton_fallback,
-            allow_misc_group=self.config.enrichment.planner_allow_misc_group,
-            misc_story_id=self.config.enrichment.planner_misc_story_id,
+            allow_misc_group=DEFAULT_ALLOW_MISC_GROUP,
+            misc_story_id=DEFAULT_MISC_STORY_ID,
             fallback_questions=self._fallback_questions,
             question_parser=self._parse_research_questions,
             fallback_when_empty_input=warn_when_empty_input,
@@ -285,30 +292,30 @@ class StoryGroupingPlanner:
         return result
 
     def _article_disposition_instruction(self) -> str:
-        if not self.config.enrichment.planner_require_article_disposition:
+        if not DEFAULT_REQUIRE_ARTICLE_DISPOSITION:
             return "Assign each article to at most one story group."
-        misc_id = clean_text(self.config.enrichment.planner_misc_story_id, 80) or "misc"
+        misc_id = clean_text(DEFAULT_MISC_STORY_ID, 80) or "misc"
         misc_line = (
-            f"- misc: use story_id {misc_id!r} for lower-priority or unrelated leftovers. MISC will not be enriched."
-            if self.config.enrichment.planner_allow_misc_group
+            f"- misc: use story_id {misc_id!r} for lower-priority or unrelated leftovers."
+            if DEFAULT_ALLOW_MISC_GROUP
             else "- misc: do not use; choose group or singleton only."
         )
         singleton_note = (
-            "If an article is interesting but not worth standalone enrichment, put it in misc."
-            if self.config.enrichment.planner_allow_misc_group
+            "If an article is interesting but not worth a standalone story thread, put it in misc."
+            if DEFAULT_ALLOW_MISC_GROUP
             else "Leave no article unclassified."
         )
         return (
             "Assign every selected article to exactly one disposition:\n"
             "- group: use for articles that belong to a meaningful multi-article story.\n"
-            "- singleton: use only when one article is important enough to deserve standalone research and full enrichment.\n"
+            "- singleton: use only when one article is important enough to deserve a standalone story thread.\n"
             f"{misc_line}\n"
             "Do not create singleton stories merely because an article does not fit another group. "
             f"{singleton_note}"
         )
 
     def _parse_research_questions(self, value: Any, story_title: str) -> list[ResearchQuestion]:
-        max_questions = max(0, int(self.config.enrichment.planner_max_questions_per_story))
+        max_questions = DEFAULT_MAX_QUESTIONS_PER_STORY
         if max_questions <= 0:
             return []
         questions: list[ResearchQuestion] = []
@@ -330,7 +337,7 @@ class StoryGroupingPlanner:
         return questions
 
     def _fallback_questions(self, story_title: str) -> list[ResearchQuestion]:
-        if int(self.config.enrichment.planner_max_questions_per_story) <= 0:
+        if DEFAULT_MAX_QUESTIONS_PER_STORY <= 0:
             return []
         query = clean_text(story_title, 140)
         if not query:
@@ -346,8 +353,4 @@ class StoryGroupingPlanner:
         return self.ai_client.estimate_tokens(f"System:\n{system}\n\nUser:\n{user}\n\nAssistant:\n")
 
     def _stage_token_budget(self) -> TokenBudget:
-        return resolve_client_token_budget(
-            self.ai_client,
-            input_tokens=self.config.enrichment.planner_max_input_tokens,
-            output_tokens=self.config.enrichment.planner_max_new_tokens,
-        )
+        return resolve_client_token_budget(self.ai_client)

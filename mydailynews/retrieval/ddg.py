@@ -23,11 +23,7 @@ class DDGSearchResult:
 
 
 class DuckDuckGoSearchRetriever:
-    """Cached DDG HTML metadata search.
-
-    This intentionally returns search-result metadata only. Full article fetch
-    and story-specific ranking stay in the enrichment pipeline.
-    """
+    """Cached DDG HTML metadata search."""
 
     def __init__(
         self,
@@ -48,14 +44,14 @@ class DuckDuckGoSearchRetriever:
             timeout=20,
             allow_redirects=True,
         )
-        self.debug.increment(f"cache.enrichment.{response.cache_state}")
+        self.debug.increment(f"cache.ddg_search.{response.cache_state}")
         if not response.ok:
             error = f"DDG search failed for query '{query[:80]}': status={response.status_code}"
             self.errors.append(error)
-            self.debug.log("enrichment.search", "failed", query=query[:80], status=response.status_code)
+            self.debug.log("ddg.search", "failed", query=query[:80], status=response.status_code)
             return []
         results = self.parse_html(query, response.text, limit)
-        self.debug.log("enrichment.search", "complete", query=query[:80], results=len(results), cache=response.cache_state)
+        self.debug.log("ddg.search", "complete", query=query[:80], results=len(results), cache=response.cache_state)
         return results
 
     @classmethod

@@ -57,11 +57,6 @@ class ReleaseSmokeTests(unittest.TestCase):
         self.assertTrue(config.rss_sources)
         self.assertEqual(config.cache.discovery_mode, "network_first")
         self.assertEqual(config.cache.article_text_retention_days, 3)
-        self.assertEqual(config.cache.enrichment_retention_days, 30)
-        self.assertFalse(config.enrichment.enabled)
-        self.assertEqual(config.enrichment.omitted_article_policy, "skip")
-        self.assertEqual(config.enrichment.excerpt_strategy, "relevant_windows")
-        self.assertFalse(config.enrichment.enrich_misc_story)
         self.assertTrue(config.narrative_briefing.enabled)
         self.assertEqual(config.narrative_briefing.target_words, 1800)
         self.assertEqual(config.pipeline.default_series, ["briefs", "narrative_brief"])
@@ -226,7 +221,6 @@ class ReleaseSmokeTests(unittest.TestCase):
             for key in (
                 "discovery_mode",
                 "article_text_retention_days",
-                "enrichment_retention_days",
             ):
                 cache_defaults_payload["cache"].pop(key, None)
             cache_defaults_payload["cache"]["http_retention_days"] = 7
@@ -234,43 +228,6 @@ class ReleaseSmokeTests(unittest.TestCase):
             defaults_config = load_config(cache_defaults_path)
             self.assertEqual(defaults_config.cache.discovery_mode, "network_first")
             self.assertEqual(defaults_config.cache.article_text_retention_days, 3)
-            self.assertEqual(defaults_config.cache.enrichment_retention_days, 30)
-
-        with self.subTest("removed simple enrichment config"):
-            simple_enrichment_payload = deepcopy(payload)
-            simple_enrichment_payload["enrichment"]["mode"] = "simple"
-            simple_enrichment_path = self._write_config_payload(
-                TEMP_ROOT,
-                simple_enrichment_payload,
-                "simple_enrichment_mode",
-            )
-            with self.assertRaisesRegex(ValueError, "enrichment.mode must be one of: story_llm, disabled"):
-                load_config(simple_enrichment_path)
-
-        with self.subTest("unrecognized enrichment keys"):
-            old_enrichment_payload = deepcopy(payload)
-            old_enrichment_payload["enrichment"]["past_news_days"] = 30
-            old_enrichment_path = self._write_config_payload(
-                TEMP_ROOT,
-                old_enrichment_payload,
-                "old_enrichment_key",
-            )
-            with self.assertRaisesRegex(ValueError, r"Config section enrichment has unrecognized key\(s\): past_news_days"):
-                load_config(old_enrichment_path)
-
-        with self.subTest("invalid omitted article policy"):
-            invalid_policy_payload = deepcopy(payload)
-            invalid_policy_payload["enrichment"]["omitted_article_policy"] = "always"
-            invalid_policy_path = self._write_config_payload(TEMP_ROOT, invalid_policy_payload, "bad_omitted_policy")
-            with self.assertRaisesRegex(ValueError, "enrichment.omitted_article_policy"):
-                load_config(invalid_policy_path)
-
-        with self.subTest("invalid excerpt strategy"):
-            invalid_excerpt_payload = deepcopy(payload)
-            invalid_excerpt_payload["enrichment"]["excerpt_strategy"] = "middle"
-            invalid_excerpt_path = self._write_config_payload(TEMP_ROOT, invalid_excerpt_payload, "bad_excerpt_strategy")
-            with self.assertRaisesRegex(ValueError, "enrichment.excerpt_strategy"):
-                load_config(invalid_excerpt_path)
 
         with self.subTest("unrecognized cache key"):
             old_cache_payload = deepcopy(payload)
@@ -503,7 +460,6 @@ class ReleaseSmokeTests(unittest.TestCase):
         self.assertIn("headline_select", result.stdout)
         self.assertIn("story_grouping", result.stdout)
         self.assertIn("write_handoff", result.stdout)
-        self.assertIn("enrichment", result.stdout)
         self.assertIn("narrative_brief", result.stdout)
         self.assertNotIn("Config not found", result.stdout)
 
@@ -572,9 +528,9 @@ class ReleaseSmokeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "--date can only be used with standalone modules"):
             PipelineRunOptions.from_cli(brief="both", module="briefs", date="2026-06-14")
         with self.assertRaisesRegex(ValueError, "Invalid --date value"):
-            PipelineRunOptions.from_cli(brief="both", module="enrichment", date="2026-99-99")
+            PipelineRunOptions.from_cli(brief="both", module="narrative_brief", date="2026-99-99")
         with self.assertRaisesRegex(ValueError, "Invalid --date value"):
-            PipelineRunOptions.from_cli(brief="both", module="enrichment", date="20260614")
+            PipelineRunOptions.from_cli(brief="both", module="narrative_brief", date="20260614")
 
         options = PipelineRunOptions.from_cli(brief="both", module="narrative_brief", date="2026-06-14")
 

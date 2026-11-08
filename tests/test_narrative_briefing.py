@@ -223,66 +223,6 @@ class NarrativeBriefingTests(unittest.TestCase):
         self.assertIn("Permitted claim-context markers", client.user)
         self.assertEqual(result["metadata"]["source_briefs"], ["general", "detailed"])
         self.assertIn("readable narrative", result["segments"][0]["body"])
-        self.assertFalse(result["metadata"]["enrichment_used"])
-
-    def test_generator_includes_sanitized_enrichment_when_available(self) -> None:
-        client = FakeAIClient()
-        generator = NarrativeBriefGenerator(client, target_words=1200)
-        source_briefs = [
-            NarrativeSourceBrief(
-                name="general",
-                json_path="general.json",
-                brief={"title": "Daily Brief", "lead": "A policy story matters."},
-            )
-        ]
-        enrichment_payload = {
-            "schema_version": "enrichment_output.v1",
-            "date": "2026-06-14",
-            "source_briefs": ["general"],
-            "selected_articles": [
-                {
-                    "article_text": "This full article body should not be passed into the narrative prompt.",
-                    "candidate": {"url": "https://example.test/private"},
-                }
-            ],
-            "story_threads": [
-                {
-                    "story_id": "story-001",
-                    "story_title": "Policy context",
-                    "article_ids": ["a"],
-                    "status": "enriched",
-                    "internal_articles": [
-                        {
-                            "title": "Internal context",
-                            "summary": "A compact explanation that helps the narrative.",
-                            "what_it_adds": "Adds useful background.",
-                            "confidence": "medium",
-                        }
-                    ],
-                    "confirmed_facts": [{"fact": "The regulator published the rule.", "source_ids": ["selected-a"]}],
-                    "conflicting_claims": [{"claim": "The effective date remains disputed.", "source_ids": ["selected-a"]}],
-                    "open_questions": [{"question": "Will implementation slip?", "source_ids": ["selected-a"]}],
-                }
-            ],
-        }
-
-        result = generator.generate(
-            source_briefs,
-            UserMemory(role="Operator"),
-            date="2026-06-14",
-            enrichment_payload=enrichment_payload,
-            enrichment_json_path="output/2026-06-14_enrichment.json",
-        )
-
-        self.assertIn("Internal context", client.user)
-        self.assertIn("The regulator published the rule.", client.user)
-        self.assertIn("The effective date remains disputed.", client.user)
-        self.assertIn("Will implementation slip?", client.user)
-        self.assertNotIn("selected-a", client.user)
-        self.assertNotIn("https://", client.user)
-        self.assertNotIn("full article body", client.user)
-        self.assertTrue(result["metadata"]["enrichment_used"])
-        self.assertEqual(result["metadata"]["enrichment_json_path"], "output/2026-06-14_enrichment.json")
 
     def test_generator_passes_compact_perspectives_and_qualified_claim_cards(self) -> None:
         client = FakeAIClient()
@@ -450,47 +390,6 @@ class NarrativeBriefingTests(unittest.TestCase):
         self.assertTrue(any("continuing with already written structured briefs" in warning for warning in orchestrator.warnings))
         self.assertFalse((output_dir / "2026-06-14_narrative_brief.md").exists())
 
-    def test_pipeline_narrative_uses_enrichment_json_when_present(self) -> None:
-        output_dir = TEMP_ROOT / uuid.uuid4().hex
-        output_dir.mkdir(parents=True, exist_ok=True)
-        source_path = output_dir / "2026-06-14_general_brief.json"
-        source_path.write_text('{"title":"Daily Brief","lead":"A policy story matters."}', encoding="utf-8")
-        enrichment_path = output_dir / "2026-06-14_enrichment.json"
-        enrichment_path.write_text(
-            json.dumps(
-                {
-                    "schema_version": "enrichment_output.v1",
-                    "date": "2026-06-14",
-                    "source_briefs": ["general"],
-                    "story_threads": [
-                        {
-                            "story_id": "story-001",
-                            "story_title": "Policy context",
-                            "status": "enriched",
-                            "internal_articles": [
-                                {"title": "Internal context", "summary": "Useful background."}
-                            ],
-                        }
-                    ],
-                }
-            ),
-            encoding="utf-8",
-        )
-        client = FakeAIClient()
-        orchestrator = FakeOrchestrator(output_dir, client)
-
-        result = run_narrative_brief(
-            orchestrator,
-            outputs=[],
-            date="2026-06-14",
-        )
-
-        self.assertIsNotNone(result)
-        self.assertIn("Internal context", client.user)
-        written = json.loads((output_dir / "2026-06-14_narrative_brief.json").read_text(encoding="utf-8"))
-        self.assertTrue(written["metadata"]["enrichment_used"])
-        self.assertEqual(written["metadata"]["enrichment_json_path"], str(enrichment_path))
-
     def test_pipeline_narrative_ignores_disk_fallbacks_in_series_mode(self) -> None:
         output_dir = TEMP_ROOT / uuid.uuid4().hex
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -501,23 +400,6 @@ class NarrativeBriefingTests(unittest.TestCase):
         )
         (output_dir / "2026-06-14_detailed_brief.json").write_text(
             '{"title":"Stale Detailed","lead":"Stale same-day detailed source."}',
-            encoding="utf-8",
-        )
-        (output_dir / "2026-06-14_enrichment.json").write_text(
-            json.dumps(
-                {
-                    "schema_version": "enrichment_output.v1",
-                    "date": "2026-06-14",
-                    "story_threads": [
-                        {
-                            "story_title": "Stale enrichment context",
-                            "internal_articles": [
-                                {"title": "Internal context", "summary": "This should not be used."}
-                            ],
-                        }
-                    ],
-                }
-            ),
             encoding="utf-8",
         )
         client = FakeAIClient()
@@ -541,48 +423,6 @@ class NarrativeBriefingTests(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertIn("Fresh current-run source brief", client.user)
         self.assertNotIn("Stale same-day detailed source", client.user)
-        self.assertNotIn("Internal context", client.user)
-        written = json.loads((output_dir / "2026-06-14_narrative_brief.json").read_text(encoding="utf-8"))
-        self.assertFalse(written["metadata"]["enrichment_used"])
-
-    def test_pipeline_narrative_respects_enrichment_opt_out_with_disk_sources(self) -> None:
-        output_dir = TEMP_ROOT / uuid.uuid4().hex
-        output_dir.mkdir(parents=True, exist_ok=True)
-        (output_dir / "2026-06-14_general_brief.json").write_text(
-            '{"title":"Daily Brief","lead":"A policy story matters."}',
-            encoding="utf-8",
-        )
-        (output_dir / "2026-06-14_enrichment.json").write_text(
-            json.dumps(
-                {
-                    "schema_version": "enrichment_output.v1",
-                    "date": "2026-06-14",
-                    "story_threads": [
-                        {
-                            "story_title": "Policy context",
-                            "internal_articles": [
-                                {"title": "Internal context", "summary": "Useful background."}
-                            ],
-                        }
-                    ],
-                }
-            ),
-            encoding="utf-8",
-        )
-        client = FakeAIClient()
-        orchestrator = FakeOrchestrator(output_dir, client)
-
-        result = run_narrative_brief(
-            orchestrator,
-            outputs=[],
-            date="2026-06-14",
-            use_enrichment=False,
-        )
-
-        self.assertIsNotNone(result)
-        self.assertNotIn("Internal context", client.user)
-        written = json.loads((output_dir / "2026-06-14_narrative_brief.json").read_text(encoding="utf-8"))
-        self.assertFalse(written["metadata"]["enrichment_used"])
 
 
 if __name__ == "__main__":
