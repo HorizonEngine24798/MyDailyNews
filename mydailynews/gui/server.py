@@ -93,6 +93,9 @@ class GuiRequestHandler(BaseHTTPRequestHandler):
         if path == "/api/learned-preferences":
             self._send_json(self.service.learned_preferences())
             return
+        if path == "/api/taste":
+            self._send_json(self.service.memory_snapshot().get("taste_summary", {}))
+            return
         if path == "/api/runs":
             self._send_json(self.service.list_runs())
             return
@@ -121,6 +124,9 @@ class GuiRequestHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/previews/learned-preferences":
             self._send_json(self.service.preview_learned_preferences(self._read_json()))
+            return
+        if path == "/api/learned-preferences/reset":
+            self._send_json(self.service.reset_learned_preferences(self._read_json(default={})))
             return
         if path == "/api/runs":
             self._send_json(self.service.start_run(self._read_json()))

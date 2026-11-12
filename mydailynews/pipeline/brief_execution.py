@@ -30,6 +30,7 @@ from mydailynews.common.storage import open_database
 from mydailynews.common.warnings import extend_warnings
 from mydailynews.memory.config import memory_enabled, memory_state_dir
 from mydailynews.memory.coverage import CoverageMemoryStore
+from mydailynews.memory.feedback import FeedbackStore
 from mydailynews.memory.learned_preferences import LearnedPreferencesStore
 from mydailynews.memory.recall import (
     apply_delta_signals_to_selected,
@@ -175,9 +176,15 @@ def run_brief(
         memory_dir = memory_state_dir(orchestrator.config) if memory_is_enabled else None
         coverage_store = CoverageMemoryStore.from_state_dir(memory_dir) if memory_dir is not None else None
         story_store = StoryStore.from_state_dir(memory_dir) if memory_dir is not None else None
+        feedback_enabled = bool(getattr(memory_config, "feedback_enabled", True))
         learned_preferences = (
             LearnedPreferencesStore.from_state_dir(memory_dir).read()
             if memory_dir is not None
+            else None
+        )
+        feedback_events = (
+            FeedbackStore.from_state_dir(memory_dir).read_events()
+            if (memory_dir is not None and feedback_enabled)
             else None
         )
         recall_packet: dict = {}
@@ -275,6 +282,7 @@ def run_brief(
                 coverage_store=coverage_store,
                 story_store=story_store,
                 learned_preferences=learned_preferences,
+                feedback_events=feedback_events,
             )
             extend_warnings(run_warnings, selection_result.warnings)
             selected = selection_result.selected

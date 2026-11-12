@@ -459,20 +459,31 @@ class BriefGenerator:
         rows: List[dict] = []
         for article in articles:
             memory_annotation = candidate_memory_annotation(article.candidate)
-            rows.append(
-                {
-                    "id": article.candidate.id,
-                    "headline": article.candidate.title,
-                    "source": article.candidate.source,
-                    "url": article.candidate.url,
-                    "score": article.decision.score,
-                    "topic": article.decision.topic or article.candidate.metadata.get("topic_name", ""),
-                    "snippet": article.candidate.snippet or "",
-                    "story_threads": story_thread_payloads(article, max_items=None, compact=False),
-                    "story_key": memory_annotation.story_key if memory_annotation is not None else "",
-                    "story_family_key": memory_annotation.story_family_key if memory_annotation is not None else "",
-                }
-            )
+            row = {
+                "id": article.candidate.id,
+                "headline": article.candidate.title,
+                "source": article.candidate.source,
+                "url": article.candidate.url,
+                "score": article.decision.score,
+                "topic": article.decision.topic or article.candidate.metadata.get("topic_name", ""),
+                "snippet": article.candidate.snippet or "",
+                "story_threads": story_thread_payloads(article, max_items=None, compact=False),
+                "story_key": memory_annotation.story_key if memory_annotation is not None else "",
+                "story_family_key": memory_annotation.story_family_key if memory_annotation is not None else "",
+            }
+            rank_mode = str(getattr(article.decision, "selection_rank_mode", "") or "").strip()
+            rank_score = getattr(article.decision, "selection_rank_score", None)
+            if rank_mode:
+                row["selection_rank_mode"] = rank_mode
+            if rank_score:
+                row["selection_rank_score"] = round(float(rank_score), 4)
+            pref_adj = article.candidate.metadata.get("learned_preference_adjustment")
+            pref_reason = str(article.candidate.metadata.get("learned_preference_reason", "") or "").strip()
+            if pref_adj is not None and abs(float(pref_adj or 0.0)) > 1e-6:
+                row["learned_preference_adjustment"] = round(float(pref_adj), 4)
+            if pref_reason:
+                row["learned_preference_reason"] = pref_reason
+            rows.append(row)
         return rows
 
     @staticmethod

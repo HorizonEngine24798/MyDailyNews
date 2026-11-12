@@ -258,6 +258,7 @@ def _select_articles_stage(
     coverage_store=None,
     story_store=None,
     learned_preferences=None,
+    feedback_events=None,
 ) -> SelectionResult:
     warnings: List[str] = []
     _report_phase(orchestrator, f"Selecting {brief_name} articles...")
@@ -272,6 +273,7 @@ def _select_articles_stage(
             coverage_store=coverage_store,
             story_store=story_store,
             learned_preferences=learned_preferences,
+            feedback_events=feedback_events,
             date=date,
         )
     selected = prune_selected_for_final_token_budget(

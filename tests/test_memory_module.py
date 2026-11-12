@@ -26,7 +26,14 @@ from mydailynews.memory.coverage import CoverageMemoryStore, CoverageRecord
 from mydailynews.memory.feedback import FEEDBACK_ACTIONS, FeedbackEvent, FeedbackStore
 from mydailynews.memory.health import memory_health_checks
 from mydailynews.memory.learned_preferences import LearnedPreferences, LearnedPreferencesStore
-from mydailynews.memory.preference_learning import apply_feedback_event, preference_delta_for_event
+from mydailynews.memory.multilingual_embeddings import embedding_model_available
+from mydailynews.memory.preference_learning import (
+    apply_feedback_event,
+    preference_delta_for_event,
+    ranking_adjustment_for_candidate,
+    rebuild_learned_preferences,
+    story_cooldowns_from_feedback,
+)
 from mydailynews.memory.recall import build_recall_packet
 from mydailynews.memory.repair import (
     coverage_row_id,
@@ -966,6 +973,180 @@ class MemoryModuleTests(unittest.TestCase):
         self.assertIsNotNone(annotation)
         self.assertEqual(annotation.story_key, "iran-israel-ceasefire")
         self.assertEqual(annotation.score_adjustment, -0.6)
+
+    def test_word_boundary_topic_matching_blocks_substring_false_positives(self) -> None:
+        prefs = LearnedPreferences(topic_weights={"china": 2.0, "AI policy": 1.5})
+        chinaware = NewsCandidate(
+            id="c-1",
+            category="business",
+            title="Chinaware exports surge across European ceramic markets",
+            url="https://example.com/c1",
+            source="Example News",
+            snippet="Porcelain shipments grew this quarter.",
+            published_at=PUBLISHED_AT,
+        )
+        china_deal = NewsCandidate(
+            id="c-2",
+            category="world",
+            title="China signs new semiconductor supply chain accord",
+            url="https://example.com/c2",
+            source="Example News",
+            snippet="An AI policy group reviewed the terms.",
+            published_at=PUBLISHED_AT,
+        )
+
+        effect_false = ranking_adjustment_for_candidate(chinaware, prefs, similarity_lookup={})
+        effect_true = ranking_adjustment_for_candidate(china_deal, prefs, similarity_lookup={})
+
+        self.assertEqual(effect_false.matched_topics, [])
+        self.assertEqual(effect_false.topic_weight, 0.0)
+        self.assertEqual(sorted(effect_true.matched_topics), ["AI policy", "china"])
+        self.assertGreater(effect_true.score_adjustment, 0.0)
+
+    def test_semantic_preferences_generalize_synonyms_and_cross_lingual_headlines(self) -> None:
+        prefs = LearnedPreferences(topic_weights={"Climate Policy": 2.0})
+        french_match = NewsCandidate(
+            id="fr-1",
+            category="world",
+            title="Politique climatique de Bruxelles",
+            url="https://example.com/fr1",
+            source="Le Monde",
+            snippet="Transition energetique et baisse des emissions carbone en Europe.",
+            published_at=PUBLISHED_AT,
+        )
+        sports_other = NewsCandidate(
+            id="sp-1",
+            category="sports",
+            title="Real Madrid wins UEFA Champions League quarterfinal",
+            url="https://example.com/sp1",
+            source="Sports Daily",
+            snippet="Late goal seals victory in Madrid.",
+            published_at=PUBLISHED_AT,
+        )
+        from mydailynews.memory.preference_learning import candidate_semantic_passage
+
+        lookup = {
+            ("Climate Policy", candidate_semantic_passage(french_match)): 0.885,
+            ("Climate Policy", candidate_semantic_passage(sports_other)): 0.75,
+        }
+        fr_effect = ranking_adjustment_for_candidate(french_match, prefs, similarity_lookup=lookup)
+        sp_effect = ranking_adjustment_for_candidate(sports_other, prefs, similarity_lookup=lookup)
+
+        self.assertGreater(fr_effect.semantic_adjustment, 0.0)
+        self.assertEqual(fr_effect.matched_semantic_topics, ["Climate Policy"])
+        self.assertEqual(sp_effect.semantic_adjustment, 0.0)
+
+        if embedding_model_available():
+            live_fr = ranking_adjustment_for_candidate(french_match, prefs)
+            live_sp = ranking_adjustment_for_candidate(sports_other, prefs)
+            self.assertGreater(live_fr.semantic_adjustment, 0.0)
+            self.assertEqual(live_sp.semantic_adjustment, 0.0)
+
+    def test_too_repetitive_feedback_drives_decaying_story_cooldown_in_selection(self) -> None:
+        repetitive_cand = NewsCandidate(
+            id="rep-1",
+            category="energy",
+            title="Acme Battery Plant Faces Another Permit Delay",
+            url="https://example.com/rep",
+            source="Example News",
+            snippet="Local officials postponed the permit vote again.",
+            published_at=PUBLISHED_AT,
+            metadata={"story_key": "acme-battery-permit", "story_family_key": "acme-battery"},
+        )
+        fresh_cand = NewsCandidate(
+            id="fresh-1",
+            category="markets",
+            title="Central Bank Announces New Liquidity Facility",
+            url="https://example.com/fresh",
+            source="Finance Daily",
+            snippet="New short-term credit window opens next week.",
+            published_at=PUBLISHED_AT,
+            metadata={"story_key": "central-bank-liquidity", "story_family_key": "central-bank"},
+        )
+        event = FeedbackEvent(
+            schema_version=1,
+            created_at="2026-11-10T10:00:00+00:00",
+            action="too_repetitive",
+            story_key="acme-battery-permit",
+            story_family_key="acme-battery",
+            title="Acme Battery Plant Faces Permit Delay",
+            topic="Energy",
+        )
+
+        day0 = ranking_adjustment_for_candidate(
+            repetitive_cand,
+            LearnedPreferences(),
+            feedback_events=[event],
+            as_of="2026-11-10T18:00:00+00:00",
+            similarity_lookup={},
+        )
+        day3 = ranking_adjustment_for_candidate(
+            repetitive_cand,
+            LearnedPreferences(),
+            feedback_events=[event],
+            as_of="2026-11-13T10:00:00+00:00",
+            similarity_lookup={},
+        )
+        day9 = ranking_adjustment_for_candidate(
+            repetitive_cand,
+            LearnedPreferences(),
+            feedback_events=[event],
+            as_of="2026-11-19T10:00:00+00:00",
+            similarity_lookup={},
+        )
+        self.assertLess(day0.cooldown_adjustment, -0.5)
+        self.assertLess(day3.cooldown_adjustment, 0.0)
+        self.assertGreater(day3.cooldown_adjustment, day0.cooldown_adjustment)
+        self.assertEqual(day9.cooldown_adjustment, 0.0)
+
+        decisions = {
+            "rep-1": HeadlineDecision("rep-1", score=8.3, topic="Energy"),
+            "fresh-1": HeadlineDecision("fresh-1", score=8.0, topic="Markets"),
+        }
+        selected = select_articles(
+            [repetitive_cand, fresh_cand],
+            decisions,
+            [TopicConfig(name="Energy"), TopicConfig(name="Markets")],
+            FilteringConfig(headline_score_cutoff=0.0, max_selected_articles=1),
+            memory_config=MemoryConfig(enabled=False),
+            learned_preferences=LearnedPreferences(),
+            feedback_events=[event],
+            date="2026-11-10",
+        )
+        self.assertEqual([item.candidate.id for item in selected], ["fresh-1"])
+
+    def test_temporal_decay_reduces_stale_feedback_weights(self) -> None:
+        old_like = FeedbackEvent(
+            schema_version=1,
+            created_at="2026-10-11T12:00:00+00:00",
+            action="more_like_this",
+            topic="Semiconductors",
+            source="Tech Wire",
+        )
+        undecayed = rebuild_learned_preferences([old_like])
+        decayed = rebuild_learned_preferences([old_like], as_of="2026-11-10T12:00:00+00:00", half_life_days=30.0)
+
+        self.assertEqual(undecayed.topic_weights["Semiconductors"], 0.35)
+        self.assertAlmostEqual(decayed.topic_weights["Semiconductors"], 0.175, places=3)
+
+    def test_semantic_fallback_works_when_embedding_model_unavailable(self) -> None:
+        prefs = LearnedPreferences(topic_weights={"AI policy": 1.0})
+        cand = NewsCandidate(
+            id="off-1",
+            category="tech",
+            title="EU AI policy rules pass final committee vote",
+            url="https://example.com/off1",
+            source="Example",
+            snippet="Lawmakers advanced new governance rules.",
+            published_at=PUBLISHED_AT,
+        )
+        with (
+            patch("mydailynews.memory.preference_learning.embedding_model_available", return_value=False),
+            patch("mydailynews.memory.preference_learning.query_passage_similarity", return_value=0.0),
+        ):
+            effect = ranking_adjustment_for_candidate(cand, prefs)
+        self.assertGreater(effect.score_adjustment, 0.0)
+        self.assertEqual(effect.semantic_adjustment, 0.0)
 
     def _write_repair_memory(
         self,

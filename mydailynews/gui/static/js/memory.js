@@ -2,11 +2,14 @@ import { api, clone } from "./api.js";
 import { byId, escapeHtml, setStatus } from "./dom.js";
 import { renderForm } from "./forms.js";
 import { defaultStoryStore, state } from "./state.js";
+import { renderTasteDashboard } from "./taste.js";
 
 export function renderMemory() {
   if (!state.memory) {
     return;
   }
+
+  renderTasteDashboard(byId("tasteDashboardMount"));
 
   const summary = state.memory.summary || {};
   const cells = [
@@ -15,6 +18,7 @@ export function renderMemory() {
     ["Active", summary.story_store_active],
     ["Stale", summary.story_store_stale],
     ["Feedback", summary.feedback_events],
+    ["Cooldowns", summary.active_story_cooldowns || 0],
     ["Warnings", summary.health_warnings || 0],
     ["Enabled", summary.memory_enabled ? "Yes" : "No"],
   ];

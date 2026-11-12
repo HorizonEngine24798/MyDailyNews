@@ -188,6 +188,8 @@ def memory_selection_summary(
     learned_adjusted = 0
     learned_positive = 0
     learned_negative = 0
+    learned_semantic = 0
+    learned_cooldowns = 0
     learned_topic_matches: set[str] = set()
     learned_source_matches: set[str] = set()
     skipped_story_cap = 0
@@ -205,6 +207,10 @@ def memory_selection_summary(
                 learned_positive += 1
             elif learned_effect.score_adjustment < 0:
                 learned_negative += 1
+            if abs(float(getattr(learned_effect, "semantic_adjustment", 0.0) or 0.0)) > 1e-6:
+                learned_semantic += 1
+            if float(getattr(learned_effect, "cooldown_adjustment", 0.0) or 0.0) < -1e-6:
+                learned_cooldowns += 1
             learned_topic_matches.update(learned_effect.matched_topics or [])
             learned_source_matches.update(learned_effect.matched_sources or [])
         decision = decisions.get(candidate.id)
@@ -221,6 +227,8 @@ def memory_selection_summary(
         "learned_preference_adjusted_candidates": learned_adjusted,
         "learned_preference_positive_candidates": learned_positive,
         "learned_preference_negative_candidates": learned_negative,
+        "learned_preference_semantic_candidates": learned_semantic,
+        "learned_preference_cooldown_candidates": learned_cooldowns,
         "learned_preference_topic_matches": len(learned_topic_matches),
         "learned_preference_source_matches": len(learned_source_matches),
     }

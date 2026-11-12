@@ -513,6 +513,134 @@ class GuiDataServiceTests(unittest.TestCase):
         self.assertEqual(args.host, "127.0.0.1")
         self.assertEqual(args.port, 9001)
 
+    def test_memory_snapshot_includes_taste_summary_cooldowns_and_reset_modes(self) -> None:
+        root = self._temp_root()
+        self._write_config(root)
+        self._write_report(root)
+        service = GuiDataService(root, "config.local.json")
+
+        service.save_learned_preferences(
+            {
+                "preferred_topics": ["AI policy"],
+                "topic_weights": {},
+                "source_weights": {},
+                "notes": "Manual note",
+            }
+        )
+        service.record_feedback(
+            {
+                "action": "more_like_this",
+                "report_id": "2026-06-28_general_brief.md",
+                "item": {
+                    "id": "art-1",
+                    "title": "Grid Storage Investment Breaks Record",
+                    "topic": "Clean Energy",
+                    "source": "Energy Wire",
+                    "story_key": "grid-storage-record",
+                },
+            }
+        )
+        service.record_feedback(
+            {
+                "action": "not_relevant",
+                "report_id": "2026-06-28_general_brief.md",
+                "item": {
+                    "id": "art-2",
+                    "title": "Minor Municipal Tax Vote",
+                    "topic": "Local Civic",
+                    "source": "City Desk",
+                    "story_key": "municipal-vote",
+                },
+            }
+        )
+        repetitive = service.record_feedback(
+            {
+                "action": "too_repetitive",
+                "report_id": "2026-06-28_general_brief.md",
+                "item": {
+                    "id": "art-3",
+                    "title": "Port Strike Threat Resurfaces",
+                    "topic": "Supply Chains",
+                    "source": "Freight Wire",
+                    "story_key": "port-strike-threat",
+                    "story_family_key": "port-strike",
+                },
+            }
+        )
+
+        self.assertFalse(repetitive["learned_preferences_changed"])
+        self.assertTrue(repetitive["story_cooldown"]["active"])
+        self.assertEqual(repetitive["story_cooldown"]["story_key"], "port-strike-threat")
+
+        snapshot = service.memory_snapshot()
+        taste = snapshot["taste_summary"]
+        self.assertEqual(taste["liked_count"], 1)
+        self.assertEqual(taste["disliked_count"], 1)
+        self.assertEqual(taste["repetitive_count"], 1)
+        self.assertEqual(taste["total_feedback"], 3)
+        self.assertEqual(len(taste["active_cooldowns"]), 1)
+        self.assertEqual(taste["active_cooldowns"][0]["story_key"], "port-strike-threat")
+        self.assertEqual(len(taste["recent_feedback"]), 3)
+        self.assertTrue(taste["recent_feedback"][0].get("row_id"))
+
+        # Reset weights keeps manual preferred_topics intact
+        reset_weights = service.reset_learned_preferences({"mode": "weights"})
+        self.assertEqual(reset_weights["preferences"]["topic_weights"], {})
+        self.assertEqual(reset_weights["preferences"]["preferred_topics"], ["AI policy"])
+
+        # Rebuild from SQLite feedback restores Clean Energy weight cleanly
+        rebuilt = service.reset_learned_preferences({"mode": "rebuild_decayed"})
+        self.assertGreater(rebuilt["preferences"]["topic_weights"]["Clean Energy"], 0.0)
+        self.assertEqual(rebuilt["preferences"]["preferred_topics"], ["AI policy"])
+
+        # Full reset + clear_feedback empties everything
+        cleared = service.reset_learned_preferences({"mode": "all", "clear_feedback": True})
+        self.assertEqual(cleared["preferences"]["preferred_topics"], [])
+        self.assertEqual(cleared["memory"]["summary"]["feedback_events"], 0)
+
+    def test_report_detail_exposes_feedback_row_ids_and_selection_badges(self) -> None:
+        root = self._temp_root()
+        self._write_config(root)
+        output_dir = root / "output"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "2026-06-28_general_brief.md").write_text("# Test Brief\n\nBody.\n", encoding="utf-8")
+        (output_dir / "2026-06-28_general_brief.json").write_text(
+            json.dumps(
+                {
+                    "title": "Test Brief",
+                    "selected_articles": [
+                        {
+                            "id": "article-badge-1",
+                            "headline": "Semiconductor Fab Grants Approved",
+                            "source": "Tech Daily",
+                            "topic": "Semiconductors",
+                            "score": 8.1,
+                            "selection_rank_score": 8.45,
+                            "selection_rank_mode": "score_learned",
+                            "learned_preference_adjustment": 0.35,
+                            "learned_preference_reason": "topic Semiconductors (+0.35)",
+                            "story_key": "semiconductor-grants",
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        service = GuiDataService(root, "config.local.json")
+        service.record_feedback(
+            {
+                "action": "more_like_this",
+                "report_id": "2026-06-28_general_brief.md",
+                "item": {"id": "article-badge-1", "title": "Semiconductor Fab Grants Approved"},
+            }
+        )
+
+        detail = service.report_detail("2026-06-28_general_brief.md")
+        item = detail["feedback_items"][0]
+        self.assertEqual(item["learned_preference_adjustment"], 0.35)
+        self.assertEqual(item["learned_preference_reason"], "topic Semiconductors (+0.35)")
+        self.assertTrue(item["feedback_history"][0].get("row_id"))
+
 
 if __name__ == "__main__":
     unittest.main()

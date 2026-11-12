@@ -59,17 +59,18 @@ def _load_model() -> bool:
         return False
 
 
-def _cache_key(text: str) -> str:
+def _cache_key(text: str, *, mode: str = "passage") -> str:
     cleaned = " ".join(str(text or "").split()).strip()[:520]
-    return sha256(cleaned.encode("utf-8")).hexdigest()[:24]
+    digest = sha256(cleaned.encode("utf-8")).hexdigest()[:24]
+    return digest if mode == "passage" else f"{mode}:{digest}"
 
 
-def _normalize_passage(text: str) -> str:
+def _normalize_passage(text: str, *, prefix: str = "passage") -> str:
     cleaned = " ".join(str(text or "").split()).strip()[:520]
-    return f"passage: {cleaned}"
+    return f"{prefix}: {cleaned}"
 
 
-def prefetch_embeddings(texts: Iterable[str]) -> None:
+def _prefetch_with_mode(texts: Iterable[str], *, mode: str = "passage") -> None:
     if not _load_model():
         return
     missing_keys: List[str] = []
@@ -79,12 +80,12 @@ def prefetch_embeddings(texts: Iterable[str]) -> None:
         cleaned = " ".join(str(raw or "").split()).strip()[:520]
         if not cleaned:
             continue
-        key = _cache_key(cleaned)
+        key = _cache_key(cleaned, mode=mode)
         if key in _VECTOR_CACHE or key in seen:
             continue
         seen.add(key)
         missing_keys.append(key)
-        missing_passages.append(_normalize_passage(cleaned))
+        missing_passages.append(_normalize_passage(cleaned, prefix=mode))
 
     if not missing_passages:
         return
@@ -116,16 +117,31 @@ def prefetch_embeddings(texts: Iterable[str]) -> None:
             _VECTOR_CACHE[key] = vec
 
 
-def _get_vector(text: str) -> Any | None:
+def prefetch_embeddings(texts: Iterable[str]) -> None:
+    """Batch-encode and cache passage embeddings for candidate/story texts."""
+    _prefetch_with_mode(texts, mode="passage")
+
+
+def prefetch_query_embeddings(texts: Iterable[str]) -> None:
+    """Batch-encode and cache query embeddings for preference/topic matching."""
+    _prefetch_with_mode(texts, mode="query")
+
+
+def _get_vector(text: str, *, mode: str = "passage") -> Any | None:
     cleaned = " ".join(str(text or "").split()).strip()[:520]
     if not cleaned or not _load_model():
         return None
-    key = _cache_key(cleaned)
+    key = _cache_key(cleaned, mode=mode)
     vec = _VECTOR_CACHE.get(key)
     if vec is None:
-        prefetch_embeddings([cleaned])
+        _prefetch_with_mode([cleaned], mode=mode)
         vec = _VECTOR_CACHE.get(key)
     return vec
+
+
+def embedding_model_available() -> bool:
+    """Return True when the local multilingual-e5-small model can run on CPU."""
+    return bool(_load_model())
 
 
 def _clean_context_text(candidate: Any, source_text: str) -> str:
@@ -236,20 +252,71 @@ def semantic_story_similarity(
     return best_title, best_full, max(best_title, best_full)
 
 
-def calculate_text_similarity(text_a: str, text_b: str) -> float:
+def _dot_pair(text_a: str, text_b: str, *, mode_a: str = "passage", mode_b: str = "passage") -> float:
     cleaned_a = " ".join(str(text_a or "").split()).strip()
     cleaned_b = " ".join(str(text_b or "").split()).strip()
-    if not cleaned_a or not cleaned_b:
+    if not cleaned_a or not cleaned_b or not _load_model():
         return 0.0
-    if not _load_model():
-        return 0.0
-    v_a = _get_vector(cleaned_a)
-    v_b = _get_vector(cleaned_b)
-    if v_a is None or v_b is None:
-        return 0.0
+    v_a = _get_vector(cleaned_a, mode=mode_a)
+    v_b = _get_vector(cleaned_b, mode=mode_b)
     torch = _MODEL_STATE["torch"]
-    if torch is None:
+    if v_a is None or v_b is None or torch is None:
         return 0.0
     return float(torch.dot(v_a, v_b).item())
+
+
+def calculate_text_similarity(text_a: str, text_b: str) -> float:
+    """Return symmetric passage-to-passage cosine similarity."""
+    return _dot_pair(text_a, text_b, mode_a="passage", mode_b="passage")
+
+
+def query_passage_similarity(query_text: str, passage_text: str) -> float:
+    """Return asymmetric query-to-passage E5 cosine similarity."""
+    return _dot_pair(query_text, passage_text, mode_a="query", mode_b="passage")
+
+
+def batch_query_passage_similarities(
+    queries: Sequence[str],
+    passages: Sequence[str],
+) -> Dict[tuple[str, str], float]:
+    """Compute query-by-passage E5 cosine matrix in one batched inference pass."""
+    clean_queries = list(dict.fromkeys(" ".join(str(item or "").split()).strip() for item in queries if str(item or "").strip()))
+    clean_passages = list(dict.fromkeys(" ".join(str(item or "").split()).strip() for item in passages if str(item or "").strip()))
+    if not clean_queries or not clean_passages or not _load_model():
+        return {}
+
+    prefetch_query_embeddings(clean_queries)
+    prefetch_embeddings(clean_passages)
+
+    torch = _MODEL_STATE["torch"]
+    if torch is None:
+        return {}
+
+    q_items: List[tuple[str, Any]] = []
+    for query in clean_queries:
+        vec = _get_vector(query, mode="query")
+        if vec is not None:
+            q_items.append((query, vec))
+
+    p_items: List[tuple[str, Any]] = []
+    for passage in clean_passages:
+        vec = _get_vector(passage, mode="passage")
+        if vec is not None:
+            p_items.append((passage, vec))
+
+    if not q_items or not p_items:
+        return {}
+
+    with torch.inference_mode():
+        q_matrix = torch.stack([vec for _, vec in q_items], dim=0)
+        p_matrix = torch.stack([vec for _, vec in p_items], dim=0)
+        sims = torch.matmul(q_matrix, p_matrix.transpose(0, 1)).tolist()
+
+    output: Dict[tuple[str, str], float] = {}
+    for row_idx, (query, _) in enumerate(q_items):
+        row = sims[row_idx]
+        for col_idx, (passage, _) in enumerate(p_items):
+            output[(query, passage)] = float(row[col_idx])
+    return output
 
 

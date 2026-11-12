@@ -278,9 +278,27 @@ function renderFeedback(items) {
 
     const title = document.createElement("div");
     const latestAction = item.latest_feedback_action || "";
+    const latestRowId =
+      Array.isArray(item.feedback_history) && item.feedback_history.length ? item.feedback_history[0].row_id : "";
+    const badges = [];
+    if (item.score !== undefined && item.score !== null) {
+      const rankNote =
+        item.selection_rank_score !== undefined && Math.abs(Number(item.selection_rank_score) - Number(item.score)) > 0.01
+          ? ` -> ${Number(item.selection_rank_score).toFixed(2)}`
+          : "";
+      badges.push(`<span class="taste-badge neutral">Score ${escapeHtml(Number(item.score).toFixed(2))}${escapeHtml(rankNote)}</span>`);
+    }
+    if (item.learned_preference_adjustment) {
+      const adj = Number(item.learned_preference_adjustment);
+      const tone = adj >= 0 ? "positive" : "negative";
+      const sign = adj >= 0 ? "+" : "";
+      const why = item.learned_preference_reason ? ` (${escapeHtml(item.learned_preference_reason)})` : "";
+      badges.push(`<span class="taste-badge ${tone}">Preference ${sign}${adj.toFixed(2)}${why}</span>`);
+    }
     title.innerHTML = `
       <strong>${escapeHtml(item.title || item.id)}</strong>
       <div class="muted small">${escapeHtml(item.source || "")}${item.topic ? " / " + escapeHtml(item.topic) : ""}</div>
+      ${badges.length ? `<div class="taste-badge-row">${badges.join("")}</div>` : ""}
       ${
         item.feedback_count
           ? `<div class="muted small">Feedback recorded: ${escapeHtml(feedbackLabels[latestAction] || latestAction)}${
@@ -300,11 +318,39 @@ function renderFeedback(items) {
       button.addEventListener("click", () => sendFeedback(action, item));
       buttons.appendChild(button);
     });
+    if (latestRowId) {
+      const undoButton = document.createElement("button");
+      undoButton.type = "button";
+      undoButton.className = "mini-button";
+      undoButton.textContent = "Undo";
+      undoButton.title = "Remove latest feedback event on this article";
+      undoButton.addEventListener("click", () => undoReportFeedback(latestRowId));
+      buttons.appendChild(undoButton);
+    }
 
     row.appendChild(title);
     row.appendChild(buttons);
     panel.appendChild(row);
   });
+}
+
+async function undoReportFeedback(rowId) {
+  if (!state.currentReport || !rowId) {
+    return;
+  }
+  try {
+    await api("/api/memory/repair", {
+      method: "POST",
+      body: JSON.stringify({ action: "feedback_delete", row_ids: [rowId], confirm: true }),
+    });
+    state.currentReport = await api(`/api/reports/${encodeURIComponent(state.currentReport.id)}`);
+    renderReportList();
+    renderReportDetail();
+    await reloadMemory();
+    setStatus("Removed feedback event.");
+  } catch (error) {
+    setStatus(error.message, true);
+  }
 }
 
 async function sendFeedback(action, item) {
@@ -328,9 +374,12 @@ async function sendFeedback(action, item) {
     renderReportList();
     renderReportDetail();
     await reloadMemory();
-    const learnedStatus = result.learned_preferences_changed
-      ? "; learned preferences updated"
-      : "; no learned preference change";
+    let learnedStatus = "; no learned preference change";
+    if (result.learned_preferences_changed) {
+      learnedStatus = "; learned preferences updated";
+    } else if (result.story_cooldown && result.story_cooldown.active) {
+      learnedStatus = `; story cooldown active (${Number(result.story_cooldown.days_remaining || 7).toFixed(1)}d)`;
+    }
     setStatus(`Recorded feedback: ${feedbackLabels[action] || action}${learnedStatus}`);
   } catch (error) {
     setStatus(error.message, true);

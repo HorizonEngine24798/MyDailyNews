@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Mapping, Sequence
 import re
 from urllib.parse import urlparse
 
@@ -23,12 +23,15 @@ from mydailynews.app.models import (
     UserMemory,
 )
 from mydailynews.memory.coverage import CoverageMemoryStore
+from mydailynews.memory.feedback import FeedbackEvent
 from mydailynews.memory.learned_preferences import LearnedPreferences
 from mydailynews.memory.preference_learning import (
     clear_learned_preference_effect,
     learned_preference_effect_from_candidate,
     learned_preference_effect_payload,
+    prefetch_preference_similarities,
     ranking_adjustment_for_candidate,
+    story_cooldowns_from_feedback,
     write_learned_preference_effect,
 )
 from mydailynews.memory.ranking import annotate_candidates_with_memory
@@ -556,6 +559,10 @@ def ranking_score_for_candidate(
     user_memory: UserMemory | None = None,
     memory_enabled: bool = False,
     learned_preferences: LearnedPreferences | None = None,
+    feedback_events: Sequence[FeedbackEvent] | None = None,
+    as_of: str = "",
+    similarity_lookup: Mapping[tuple[str, str], float] | None = None,
+    cooldown_state: Mapping[str, Any] | None = None,
 ) -> tuple[float, str]:
     adjusted = float(decision.score)
     rank_mode = "score"
@@ -587,11 +594,15 @@ def ranking_score_for_candidate(
                 adjusted += memory_adjustment
                 rank_mode = f"{rank_mode}_memory"
 
-    if learned_preferences is not None:
+    if learned_preferences is not None or feedback_events or cooldown_state:
         learned_effect = ranking_adjustment_for_candidate(
             candidate,
             learned_preferences,
             decision=decision,
+            feedback_events=feedback_events,
+            as_of=as_of,
+            similarity_lookup=similarity_lookup,
+            cooldown_state=cooldown_state,
         )
         write_learned_preference_effect(candidate, learned_effect)
         if learned_effect.changed:
@@ -692,6 +703,7 @@ def select_articles(
     coverage_store: CoverageMemoryStore | None = None,
     story_store: StoryStore | None = None,
     learned_preferences: LearnedPreferences | None = None,
+    feedback_events: Sequence[FeedbackEvent] | None = None,
     date: str = "",
 ) -> List[SelectedArticle]:
     selected: List[SelectedArticle] = []
@@ -726,6 +738,24 @@ def select_articles(
     family_cap = max(0, int(getattr(memory_config, "max_selected_per_story_family", 0) if memory_enabled else 0))
     novelty_floor = max(0.0, min(10.0, float(getattr(filtering, "min_novelty_for_selection", 0.0))))
 
+    has_preference_signals = learned_preferences is not None or bool(feedback_events)
+    cooldown_state = (
+        story_cooldowns_from_feedback(feedback_events, as_of=date)
+        if feedback_events
+        else None
+    )
+    similarity_lookup = (
+        prefetch_preference_similarities(
+            candidates,
+            learned_preferences,
+            feedback_events=feedback_events,
+            decisions=decisions,
+            as_of=date,
+        )
+        if has_preference_signals
+        else None
+    )
+
     for candidate in candidates:
         decision = decisions.get(candidate.id)
         if decision is None:
@@ -737,6 +767,10 @@ def select_articles(
             user_memory=user_memory,
             memory_enabled=memory_enabled,
             learned_preferences=learned_preferences,
+            feedback_events=feedback_events,
+            as_of=date,
+            similarity_lookup=similarity_lookup,
+            cooldown_state=cooldown_state,
         )
         decision.selection_rank_score = rank_score
         decision.selection_rank_mode = rank_mode

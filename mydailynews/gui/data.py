@@ -17,10 +17,18 @@ from mydailynews.app.models import UserMemory
 from mydailynews.gui.runs import BRIEF_CHOICES, MEMORY_RUN_ACTIONS, RUN_KINDS, GuiRunManager
 from mydailynews.memory.cli import export_memory, prune_memory
 from mydailynews.memory.config import memory_state_dir
-from mydailynews.memory.feedback import FEEDBACK_ACTIONS, FeedbackStore
+from mydailynews.memory.feedback import FEEDBACK_ACTIONS, FeedbackEvent, FeedbackStore
 from mydailynews.memory.health import memory_health_checks
 from mydailynews.memory.learned_preferences import LearnedPreferences, LearnedPreferencesStore
-from mydailynews.memory.preference_learning import apply_feedback_event
+from mydailynews.memory.multilingual_embeddings import embedding_model_available
+from mydailynews.memory.preference_learning import (
+    DEFAULT_PREFERENCE_HALF_LIFE_DAYS,
+    apply_feedback_event,
+    rebuild_learned_preferences,
+    reset_learned_preferences_weights,
+    story_cooldowns_from_feedback,
+    temporal_decay_factor,
+)
 from mydailynews.memory.story_store import StoryStore, story_record_from_payload
 from mydailynews.memory.repair import (
     coverage_row_id,
@@ -295,6 +303,17 @@ class GuiDataService:
             feedback_events=raw_feedback_events,
         )
         learned_summary = _learned_preferences_summary(learned, exists=learned_store.path.exists())
+        feedback_models = FeedbackStore.from_state_dir(state_dir).read_events()
+        now_utc = datetime.now(timezone.utc)
+        cooldown_state = story_cooldowns_from_feedback(feedback_models, as_of=now_utc)
+        semantic_available = bool(embedding_model_available())
+        taste_summary = _build_taste_summary(
+            feedback_events=feedback_events,
+            learned=learned,
+            cooldown_entries=cooldown_state["entries"],
+            semantic_available=semantic_available,
+            as_of=now_utc,
+        )
         payload["coverage_records"] = coverage_records
         payload["story_store"] = story_store
         payload["feedback_events"] = feedback_events
@@ -303,6 +322,7 @@ class GuiDataService:
             "path": str(learned_store.path),
             "preferences": learned if isinstance(learned, dict) else {},
         }
+        payload["taste_summary"] = taste_summary
         payload["recall_packets"] = recall_packets
         payload["health"] = health
         payload["summary"] = {
@@ -315,6 +335,8 @@ class GuiDataService:
             "story_store_stale": sum(1 for item in story_store if item.get("status") == "stale"),
             "feedback_events": len(feedback_events),
             "feedback_counts": _feedback_counts(feedback_events),
+            "active_story_cooldowns": len(cooldown_state["entries"]),
+            "semantic_engine_available": semantic_available,
             "learned_preferences_exists": learned_store.path.exists(),
             "learned_preferences_updated_at": learned_summary["updated_at"],
             "recall_packet_count": recall_packets["count"],
@@ -424,6 +446,48 @@ class GuiDataService:
         store.write(preferences)
         return self.learned_preferences()
 
+    def reset_learned_preferences(self, payload: Dict[str, Any] | None = None) -> Dict[str, Any]:
+        options = payload if isinstance(payload, dict) else {}
+        mode = str(options.get("mode", "weights") or "weights").strip().lower()
+        clear_feedback = options.get("clear_feedback") is True
+        config = self._load_config()
+        state_dir = self._memory_state_dir(config)
+        learned_store = LearnedPreferencesStore.from_state_dir(state_dir)
+        feedback_store = FeedbackStore.from_state_dir(state_dir)
+        existing = learned_store.read()
+        now_utc = datetime.now(timezone.utc)
+
+        if clear_feedback:
+            feedback_store.replace_events([])
+
+        if mode == "rebuild_decayed":
+            events = feedback_store.read_events()
+            base = LearnedPreferences(
+                schema_version=existing.schema_version,
+                updated_at=now_utc.isoformat(),
+                preferred_topics=list(existing.preferred_topics),
+                avoided_topics=list(existing.avoided_topics),
+                preferred_sources=list(existing.preferred_sources),
+                avoided_sources=list(existing.avoided_sources),
+                notes=existing.notes,
+            )
+            updated = rebuild_learned_preferences(events, base_preferences=base, as_of=now_utc)
+            updated.updated_at = now_utc.isoformat()
+        elif mode == "all":
+            updated = reset_learned_preferences_weights(existing, clear_manual_lists=True)
+        elif mode == "weights":
+            updated = reset_learned_preferences_weights(existing, clear_manual_lists=False)
+        else:
+            raise ValueError(f"Unknown learned-preferences reset mode: {mode}")
+
+        learned_store.write(updated)
+        return {
+            **self.learned_preferences(),
+            "mode": mode,
+            "clear_feedback": clear_feedback,
+            "memory": self.memory_snapshot(),
+        }
+
     def record_feedback(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         if not isinstance(payload, dict):
             raise ValueError("Feedback payload must be an object.")
@@ -457,6 +521,18 @@ class GuiDataService:
             learned_store.write(learned_preferences)
         else:
             learned_preferences = preferences
+        cooldown_info: Dict[str, Any] = {"active": False}
+        if str(event.action or "").strip().lower() == "too_repetitive":
+            cooldown_state = story_cooldowns_from_feedback([event])
+            if cooldown_state["entries"]:
+                entry = cooldown_state["entries"][0]
+                cooldown_info = {
+                    "active": True,
+                    "story_key": entry.story_key,
+                    "story_family_key": entry.story_family_key,
+                    "penalty": entry.penalty,
+                    "days_remaining": entry.days_remaining,
+                }
         return {
             "event": asdict(event),
             "counts": store.counts_by_action(),
@@ -464,6 +540,7 @@ class GuiDataService:
             "learned_preference_delta": asdict(learned_delta),
             "learned_preferences": asdict(learned_preferences),
             "learned_preferences_path": str(learned_store.path),
+            "story_cooldown": cooldown_info,
         }
 
     def run_autoconfig(self, payload: Dict[str, Any] | None = None) -> Dict[str, Any]:
@@ -651,7 +728,7 @@ def _feedback_items(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 def _feedback_item_from_article(item: Dict[str, Any], index: int) -> Dict[str, Any]:
     title = str(item.get("headline", "") or item.get("title", "") or f"Item {index + 1}").strip()
-    return {
+    row = {
         "id": str(item.get("id", "") or f"item-{index + 1}"),
         "title": title,
         "source": str(item.get("source", "") or ""),
@@ -660,6 +737,17 @@ def _feedback_item_from_article(item: Dict[str, Any], index: int) -> Dict[str, A
         "story_key": str(item.get("story_key", "") or ""),
         "story_family_key": str(item.get("story_family_key", "") or ""),
     }
+    if item.get("score") is not None:
+        row["score"] = item.get("score")
+    if item.get("selection_rank_score") is not None:
+        row["selection_rank_score"] = item.get("selection_rank_score")
+    if item.get("selection_rank_mode"):
+        row["selection_rank_mode"] = str(item.get("selection_rank_mode") or "")
+    if item.get("learned_preference_adjustment") is not None:
+        row["learned_preference_adjustment"] = item.get("learned_preference_adjustment")
+    if item.get("learned_preference_reason"):
+        row["learned_preference_reason"] = str(item.get("learned_preference_reason") or "")
+    return row
 
 
 def _feedback_items_with_history(
@@ -671,10 +759,11 @@ def _feedback_items_with_history(
 ) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     output: List[Dict[str, Any]] = []
     all_history: List[Dict[str, Any]] = []
+    indexed_events = list(enumerate(events))
     for item in items:
         rows = [
-            _feedback_event_row(event)
-            for event in events
+            _feedback_event_row(event, index=index)
+            for index, event in indexed_events
             if _feedback_event_matches_item(event, item, report_date=report_date, brief_name=brief_name)
         ]
         rows.sort(key=lambda row: row.get("created_at", ""), reverse=True)
@@ -916,6 +1005,53 @@ def _feedback_counts(events: List[Dict[str, Any]]) -> Dict[str, int]:
         if action:
             counts[action] = counts.get(action, 0) + 1
     return counts
+
+
+def _build_taste_summary(
+    *,
+    feedback_events: List[Dict[str, Any]],
+    learned: Any,
+    cooldown_entries: List[Any],
+    semantic_available: bool,
+    as_of: datetime,
+) -> Dict[str, Any]:
+    counts = _feedback_counts(feedback_events)
+    if not isinstance(learned, dict):
+        learned = {}
+    topic_weights = _float_map(learned.get("topic_weights"))
+    source_weights = _float_map(learned.get("source_weights"))
+    topic_rows = _sorted_weight_rows(topic_weights)
+    source_rows = _sorted_weight_rows(source_weights)
+    recent_rows = []
+    for row in sorted(feedback_events, key=lambda item: str(item.get("created_at", "") or ""), reverse=True)[:80]:
+        decay = round(
+            temporal_decay_factor(
+                str(row.get("created_at", "") or ""),
+                as_of=as_of,
+                half_life_days=DEFAULT_PREFERENCE_HALF_LIFE_DAYS,
+            ),
+            3,
+        )
+        recent_rows.append({**row, "decay_weight": decay})
+
+    return {
+        "semantic_engine": {
+            "available": bool(semantic_available),
+            "model": "intfloat/multilingual-e5-small",
+            "half_life_days": DEFAULT_PREFERENCE_HALF_LIFE_DAYS,
+        },
+        "feedback_counts": counts,
+        "total_feedback": len(feedback_events),
+        "liked_count": counts.get("more_like_this", 0),
+        "disliked_count": counts.get("not_relevant", 0) + counts.get("not_interested_in_topic", 0),
+        "repetitive_count": counts.get("too_repetitive", 0),
+        "active_cooldowns": [asdict(entry) for entry in cooldown_entries],
+        "top_preferred_topics": [row for row in topic_rows if float(row["weight"]) > 0][:12],
+        "top_avoided_topics": [row for row in topic_rows if float(row["weight"]) < 0][:12],
+        "top_preferred_sources": [row for row in source_rows if float(row["weight"]) > 0][:12],
+        "top_avoided_sources": [row for row in source_rows if float(row["weight"]) < 0][:12],
+        "recent_feedback": recent_rows,
+    }
 
 
 def _learned_preferences_summary(learned: Any, *, exists: bool) -> Dict[str, Any]:

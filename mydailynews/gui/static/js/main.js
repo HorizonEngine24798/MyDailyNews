@@ -13,6 +13,7 @@ import {
 } from "./reports.js";
 import { bindRunEvents, loadRuns, renderRuns, setRunRefreshCallbacks } from "./runs.js";
 import { defaultStoryStore, state } from "./state.js";
+import { setTasteRefreshCallback } from "./taste.js";
 
 const PIPELINE_MODULES = [
   ["briefs", "Briefs"],
@@ -100,6 +101,12 @@ async function loadReports() {
 async function loadMemory() {
   state.memory = await api("/api/memory");
   state.storyStoreDraft = clone(state.memory.story_store_file || defaultStoryStore());
+  const learnedFile = state.memory.learned_preferences_file;
+  if (learnedFile && learnedFile.preferences && typeof learnedFile.preferences === "object") {
+    state.learned = { path: learnedFile.path || "", preferences: clone(learnedFile.preferences) };
+    state.learnedDraft = clone(learnedFile.preferences);
+    renderLearnedForm();
+  }
   renderMemory();
 }
 
@@ -499,6 +506,9 @@ document.addEventListener("DOMContentLoaded", () => {
   applyGuiPrefs();
   setReportMemoryReload(loadMemory);
   setRunRefreshCallbacks({ reports: loadReports, memory: loadMemory });
+  setTasteRefreshCallback(async () => {
+    await Promise.all([loadLearned(), loadMemory()]);
+  });
   initAudioPlayer();
   bindEvents();
   togglePaneClasses();
